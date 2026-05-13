@@ -1,7 +1,7 @@
 # AsciiCam
 Ascii video output from your webcam in your terminal.
 
-![Demo](assets/demo.gif)
+<img src="assets/demo.gif" width="325">
 
 ## TODO
 
