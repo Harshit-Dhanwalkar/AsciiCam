@@ -3,11 +3,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-void yuyv_to_gray(const uint8_t *yuyv, uint8_t *gray, int width, int height) {
-    for (int i = 0, j = 0; i < width * height * 2; i += 2, j++) {
-        gray[j] = yuyv[i];
-    }
-}
+#define CHECK(x, msg) if ((x) < 0) { perror(msg); goto cleanup; }
+
+typedef struct {
+    uint8_t *raw_frame;
+    uint8_t *gray;
+    char *ascii;
+} frame_t;
 
 char *grayscale_to_ascii(const uint8_t *gray, int src_w, int src_h,
                          int dst_w, int dst_h) {
