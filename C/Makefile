@@ -1,15 +1,16 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -O2 -Iinclude
 LDFLAGS = -lm
+# LDFLAGS += -lpthread
 
 SRCDIR = src
 INCDIR = include
-OBJDIR = obj
-BINDIR = .
+BUILDDIR = build
+OBJDIR = $(BUILDDIR)/obj
 
 SOURCES = $(wildcard $(SRCDIR)/*.c)
 OBJECTS = $(patsubst $(SRCDIR)/%.c,$(OBJDIR)/%.o,$(SOURCES))
-TARGET = $(BINDIR)/webcam_ascii
+TARGET = $(BUILDDIR)/webcam_ascii
 
 .PHONY: all clean
 
@@ -25,4 +26,4 @@ $(OBJDIR):
 	mkdir -p $(OBJDIR)
 
 clean:
-	rm -rf $(OBJDIR) $(TARGET)
+	rm -rf $(BUILDDIR)
