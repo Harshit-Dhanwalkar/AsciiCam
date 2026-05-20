@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
+#include <termios.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -23,6 +24,8 @@ void handle_signal(int sig) {
   (void)sig;
   keep_running = 0;
 }
+
+static struct termios orig_terminal;
 
 // Usage
 static void print_usage(const char *prog) {
@@ -50,6 +53,18 @@ static void print_usage(const char *prog) {
       prog, DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT, DEFAULT_FPS,
       DEFAULT_ASCII_WIDTH, DEFAULT_ASCII_HEIGHT, ASCII_CHARS_DEFAULT);
 }
+
+// termios
+void term_raw_mode(void) {
+  tcgetattr(STDOUT_FILENO, &orig_terminal);
+  struct termios raw = orig_terminal;
+  raw.c_lflag &= ~(ICANON | ECHO); // no line buffering or no echo
+  raw.c_cc[VMIN] = 0;             // non-blocking read
+  raw.c_cc[VTIME] = 0;
+  tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+}
+
+void term_restore(void) { tcsetattr(STDOUT_FILENO, TCSAFLUSH, &orig_terminal); }
 
 // Main
 int main(int argc, char *argv[]) {
@@ -133,7 +148,7 @@ int main(int argc, char *argv[]) {
 
   timing_init(fps);
 
-  // Open webcam 
+  // Open webcam
   webcam_t cam = {.fd = -1, .buffer = MAP_FAILED};
   if (webcam_init(&cam, device, cap_w, cap_h) < 0) {
     perror("webcam_init");
@@ -146,7 +161,6 @@ int main(int argc, char *argv[]) {
 
   // Allocate pixel buffers
   int cam_pixels = cam.width * cam.height;
-
   uint8_t *gray = malloc(cam_pixels);
   uint8_t *rgb = opts.color ? malloc(cam_pixels * 3) : NULL;
 
@@ -169,13 +183,23 @@ int main(int argc, char *argv[]) {
   }
 
   // Initial full clear
-  write(STDOUT_FILENO, "\033[2J\033[H", 7);
+  write(STDOUT_FILENO, "\033[2J\033[H\033[?25l", 11);
+  term_raw_mode();
 
   // Main loop
   struct timespec frame_start;
+  char input_char;
 
   while (keep_running) {
     clock_gettime(CLOCK_MONOTONIC, &frame_start);
+
+    // Check for 'q' key non-blocking
+    if (read(STDIN_FILENO, &input_char, 1) == 1) {
+      if (input_char == 'q' || input_char == 'Q') {
+        keep_running = 0;
+        break;
+      }
+    }
 
     if (webcam_wait_frame(&cam, 1000) < 0)
       continue; // timeout, retry
@@ -191,6 +215,7 @@ int main(int argc, char *argv[]) {
     int len = grayscale_to_ascii(gray, rgb, cam.width, cam.height, ascii_w,
                                  ascii_h, out_buf, out_size, &opts);
     if (len > 0) {
+      write(STDOUT_FILENO, "\033[H", 3);
       write(STDOUT_FILENO, out_buf, (size_t)len);
     }
 
@@ -203,6 +228,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Cleanup
+  term_restore();
   write(STDOUT_FILENO, "\033[0m\033[?25h\n", 10);
   fprintf(stderr, "Stopped.\n");
 
