@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -O2 -Iinclude
 LDFLAGS = -lm
-# LDFLAGS += -lpthread
+LDFLAGS += -lpthread
 
 SRCDIR = src
 INCDIR = include

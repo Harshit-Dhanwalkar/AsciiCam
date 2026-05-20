@@ -1,5 +1,5 @@
 # AsciiCam
-Ascii video output from your webcam in your terminal.
+Ascii video output from webcam in terminal.
 
 <img src="assets/demo.gif" width="325">
 
@@ -12,5 +12,6 @@ Ascii video output from your webcam in your terminal.
 - [x] Color output - Extract U/V channels, map to ANSI/RGB codes
 - [ ] Add feature to record and save it in popular video formats like `.mp4`, `.mov` and `.gif`.
 - [x] Dithering effect.
-- [ ] A producer/consumer split with pthread_mutex + pthread_cond and a double-buffer swap would decouple them: one thread talks exclusively to V4L2, the other does ASCII conversion and writes.
+- [x] A producer/consumer thread splitting.
+
 - [ ] Migrate from C to Cpp.

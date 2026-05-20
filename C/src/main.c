@@ -1,6 +1,7 @@
 #include "ascii.h"
 #include "capture.h"
 #include "timing.h"
+#include "thread_sharing.h"
 
 #include <getopt.h>
 #include <signal.h>
@@ -10,6 +11,8 @@
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
+#include <pthread.h>
+#include <stdint.h>
 
 // Defaults
 #define DEFAULT_ASCII_WIDTH 80
