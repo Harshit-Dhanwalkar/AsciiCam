@@ -1,18 +1,18 @@
 #include "ascii.h"
 #include "capture.h"
-#include "timing.h"
 #include "thread_sharing.h"
+#include "timing.h"
 
 #include <getopt.h>
+#include <pthread.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
-#include <pthread.h>
-#include <stdint.h>
 
 // Defaults
 #define DEFAULT_ASCII_WIDTH 80
@@ -51,6 +51,7 @@ static void print_usage(const char *prog) {
       "  -b <val>      brightness offset        -128..128  (default: 0)\n"
       "  -c <val>      contrast in percent      >0; 100=none (default: 100)\n"
       "  -i            invert brightness->charset mapping\n"
+      "  -e            enable Sobel edge detection\n"
       "  -C            colour output (ANSI truecolor)\n"
       "  -D            Floyd-Steinberg dithering\n",
       prog, DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT, DEFAULT_FPS,
@@ -62,7 +63,7 @@ void term_raw_mode(void) {
   tcgetattr(STDOUT_FILENO, &orig_terminal);
   struct termios raw = orig_terminal;
   raw.c_lflag &= ~(ICANON | ECHO); // no line buffering or no echo
-  raw.c_cc[VMIN] = 0;             // non-blocking read
+  raw.c_cc[VMIN] = 0;              // non-blocking read
   raw.c_cc[VTIME] = 0;
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
@@ -87,13 +88,14 @@ int main(int argc, char *argv[]) {
       .contrast = 100,
       .invert = 0,
       .color = 0,
+      .edges = 0,
       .dither = 0,
       .charset = NULL,
   };
 
   // CLI parsing
   int opt;
-  while ((opt = getopt(argc, argv, "d:W:H:w:h:f:b:c:iCDs:")) != -1) {
+  while ((opt = getopt(argc, argv, "ed:W:H:w:h:f:b:c:iCDs:")) != -1) {
     switch (opt) {
     case 'd':
       device = optarg;
@@ -137,6 +139,9 @@ int main(int argc, char *argv[]) {
     case 'C':
       opts.color = 1;
       break;
+    case 'e':
+      opts.edges = 1;
+      break;
     case 'D':
       opts.dither = 1;
       break;
@@ -159,8 +164,8 @@ int main(int argc, char *argv[]) {
   }
   fprintf(stderr, "Device: %s | capture %dx%d | ASCII %dx%d | %d fps%s%s%s\n",
           device, cam.width, cam.height, ascii_w, ascii_h, fps,
-          opts.color ? " | color" : "", opts.dither ? " | dither" : "",
-          opts.invert ? " | inverted" : "");
+          opts.color ? " | color" : "", opts.edges ? " | edges" : "",
+          opts.dither ? " | dither" : "", opts.invert ? " | inverted" : "");
 
   // Allocate pixel buffers
   int cam_pixels = cam.width * cam.height;

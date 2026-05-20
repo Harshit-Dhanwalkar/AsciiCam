@@ -1,5 +1,6 @@
 #include "ascii.h"
 
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,6 +51,31 @@ size_t ascii_out_size(int dst_w, int dst_h, int color) {
   }
 }
 
+// Sobel edge detection (kernel convolution)
+static void sobel(const uint8_t *in, uint8_t *out, int w, int h) {
+  static const int Gx[3][3] = {{-1, 0, 1}, {-2, 0, -2}, {-1, 0, 1}};
+  static const int Gy[3][3] = {{-1, -2, -1}, {0, 0, 0}, {1, 2, 1}};
+
+  for (int y = 1; y < h - 1; y++) {
+    for (int x = 1; x < w - 1; x++) {
+      int gx = 0, gy = 0;
+      for (int ky = -1; ky <= 1; ky++) {
+        for (int kx = -1; kx <= 1; kx++) {
+          int p = in[(y + ky) * w + (x + kx)];
+          gx += Gx[ky + 1][kx + 1] * p;
+          gy += Gy[ky + 1][kx + 1] * p;
+        }
+      }
+
+      // TEST: test both L1 and L2 normalisations
+      int mag = abs(gx) + abs(gy); // L1 normalisation
+      // int mag = sqrt(gx * gx + gy * gy); // L2 normalisation
+
+      out[y * w + x] = (uint8_t)(mag > 255 ? 255 : mag);
+    }
+  }
+}
+
 //  Grayscale to ascii
 int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
                        int src_h, int dst_w, int dst_h, char *out,
@@ -61,6 +87,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
   int contrast = opts ? opts->contrast : 100;
   int invert = opts ? opts->invert : 0;
   int do_color = opts && opts->color && (rgb != NULL);
+  int do_edges = opts ? opts->edges : 0;
   int do_dither = opts ? opts->dither : 0;
 
   // Blocking Widht and height pixels in source pixels
@@ -120,6 +147,18 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
         out_px[1] = clamp_u8((int)(tgv / cnt));
         out_px[2] = clamp_u8((int)(tb / cnt));
       }
+    }
+  }
+
+  // Sobel edge detection
+  if (do_edges) {
+    // Temporary  buffer for detected edges results
+    uint8_t *edge_buf = calloc(dst_w * dst_h, sizeof(uint8_t));
+    if (edge_buf) {
+      sobel(small_g, edge_buf, dst_w, dst_h);
+      // overwite grayscale image with edge map
+      memcpy(small_g, edge_buf, dst_w * dst_h);
+      free(edge_buf);
     }
   }
 
