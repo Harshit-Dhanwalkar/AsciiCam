@@ -1,7 +1,8 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -O2 -Iinclude
 LDFLAGS = -lm
-LDFLAGS += -lpthread
+LDFLAGS += -lpthread # Multi-threaded capture-render, pthreads producer/consumer
+LDFLAGS += -msse4.1 # SIMD - SSE2 for the YUYV to gray conversion
 
 SRCDIR = src
 INCDIR = include

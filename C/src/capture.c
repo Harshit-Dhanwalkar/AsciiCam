@@ -10,6 +10,7 @@
 #include <sys/mman.h>
 #include <sys/select.h>
 #include <unistd.h>
+#include <immintrin.h>
 
 int webcam_init(webcam_t *cam, const char *device, int width, int height) {
     // Open device (non‑blocking for select usage)
@@ -97,16 +98,36 @@ int webcam_wait_frame(webcam_t *cam, int timeout_ms) {
     return 0;
 }
 
+void yuyv_to_gray_simd(const uint8_t *yuyv, uint8_t *gray, int n) {
+    // Mask to extract every even byte (Y samples)
+    __m128i mask = _mm_set1_epi16(0x00FF);
+    int i = 0;
+    for (; i + 16 <= n; i += 16) {
+        // Load 32 bytes of YUYV (= 16 pixels)
+        __m128i lo = _mm_loadu_si128((__m128i *)(yuyv + i*2));
+        __m128i hi = _mm_loadu_si128((__m128i *)(yuyv + i*2 + 16));
+        // low byte of each 16-bit word (the Y sample)
+        lo = _mm_and_si128(lo, mask);
+        hi = _mm_and_si128(hi, mask);
+        // Pack 16-bit
+        __m128i result = _mm_packus_epi16(lo, hi);
+        _mm_storeu_si128((__m128i *)(gray + i), result);
+    }
+    for (; i < n; i++) gray[i] = yuyv[i * 2]; // scalar tail
+}
+
 int webcam_capture_frame(webcam_t *cam, uint8_t *gray_buffer) {
     // Dequeue buffer
     struct v4l2_buffer buf = cam->buf_info;
     if (ioctl(cam->fd, VIDIOC_DQBUF, &buf) < 0) return -1;
 
     // Convert YUYV -> grayscale (Y component)
-    uint8_t *yuyv = (uint8_t *)cam->buffer;
-    for (int i = 0, j = 0; i < cam->width * cam->height * 2; i += 2, j++) {
-        gray_buffer[j] = yuyv[i];
-    }
+    // uint8_t *yuyv = (uint8_t *)cam->buffer;
+    // for (int i = 0, j = 0; i < cam->width * cam->height * 2; i += 2, j++) {
+    //     gray_buffer[j] = yuyv[i];
+    // }
+    int total_pixels = cam->width * cam->height;
+    yuyv_to_gray_simd((uint8_t *)cam->buffer, gray_buffer, total_pixels);
 
     // Store updated buffer info for requeue
     cam->buf_info = buf;
