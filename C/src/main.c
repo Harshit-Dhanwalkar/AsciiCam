@@ -15,11 +15,11 @@
 #include <unistd.h>
 
 // Defaults
-#define DEFAULT_ASCII_WIDTH 80
-#define DEFAULT_ASCII_HEIGHT 40
-#define DEFAULT_CAPTURE_WIDTH 160
+#define DEFAULT_ASCII_WIDTH    80
+#define DEFAULT_ASCII_HEIGHT   40
+#define DEFAULT_CAPTURE_WIDTH  160
 #define DEFAULT_CAPTURE_HEIGHT 120
-#define DEFAULT_FPS 20
+#define DEFAULT_FPS            20
 
 // Signal handling
 volatile sig_atomic_t keep_running = 1;
@@ -55,20 +55,22 @@ static void print_usage(const char *prog) {
       "  -C            colour output (ANSI truecolor)\n"
       "  -D            Floyd-Steinberg dithering\n",
       prog, DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT, DEFAULT_FPS,
-      DEFAULT_ASCII_WIDTH, DEFAULT_ASCII_HEIGHT, ASCII_CHARS_DEFAULT);
+      DEFAULT_ASCII_WIDTH, DEFAULT_ASCII_HEIGHT, ASCII_CHARS_DEFAULT); // FIX: undeclared identifier ASCII_CHARS_DEFAULT
 }
 
 // termios
 void term_raw_mode(void) {
-  tcgetattr(STDOUT_FILENO, &orig_terminal);
+  tcgetattr(STDOUT_FILENO, &orig_terminal); // save stdin state
   struct termios raw = orig_terminal;
-  raw.c_lflag &= ~(ICANON | ECHO); // no line buffering or no echo
-  raw.c_cc[VMIN] = 0;              // non-blocking read
+  raw.c_lflag &= ~(ICANON | ECHO);          // no line buffering or no echo
+  raw.c_cc[VMIN]  = 0;                      // non-blocking read
   raw.c_cc[VTIME] = 0;
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
-void term_restore(void) { tcsetattr(STDOUT_FILENO, TCSAFLUSH, &orig_terminal); }
+void term_restore(void) { tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_terminal); }
+
+fps_counter_t fps_calc = {0};              // Global FPS counter // FIX:  
 
 // Main
 int main(int argc, char *argv[]) {
@@ -77,13 +79,13 @@ int main(int argc, char *argv[]) {
 
   // Config
   char *device = "/dev/video0";
-  int ascii_w = DEFAULT_ASCII_WIDTH;
-  int ascii_h = DEFAULT_ASCII_HEIGHT;
-  int cap_w = DEFAULT_CAPTURE_WIDTH;
-  int cap_h = DEFAULT_CAPTURE_HEIGHT;
-  int fps = DEFAULT_FPS;
+  int ascii_w  = DEFAULT_ASCII_WIDTH;
+  int ascii_h  = DEFAULT_ASCII_HEIGHT;
+  int cap_w    = DEFAULT_CAPTURE_WIDTH;
+  int cap_h    = DEFAULT_CAPTURE_HEIGHT;
+  int fps      = DEFAULT_FPS;
 
-  ascii_opts_t opts = {
+  ascii_opts_t opts = { // FIX: undcleared identifier 'ascii_opts_t'
       .brightness = 0,
       .contrast = 100,
       .invert = 0,
@@ -162,10 +164,12 @@ int main(int argc, char *argv[]) {
     perror("webcam_init");
     return 1;
   }
-  fprintf(stderr, "Device: %s | capture %dx%d | ASCII %dx%d | %d fps%s%s%s\n",
+  fprintf(stderr, "Device: %s | capture %dx%d | ASCII %dx%d | %d fps%s%s%s%s\n",
           device, cam.width, cam.height, ascii_w, ascii_h, fps,
-          opts.color ? " | color" : "", opts.edges ? " | edges" : "",
-          opts.dither ? " | dither" : "", opts.invert ? " | inverted" : "");
+          opts.color  ? " | color"   : "",
+          opts.edges  ? " | edges"   : "",
+          opts.dither ? " | dither"  : "",
+          opts.invert ? " | inverted": "");
 
   // Allocate pixel buffers
   int cam_pixels = cam.width * cam.height;
@@ -191,15 +195,26 @@ int main(int argc, char *argv[]) {
   }
 
   // Initial full clear
-  write(STDOUT_FILENO, "\033[2J\033[H\033[?25l", 11);
+  write(STDOUT_FILENO, "\033[2J\033[H\033[?25l", 13);
   term_raw_mode();
 
   // Main loop
   struct timespec frame_start;
+  clock_gettime(CLOCK_MONOTONIC, &frame_start);
+  struct timespec last_frame_time = frame_start;
   char input_char;
 
   while (keep_running) {
     clock_gettime(CLOCK_MONOTONIC, &frame_start);
+
+    long frame_diff_ns =
+        (frame_start.tv_sec - last_frame_time.tv_sec) * 1000000000L +  // Seconds
+        (frame_start.tv_nsec - last_frame_time.tv_nsec);               // Nano seconds
+
+    if (frame_diff_ns > 0)
+      fps_push(&fps_calc, frame_diff_ns);
+    last_frame_time = frame_start;
+    double current_fps = fps_get(&fps_calc);
 
     // Check for 'q' key non-blocking
     if (read(STDIN_FILENO, &input_char, 1) == 1) {
@@ -222,9 +237,10 @@ int main(int argc, char *argv[]) {
 
     int len = grayscale_to_ascii(gray, rgb, cam.width, cam.height, ascii_w,
                                  ascii_h, out_buf, out_size, &opts);
+
     if (len > 0) {
-      write(STDOUT_FILENO, "\033[H", 3);
       write(STDOUT_FILENO, out_buf, (size_t)len);
+      overlay_fps_box(ascii_w, current_fps, opts.color);
     }
 
     if (webcam_requeue_buffer(&cam) < 0) {
@@ -237,7 +253,7 @@ int main(int argc, char *argv[]) {
 
   // Cleanup
   term_restore();
-  write(STDOUT_FILENO, "\033[0m\033[?25h\n", 10);
+  write(STDOUT_FILENO, "\033[0m\033[?25h\n", 11);
   fprintf(stderr, "Stopped.\n");
 
   free(gray);

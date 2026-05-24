@@ -7,13 +7,13 @@
 #define ASCII_CHARS_DEFAULT " .:-=+*#%@"
 
 typedef struct {
-  int brightness;
-  int contrast;
-  int invert;
-  int color;
-  int edges;
-  int dither;
-  const char *charset;
+  int brightness;      /* additive offset: -128..128       */
+  int contrast;        /* percent, 100 = no change         */
+  int invert;          /* flip brightness->charset mapping */
+  int color;           /* ANSI truecolor output            */
+  int edges;           /* Sobel edge detection             */
+  int dither;          /* Floyd-Steinberg dithering        */
+  const char *charset; /* NULL = ASCII_CHARS_DEFAULT  */
 } ascii_opts_t;
 
 // Convert YUYV raw data to grayscale
@@ -27,5 +27,8 @@ size_t ascii_out_size(int dst_w, int dst_h, int color);
 int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
                        int src_h, int dst_w, int dst_h, char *out,
                        size_t out_size, const ascii_opts_t *opts);
+
+// Overlay FPS box
+void overlay_fps_box(int dst_w, double fps, int color_enabled);
 
 #endif

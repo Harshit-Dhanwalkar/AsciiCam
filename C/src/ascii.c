@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 // Helpers
 static inline uint8_t clamp_u8(int v) {
@@ -53,8 +54,16 @@ size_t ascii_out_size(int dst_w, int dst_h, int color) {
 
 // Sobel edge detection (kernel convolution)
 static void sobel(const uint8_t *in, uint8_t *out, int w, int h) {
-  static const int Gx[3][3] = {{-1, 0, 1}, {-2, 0, -2}, {-1, 0, 1}};
-  static const int Gy[3][3] = {{-1, -2, -1}, {0, 0, 0}, {1, 2, 1}};
+  static const int Gx[3][3] = {
+    {-1, 0, 1},
+    {-2, 0, 2},
+    {-1, 0, 1}
+  };
+  static const int Gy[3][3] = {
+    {-1, -2, -1},
+    {0, 0, 0},
+    {1, 2, 1}
+  };
 
   for (int y = 1; y < h - 1; y++) {
     for (int x = 1; x < w - 1; x++) {
@@ -90,7 +99,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
   int do_edges = opts ? opts->edges : 0;
   int do_dither = opts ? opts->dither : 0;
 
-  // Blocking Widht and height pixels in source pixels
+  // Blocking width and height pixels in source pixels
   double bw = (double)src_w / dst_w;
   double bh = (double)src_h / dst_h;
 
@@ -117,7 +126,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
         xe = xs + 1;
 
       long tg = 0, tr = 0, tgv = 0, tb = 0;
-      int cnt = 0;
+      int count = 0;
 
       for (int sy = ys; sy < ye && sy < src_h; sy++) {
         for (int sx = xs; sx < xe && sx < src_w; sx++) {
@@ -128,14 +137,14 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
             tgv += px[1];
             tb += px[2];
           }
-          cnt++;
+          count++;
         }
       }
-      if (cnt == 0)
-        cnt = 1;
+      if (count == 0)
+        count = 1;
 
       // Brightness and contrast
-      int gv = (int)(tg / cnt);
+      int gv = (int)(tg / count);
       if (contrast != 100)
         gv = 128 + (gv - 128) * contrast / 100;
       gv += brightness;
@@ -143,16 +152,16 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
 
       if (do_color) {
         uint8_t *out_px = small_rgb + (y * dst_w + x) * 3;
-        out_px[0] = clamp_u8((int)(tr / cnt));
-        out_px[1] = clamp_u8((int)(tgv / cnt));
-        out_px[2] = clamp_u8((int)(tb / cnt));
+        out_px[0] = clamp_u8((int)(tr / count));
+        out_px[1] = clamp_u8((int)(tgv / count));
+        out_px[2] = clamp_u8((int)(tb / count));
       }
     }
   }
 
   // Sobel edge detection
   if (do_edges) {
-    // Temporary  buffer for detected edges results
+    // Temporary buffer for detected edges results
     uint8_t *edge_buf = calloc(dst_w * dst_h, sizeof(uint8_t));
     if (edge_buf) {
       sobel(small_g, edge_buf, dst_w, dst_h);
@@ -208,9 +217,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
 
   // Render into caller's buffer
   int out_idx = 0;
-
-  // Cursor repositions without erasing
-  static const char HOME[] = "\033[H";
+  static const char HOME[] = "\033[H"; // Cursor repositions without erasing
   if (out_size > sizeof(HOME)) {
     memcpy(out, HOME, sizeof(HOME) - 1);
     out_idx = sizeof(HOME) - 1;
@@ -243,7 +250,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
 
     if (do_color) {
       int w = snprintf(out + out_idx, out_size - (size_t)out_idx, "\033[0m\n");
-      if (w > 0)
+      if (w > 0 && (size_t)(out_idx + w) < out_size)
         out_idx += w;
     } else {
       if ((size_t)(out_idx + 1) < out_size)
@@ -251,12 +258,29 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
     }
   }
 
-  if ((size_t)out_idx < out_size)
-    out[out_idx] = '\0';
-  else
-    out[out_size - 1] = '\0';
+  out[(size_t)out_idx < out_size ? out_idx : out_size - 1] = '\0';
 
   free(small_g);
   free(small_rgb);
   return out_idx;
+}
+
+
+// FPS overlay
+void overlay_fps_box(int dst_w, double fps, int color_enabled) {
+  char buf[80];
+  int  col = (dst_w - 13) / 2 + 1;
+  if (col < 1) col = 1;
+
+  int n;
+  if (color_enabled) {
+    n = snprintf(buf, sizeof(buf),
+                 "\033[1;%dH\033[38;2;0;255;0m\033[48;2;30;30;30m"
+                 "[ FPS: %4.1f ]\033[0m",
+                 col, fps);
+  } else {
+    n = snprintf(buf, sizeof(buf), "\033[1;%dH[ FPS: %4.1f ]", col, fps);
+  }
+  if (n > 0 && n < (int)sizeof(buf))
+    write(STDOUT_FILENO, buf, (size_t)n);
 }
