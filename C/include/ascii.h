@@ -17,7 +17,8 @@ typedef struct {
 } ascii_opts_t;
 
 // Convert YUYV raw data to grayscale
-void yuyv_to_gray(const uint8_t *yuyv, uint8_t *gray, int width, int height);
+// void yuyv_to_gray(const uint8_t *yuyv, uint8_t *gray, int width, int height);
+void yuyv_to_gray_simd(const uint8_t *yuyv, uint8_t *gray, int width, int height);
 void yuyv_to_rgb(const uint8_t *yuyv, uint8_t *rgb, int width, int height);
 
 // Output buffer sizing

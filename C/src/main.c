@@ -2,14 +2,18 @@
 #include "capture.h"
 #include "thread_sharing.h"
 #include "timing.h"
+#include "plugins.h"
 
+#include <dlfcn.h>
 #include <getopt.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
+#include <sys/inotify.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -37,40 +41,42 @@ static void print_usage(const char *prog) {
       "Usage: %s [options]\n"
       "\n"
       "Capture options:\n"
-      "  -d <device>   video device            (default: /dev/video0)\n"
-      "  -w <width>    capture width            (default: %d)\n"
-      "  -h <height>   capture height           (default: %d)\n"
-      "  -f <fps>      target framerate         (default: %d)\n"
+      "  -d <device>   video device             (default: /dev/video0)\n"
+      "  -w <width>    capture width            (default: %d)         \n"
+      "  -h <height>   capture height           (default: %d)         \n"
+      "  -f <fps>      target framerate         (default: %d)         \n"
       "\n"
       "Output options:\n"
-      "  -W <width>    ASCII output columns     (default: %d)\n"
-      "  -H <height>   ASCII output rows        (default: %d)\n"
-      "  -s <chars>    custom charset string    (default: \"%s\")\n"
+      "  -W <width>    ASCII output columns     (default: %d)          \n"
+      "  -H <height>   ASCII output rows        (default: %d)          \n"
+      "  -s <chars>    custom charset string    (default: \"%s\")      \n"
+      "  -p <path>     filter plugin .so path                          \n"
       "\n"
       "Image adjustments:\n"
       "  -b <val>      brightness offset        -128..128  (default: 0)\n"
       "  -c <val>      contrast in percent      >0; 100=none (default: 100)\n"
-      "  -i            invert brightness->charset mapping\n"
-      "  -e            enable Sobel edge detection\n"
-      "  -C            colour output (ANSI truecolor)\n"
-      "  -D            Floyd-Steinberg dithering\n",
-      prog, DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT, DEFAULT_FPS,
-      DEFAULT_ASCII_WIDTH, DEFAULT_ASCII_HEIGHT, ASCII_CHARS_DEFAULT); // FIX: undeclared identifier ASCII_CHARS_DEFAULT
+      "  -i            invert mapping                                  \n"
+      "  -e            enable Sobel edge detection                     \n"
+      "  -C            ANSI truecolor output                           \n"
+      "  -D            Floyd-Steinberg dithering                       \n",
+      prog,
+      DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT, DEFAULT_FPS,
+      DEFAULT_ASCII_WIDTH, DEFAULT_ASCII_HEIGHT, ASCII_CHARS_DEFAULT);
 }
 
 // termios
 void term_raw_mode(void) {
-  tcgetattr(STDOUT_FILENO, &orig_terminal); // save stdin state
+  tcgetattr(STDIN_FILENO, &orig_terminal);     // save stdin state
   struct termios raw = orig_terminal;
-  raw.c_lflag &= ~(ICANON | ECHO);          // no line buffering or no echo
-  raw.c_cc[VMIN]  = 0;                      // non-blocking read
-  raw.c_cc[VTIME] = 0;
+  raw.c_lflag       &= ~(ICANON | ECHO);       // no line buffering or no echo
+  raw.c_cc[VMIN]     = 0;                      // non-blocking read
+  raw.c_cc[VTIME]    = 0;
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
 void term_restore(void) { tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_terminal); }
 
-fps_counter_t fps_calc = {0};              // Global FPS counter // FIX:  
+fps_counter_t fps_calc = {0};
 
 // Main
 int main(int argc, char *argv[]) {
@@ -85,7 +91,7 @@ int main(int argc, char *argv[]) {
   int cap_h    = DEFAULT_CAPTURE_HEIGHT;
   int fps      = DEFAULT_FPS;
 
-  ascii_opts_t opts = { // FIX: undcleared identifier 'ascii_opts_t'
+  ascii_opts_t opts = {
       .brightness = 0,
       .contrast = 100,
       .invert = 0,
@@ -95,9 +101,14 @@ int main(int argc, char *argv[]) {
       .charset = NULL,
   };
 
+  // Plugins
+  // plugin_loader_t pl;
+  // memset(&pl, 0, sizeof(plugin_loader_t));
+  const char *plugin_path = NULL;
+
   // CLI parsing
   int opt;
-  while ((opt = getopt(argc, argv, "ed:W:H:w:h:f:b:c:iCDs:")) != -1) {
+  while ((opt = getopt(argc, argv, "d:W:H:w:h:f:b:c:iCDs:p:")) != -1) {
     switch (opt) {
     case 'd':
       device = optarg;
@@ -150,6 +161,9 @@ int main(int argc, char *argv[]) {
     case 's':
       opts.charset = optarg;
       break;
+    case 'p':
+      plugin_path = optarg;
+      break;
     default:
       print_usage(argv[0]);
       return 1;
@@ -157,6 +171,26 @@ int main(int argc, char *argv[]) {
   }
 
   timing_init(fps);
+
+  // Initialize plugin system
+  plugin_loader_t pl;
+  memset(&pl, 0, sizeof(pl));
+  pl.inotify_fd = -1;
+ 
+  if (plugin_path) {
+      plugin_load(&pl, plugin_path);
+      plugin_watch_init(&pl, plugin_path);
+  }
+
+  // void plugin_check_reload(plugin_loader_t *pl) {
+  //     char buf[sizeof(struct inotify_event) + 256];
+  //     if (read(pl->inotify_fd, buf, sizeof(buf)) > 0) {
+  //         usleep(100000);
+  //         if (plugin_load(pl, pl->path) == 0) {
+  //             fprintf(stderr, "Successfully hot-swapped filter plugin: [%s]\n", pl->plugin->name);
+  //         }
+  //     }
+  // };
 
   // Open webcam
   webcam_t cam = {.fd = -1, .buffer = MAP_FAILED};
@@ -169,7 +203,8 @@ int main(int argc, char *argv[]) {
           opts.color  ? " | color"   : "",
           opts.edges  ? " | edges"   : "",
           opts.dither ? " | dither"  : "",
-          opts.invert ? " | inverted": "");
+          opts.invert ? " | inverted": "",
+          pl.plugin   ? " | plugin"  : "");
 
   // Allocate pixel buffers
   int cam_pixels = cam.width * cam.height;
@@ -185,7 +220,7 @@ int main(int argc, char *argv[]) {
 
   // Allocate output string buffer
   size_t out_size = ascii_out_size(ascii_w, ascii_h, opts.color);
-  char *out_buf = malloc(out_size);
+  char *out_buf   = malloc(out_size);
   if (!out_buf) {
     perror("malloc out_buf");
     free(gray);
@@ -194,8 +229,27 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  // // Thead sharing
+  // shared_frame_t sf = {0};
+  // sf.buf[0] = malloc(cam_pixels);
+  // sf.buf[1] = malloc(cam_pixels);
+  // sf.width  = cam.width;  sf.height = cam.height;
+  // sf.ascii_w = ascii_w;   sf.ascii_h = ascii_h;
+  // sf.opts   = opts;
+  // pthread_mutex_init(&sf.lock, NULL);
+  // pthread_cond_init(&sf.cond, NULL);
+  //
+  // pthread_t tid_cap, tid_render;
+  // pthread_create(&tid_cap,    NULL, capture_thread, &sf);
+  // pthread_create(&tid_render, NULL, render_thread,  &sf);
+  //
+  // sf.stop = 1;
+  // pthread_cond_broadcast(&sf.cond);
+  // pthread_join(tid_cap,    NULL);
+  // pthread_join(tid_render, NULL);
+
   // Initial full clear
-  write(STDOUT_FILENO, "\033[2J\033[H\033[?25l", 13);
+  (void)write(STDOUT_FILENO, "\033[2J\033[H\033[?25l", 13);
   term_raw_mode();
 
   // Main loop
@@ -224,6 +278,9 @@ int main(int argc, char *argv[]) {
       }
     }
 
+    if (plugin_path)
+      plugin_check_reload(&pl);
+
     if (webcam_wait_frame(&cam, 1000) < 0)
       continue; // timeout, retry
 
@@ -232,6 +289,9 @@ int main(int argc, char *argv[]) {
       break;
     }
 
+    if (pl.plugin)
+      pl.plugin->process(gray, cam.width, cam.height, NULL);
+
     if (opts.color && rgb)
       yuyv_to_rgb((const uint8_t *)cam.buffer, rgb, cam.width, cam.height);
 
@@ -239,7 +299,7 @@ int main(int argc, char *argv[]) {
                                  ascii_h, out_buf, out_size, &opts);
 
     if (len > 0) {
-      write(STDOUT_FILENO, out_buf, (size_t)len);
+      (void)write(STDOUT_FILENO, out_buf, (size_t)len);
       overlay_fps_box(ascii_w, current_fps, opts.color);
     }
 
@@ -253,7 +313,7 @@ int main(int argc, char *argv[]) {
 
   // Cleanup
   term_restore();
-  write(STDOUT_FILENO, "\033[0m\033[?25h\n", 11);
+  (void)write(STDOUT_FILENO, "\033[0m\033[?25h\n", 11);
   fprintf(stderr, "Stopped.\n");
 
   free(gray);

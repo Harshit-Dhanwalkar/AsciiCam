@@ -25,5 +25,7 @@ cd build/
 - [ ] Add feature to record and save it in popular video formats like `.mp4`, `.mov` and `.gif`.
 - [x] Dithering effect.
 - [x] Sobel edge detection (kernel convolution). Algorithm reference: https://homepages.inf.ed.ac.uk/rbf/HIPR2/sobel.htm
+- [x] SIMD for YUYV to grayscale coversion.
+- [x] Hot-reloading plugin system
 
 - [ ] Migrate from C to Cpp.

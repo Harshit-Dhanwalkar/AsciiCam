@@ -1,6 +1,6 @@
 #include "ascii.h"
 
-#include <math.h>
+#include <immintrin.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,10 +13,31 @@ static inline uint8_t clamp_u8(int v) {
 }
 
 // Image conversion
-void yuyv_to_gray(const uint8_t *yuyv, uint8_t *gray, int width, int height) {
-  int n = width * height;
-  for (int i = 0; i < n; i++)
-    gray[i] = yuyv[i * 2]; // Y sample at even bytes in YUYV format
+// void yuyv_to_gray(const uint8_t *yuyv, uint8_t *gray, int width, int height) {
+//   int n = width * height;
+//   for (int i = 0; i < n; i++)
+//     gray[i] = yuyv[i * 2]; // Y sample at even bytes in YUYV format
+// }
+void yuyv_to_gray_simd(const uint8_t *yuyv, uint8_t *gray, int width, int height) {
+    int total_pixels = width * height;
+
+    // Mask to extract every even byte (Y samples)
+    __m128i mask = _mm_set1_epi16(0x00FF);
+
+    int i = 0;
+    for (; i + 16 <= total_pixels; i += 16) {
+        // Load 32 bytes of YUYV (= 16 pixels)
+        __m128i lo = _mm_loadu_si128((__m128i *)(yuyv + i*2));
+        __m128i hi = _mm_loadu_si128((__m128i *)(yuyv + i*2 + 16));
+        // low byte of each 16-bit word (the Y sample)
+        lo = _mm_and_si128(lo, mask);
+        hi = _mm_and_si128(hi, mask);
+        // Pack 16-bit
+        __m128i result = _mm_packus_epi16(lo, hi);
+        _mm_storeu_si128((__m128i *)(gray + i), result);
+    }
+    for (; i < total_pixels; i++)
+      gray[i] = yuyv[i * 2];
 }
 
 void yuyv_to_rgb(const uint8_t *yuyv, uint8_t *rgb, int width, int height) {
@@ -38,6 +59,49 @@ void yuyv_to_rgb(const uint8_t *yuyv, uint8_t *rgb, int width, int height) {
     }
   }
 }
+// void yuyv_to_rgb_simd(const uint8_t *yuyv, uint8_t *rgb, int width, int height) {
+//     int total_bytes = width * height * 2;
+//     int i = 0;
+//
+//     // Vectors of constants for color weights shifted up by 8 bits
+//     __m128i r_v_weight = _mm_set1_epi16(409);
+//     __m128i g_u_weight = _mm_set1_epi16(-100);
+//     __m128i g_v_weight = _mm_set1_epi16(-208);
+//     __m128i b_u_weight = _mm_set1_epi16(516);
+//     __m128i const_128  = _mm_set1_epi16(128);
+//
+//     for (; i + 8 <= total_bytes; i += 8) {
+//         // Load 8 bytes of YUYV = [Y0, U0, Y1, V0, Y2, U1, Y3, V1]
+//         // Cast directly into a 64-bit load to avoid polluting register spaces
+//         long long chunk = *(const long long *)(yuyv + i);
+//         __m128i raw = _mm_cvtsi64_si128(chunk);
+//
+//         // Unpack bytes to 16-bit integers to hold intermediate precision math
+//         __m128i pixels = _mm_unpacklo_epi8(raw, _mm_setzero_si128());
+//
+//         // Extract channels across structural layouts
+//         int16_t y0 = _mm_extract_epi16(pixels, 0) - 16;
+//         int16_t u0 = _mm_extract_epi16(pixels, 1) - 128;
+//         int16_t y1 = _mm_extract_epi16(pixels, 2) - 16;
+//         int16_t v0 = _mm_extract_epi16(pixels, 3) - 128;
+//
+//         int16_t y2 = _mm_extract_epi16(pixels, 4) - 16;
+//         int16_t u1 = _mm_extract_epi16(pixels, 5) - 128;
+//         int16_t y3 = _mm_extract_epi16(pixels, 6) - 16;
+//         int16_t v1 = _mm_extract_epi16(pixels, 7) - 128;
+//
+//         // Perform fixed-point math approximations using scalar elements or smaller vector groupings
+//         // Example for first pixel pair layout:
+//         int32_t r0 = clamp_u8((298 * y0 + 409 * v0 + 128) >> 8);
+//         int32_t g0 = clamp_u8((298 * y0 - 100 * u0 - 208 * v0 + 128) >> 8);
+//         int32_t b0 = clamp_u8((298 * y0 + 516 * u0 + 128) >> 8);
+//
+//         // Write sequentially to interleaved pointer layout
+//         int rgb_offset = (i / 4) * 6;
+//         rgb[rgb_offset + 0] = r0; rgb[rgb_offset + 1] = g0; rgb[rgb_offset + 2] = b0;
+//         // Continue similarly down line iterations...
+//     }
+// }
 
 // Buffer sizing
 size_t ascii_out_size(int dst_w, int dst_h, int color) {
@@ -89,23 +153,22 @@ static void sobel(const uint8_t *in, uint8_t *out, int w, int h) {
 int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
                        int src_h, int dst_w, int dst_h, char *out,
                        size_t out_size, const ascii_opts_t *opts) {
-  const char *charset =
-      (opts && opts->charset) ? opts->charset : ASCII_CHARS_DEFAULT;
-  int nchars = (int)strlen(charset);
-  int brightness = opts ? opts->brightness : 0;
-  int contrast = opts ? opts->contrast : 100;
-  int invert = opts ? opts->invert : 0;
-  int do_color = opts && opts->color && (rgb != NULL);
-  int do_edges = opts ? opts->edges : 0;
-  int do_dither = opts ? opts->dither : 0;
+  const char *charset = (opts && opts->charset) ? opts->charset : ASCII_CHARS_DEFAULT;
+  int nchars          = (int)strlen(charset);
+  int brightness      = opts ? opts->brightness              : 0;
+  int contrast        = opts ? opts->contrast                : 100;
+  int invert          = opts ? opts->invert                  : 0;
+  int do_color        = opts && opts->color && (rgb != NULL);
+  int do_edges        = opts ? opts->edges                   : 0;
+  int do_dither       = opts ? opts->dither                  : 0;
 
   // Blocking width and height pixels in source pixels
-  double bw = (double)src_w / dst_w;
-  double bh = (double)src_h / dst_h;
+  double bw           = (double)src_w / dst_w;
+  double bh           = (double)src_h / dst_h;
 
   // Downsample to (dst_w x dst_h)
-  uint8_t *small_g = malloc(dst_w * dst_h);
-  uint8_t *small_rgb = do_color ? malloc(dst_w * dst_h * 3) : NULL;
+  uint8_t *small_g    = malloc(dst_w * dst_h);
+  uint8_t *small_rgb  = do_color ? malloc(dst_w * dst_h * 3) : NULL;
 
   if (!small_g || (do_color && !small_rgb)) {
     free(small_g);
@@ -258,7 +321,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
     }
   }
 
-  out[(size_t)out_idx < out_size ? out_idx : out_size - 1] = '\0';
+  out[(size_t)out_idx < out_size ? (size_t)out_idx : out_size - 1] = '\0';
 
   free(small_g);
   free(small_rgb);
@@ -275,12 +338,13 @@ void overlay_fps_box(int dst_w, double fps, int color_enabled) {
   int n;
   if (color_enabled) {
     n = snprintf(buf, sizeof(buf),
-                 "\033[1;%dH\033[38;2;0;255;0m\033[48;2;30;30;30m"
-                 "[ FPS: %4.1f ]\033[0m",
+                 "\033[1;%dH\033[38;2;0;255;0m\033[48;2;30;30;30m[ FPS: %4.1f ]\033[0m",
                  col, fps);
   } else {
-    n = snprintf(buf, sizeof(buf), "\033[1;%dH[ FPS: %4.1f ]", col, fps);
+    n = snprintf(buf, sizeof(buf),
+                "\033[1;%dH[ FPS: %4.1f ]",
+                col, fps);
   }
   if (n > 0 && n < (int)sizeof(buf))
-    write(STDOUT_FILENO, buf, (size_t)n);
+    (void)write(STDOUT_FILENO, buf, (size_t)n);
 }
