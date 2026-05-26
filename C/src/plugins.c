@@ -90,7 +90,8 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
   }
 
   pl->plugin = get_plugin();
-  fprintf(stderr, "[plugin] loaded: %s\n", pl->plugin->name);
+  snprintf(pl->status_msg, sizeof(pl->status_msg),
+           "loaded: %s", pl->plugin->name);
   return 0;
 }
 
@@ -143,12 +144,14 @@ void plugin_check_reload(plugin_loader_t *pl) {
   if (!relevant)
     return;
 
-  usleep(150000); // 150ms delay for linker
+  usleep(100000); // 0.1s delay for linker
 
   if (plugin_load(pl, pl->path) == 0) {
-    fprintf(stderr, "\n[plugin] Hot-swapped: %s\n", pl->plugin->name);
+    snprintf(pl->status_msg, sizeof(pl->status_msg),
+             "hot-swapped -> %s", pl->plugin->name);
   } else {
-    fprintf(stderr, "\n[plugin] Hot-swap failed. Retaining active filter.\n");
+    snprintf(pl->status_msg, sizeof(pl->status_msg),
+             "hot-swap FAILED - old filter retained");
   }
 }
 

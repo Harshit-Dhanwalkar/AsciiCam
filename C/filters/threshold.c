@@ -1,12 +1,13 @@
 #include "plugins.h"
 #include <stdint.h>
 
-#define DEFAULT_THRESH 128
+#define DEFAULT_THRESH 35
 
 static void thresh_process(uint8_t *gray, int w, int h, void *ctx) {
-  uint8_t thresh = (uint8_t)(ctx ? *(int *)ctx : DEFAULT_THRESH);
-  int total = w * h;
-  for (int i = 0; i < total; i++)
+  // uint8_t thresh = (uint8_t)(ctx ? *(int *)ctx : DEFAULT_THRESH);
+  int thresh = ctx ? *(int *)ctx : DEFAULT_THRESH;  // reads &plugin_param from main
+  int total_pixels = w * h;
+  for (int i = 0; i < total_pixels; i++)
     gray[i] = (gray[i] > thresh) ? 255 : 0;
 }
 
@@ -15,4 +16,6 @@ static filter_plugin_t self = {
     .name = "threshold",
 };
 
-filter_plugin_t *plugin_get(void) { return &self; }
+filter_plugin_t *plugin_get(void) {
+  return &self;
+}

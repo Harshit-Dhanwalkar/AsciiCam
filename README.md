@@ -13,6 +13,11 @@ cd build/
 ./webcam_ascii --help
 ```
 
+Run with all or selected plugins (currently 3)
+```
+./build/webcam_ascii -p build/invert.so -p build/threshold.so -p build/edge_detect.so
+```
+
 
 ## TODO
 

@@ -13,6 +13,7 @@ typedef struct {
     filter_plugin_t *plugin;        // resolved plugin vtable
     char             path[256];     // absolute path to .so
     char             tmp_path[280]; // temp copy path used for current dlopen // HACK:
+    char             status_msg[128];  // last load/swap message
     int              inotify_fd;    // inotify instance fd
     int              inotify_wd;    // watch descriptor
 } plugin_loader_t;

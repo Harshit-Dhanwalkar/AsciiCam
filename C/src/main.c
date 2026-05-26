@@ -1,8 +1,8 @@
 #include "ascii.h"
 #include "capture.h"
+#include "plugins.h"
 #include "thread_sharing.h"
 #include "timing.h"
-#include "plugins.h"
 
 #include <dlfcn.h>
 #include <getopt.h>
@@ -12,8 +12,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
 #include <sys/inotify.h>
+#include <sys/mman.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -24,6 +24,7 @@
 #define DEFAULT_CAPTURE_WIDTH  160
 #define DEFAULT_CAPTURE_HEIGHT 120
 #define DEFAULT_FPS            20
+#define MAX_PLUGINS            8
 
 // Signal handling
 volatile sig_atomic_t keep_running = 1;
@@ -66,15 +67,89 @@ static void print_usage(const char *prog) {
 
 // termios
 void term_raw_mode(void) {
-  tcgetattr(STDIN_FILENO, &orig_terminal);     // save stdin state
+  tcgetattr(STDIN_FILENO, &orig_terminal); // save stdin state
   struct termios raw = orig_terminal;
-  raw.c_lflag       &= ~(ICANON | ECHO);       // no line buffering or no echo
-  raw.c_cc[VMIN]     = 0;                      // non-blocking read
+  raw.c_lflag       &= ~(ICANON | ECHO);   // no line buffering or no echo
+  raw.c_cc[VMIN]     = 0;                  // non-blocking read
   raw.c_cc[VTIME]    = 0;
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
 void term_restore(void) { tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_terminal); }
+
+static void overlay_panel(int ascii_h, double fps,
+                          plugin_loader_t *plugins, int *plugin_params,
+                          int count, int selected, int color) {
+  char buf[1024];
+  int n, base_row = ascii_h + 1; // 1-indexed panel row
+
+  // const char *name = pl->plugin ? pl->plugin->name : "none";
+  // const char *status = pl->status_msg[0] ? pl->status_msg : "ok";
+  //
+  // if (color) {
+  //   n = snprintf(buf, sizeof(buf),
+  //                "\033[%d;1H\033[38;2;180;180;0m\033[48;2;18;18;18m"
+  //                " plugin: %-14s | %s | param: %3d  ([ ] ±1  { } ±10  r=reset) "
+  //                "\033[0m\033[K",
+  //                row, name, status, plugin_param);
+  // } else {
+  //   n = snprintf(buf, sizeof(buf),
+  //                "\033[%d;1H"
+  //                " plugin: %-14s | %s | param: %3d  ([ ] ±1  { } ±10  r=reset)"
+  //                "\033[K",
+  //                row, name, status, plugin_param);
+  // }
+  // if (n > 0 && n < (int)sizeof(buf))
+  //   (void)write(STDOUT_FILENO, buf, (size_t)n);
+  // FPS + hint bar
+  if (color) {
+    n = snprintf(buf, sizeof(buf),
+        "\033[%d;1H\033[38;2;0;220;0m\033[48;2;18;18;18m"
+        " FPS: %4.1f  │  ↑↓ select  [ ] ±1  { } ±10  r reset  q quit "
+        "\033[0m\033[K", base_row, fps);
+  } else {
+    n = snprintf(buf, sizeof(buf),
+        "\033[%d;1H FPS: %4.1f  |  up/dn select  [ ] +-1  { } +-10  r reset  q quit\033[K",
+        base_row, fps);
+  }
+  if (n > 0 && n < (int)sizeof(buf))
+    (void)write(STDOUT_FILENO, buf, (size_t)n);
+
+  n = snprintf(buf, sizeof(buf), "\033[%d;1H\033[K", base_row + 1);
+  if (n > 0) (void)write(STDOUT_FILENO, buf, (size_t)n);
+
+  // Plugin cells
+  if (count == 0) {
+    const char *msg = color
+        ? "\033[38;2;120;120;120m no plugins loaded \033[0m"
+        : " no plugins loaded";
+    (void)write(STDOUT_FILENO, msg, strlen(msg));
+    return;
+  }
+
+  for (int i = 0; i < count; i++) {
+    const char *name = plugins[i].plugin ? plugins[i].plugin->name : "???";
+    int param        = plugin_params[i];
+    int is_sel       = (i == selected);
+
+    if (color) {
+      // Selected: bright yellow text on dark blue bg; others: dim
+      if (is_sel)
+        n = snprintf(buf, sizeof(buf),
+            "\033[38;2;255;220;0m\033[48;2;0;40;80m"
+            " ▶ %s [%3d] \033[0m ", name, param);
+      else
+        n = snprintf(buf, sizeof(buf),
+            "\033[38;2;140;140;140m\033[48;2;18;18;18m"
+            "   %s [%3d] \033[0m ", name, param);
+    } else {
+      n = snprintf(buf, sizeof(buf),
+          is_sel ? " *%s[%3d]  " : "  %s[%3d]  ", name, param);
+    }
+    if (n > 0 && n < (int)sizeof(buf))
+      (void)write(STDOUT_FILENO, buf, (size_t)n);
+  }
+}
 
 fps_counter_t fps_calc = {0};
 
@@ -93,18 +168,17 @@ int main(int argc, char *argv[]) {
 
   ascii_opts_t opts = {
       .brightness = 0,
-      .contrast = 100,
-      .invert = 0,
-      .color = 0,
-      .edges = 0,
-      .dither = 0,
-      .charset = NULL,
+      .contrast   = 100,
+      .invert     = 0,
+      .color      = 0,
+      .edges      = 0,
+      .dither     = 0,
+      .charset    = NULL,
   };
 
   // Plugins
-  // plugin_loader_t pl;
-  // memset(&pl, 0, sizeof(plugin_loader_t));
-  const char *plugin_path = NULL;
+  const char *plugin_paths[MAX_PLUGINS];
+  int         plugin_path_count = 0;
 
   // CLI parsing
   int opt;
@@ -162,7 +236,10 @@ int main(int argc, char *argv[]) {
       opts.charset = optarg;
       break;
     case 'p':
-      plugin_path = optarg;
+      if (plugin_path_count < MAX_PLUGINS)
+        plugin_paths[plugin_path_count++] = optarg;
+      else
+        fprintf(stderr, "Warning: max %d plugins, ignoring %s\n", MAX_PLUGINS, optarg);
       break;
     default:
       print_usage(argv[0]);
@@ -172,25 +249,25 @@ int main(int argc, char *argv[]) {
 
   timing_init(fps);
 
-  // Initialize plugin system
-  plugin_loader_t pl;
-  memset(&pl, 0, sizeof(pl));
-  pl.inotify_fd = -1;
- 
-  if (plugin_path) {
-      plugin_load(&pl, plugin_path);
-      plugin_watch_init(&pl, plugin_path);
-  }
+  // Initialize plugins
+  plugin_loader_t plugins[MAX_PLUGINS];
+  int             plugin_params[MAX_PLUGINS];
+  int             plugin_count = 0;
 
-  // void plugin_check_reload(plugin_loader_t *pl) {
-  //     char buf[sizeof(struct inotify_event) + 256];
-  //     if (read(pl->inotify_fd, buf, sizeof(buf)) > 0) {
-  //         usleep(100000);
-  //         if (plugin_load(pl, pl->path) == 0) {
-  //             fprintf(stderr, "Successfully hot-swapped filter plugin: [%s]\n", pl->plugin->name);
-  //         }
-  //     }
-  // };
+  for (int i = 0; i < plugin_path_count; i++) {
+    memset(&plugins[i], 0, sizeof(plugin_loader_t));
+    plugins[i].inotify_fd = -1;
+    plugin_params[i]      = 128; // default
+ 
+    if (plugin_load(&plugins[i], plugin_paths[i]) == 0) {
+      plugin_watch_init(&plugins[i], plugin_paths[i]);
+      plugin_count++;
+    } else {
+      fprintf(stderr, "Failed to load plugin: %s\n", plugin_paths[i]);
+    }
+  }
+ 
+  int selected = 0;
 
   // Open webcam
   webcam_t cam = {.fd = -1, .buffer = MAP_FAILED};
@@ -198,16 +275,15 @@ int main(int argc, char *argv[]) {
     perror("webcam_init");
     return 1;
   }
-  fprintf(stderr, "Device: %s | capture %dx%d | ASCII %dx%d | %d fps%s%s%s%s\n",
-          device, cam.width, cam.height, ascii_w, ascii_h, fps,
-          opts.color  ? " | color"   : "",
-          opts.edges  ? " | edges"   : "",
-          opts.dither ? " | dither"  : "",
-          opts.invert ? " | inverted": "",
-          pl.plugin   ? " | plugin"  : "");
+  fprintf(stderr, "Device: %s | capture %dx%d | ASCII %dx%d | %d fps | %d plugin(s)%s%s%s%s\n",
+          device, cam.width, cam.height, ascii_w, ascii_h, fps, plugin_count,
+          opts.color ?  " | color"    : "",
+          opts.edges ?  " | edges"    : "",
+          opts.dither ? " | dither"   : "",
+          opts.invert ? " | inverted" : "");
 
-  // Allocate pixel buffers
-  int cam_pixels = cam.width * cam.height;
+  // Pixel buffers allocation
+  int     cam_pixels = cam.width * cam.height;
   uint8_t *gray = malloc(cam_pixels);
   uint8_t *rgb = opts.color ? malloc(cam_pixels * 3) : NULL;
 
@@ -220,7 +296,8 @@ int main(int argc, char *argv[]) {
 
   // Allocate output string buffer
   size_t out_size = ascii_out_size(ascii_w, ascii_h, opts.color);
-  char *out_buf   = malloc(out_size);
+  char   *out_buf = malloc(out_size);
+
   if (!out_buf) {
     perror("malloc out_buf");
     free(gray);
@@ -248,39 +325,68 @@ int main(int argc, char *argv[]) {
   // pthread_join(tid_cap,    NULL);
   // pthread_join(tid_render, NULL);
 
-  // Initial full clear
+  // Initial screen setup
   (void)write(STDOUT_FILENO, "\033[2J\033[H\033[?25l", 13);
   term_raw_mode();
 
-  // Main loop
-  struct timespec frame_start;
+  struct timespec frame_start, last_frame_time;
   clock_gettime(CLOCK_MONOTONIC, &frame_start);
-  struct timespec last_frame_time = frame_start;
-  char input_char;
+  last_frame_time = frame_start;
 
+  // Main loop
   while (keep_running) {
     clock_gettime(CLOCK_MONOTONIC, &frame_start);
 
     long frame_diff_ns =
-        (frame_start.tv_sec - last_frame_time.tv_sec) * 1000000000L +  // Seconds
-        (frame_start.tv_nsec - last_frame_time.tv_nsec);               // Nano seconds
+        (frame_start.tv_sec - last_frame_time.tv_sec) * 1000000000L +   // Seconds
+        (frame_start.tv_nsec - last_frame_time.tv_nsec);                // Nano seconds
 
     if (frame_diff_ns > 0)
       fps_push(&fps_calc, frame_diff_ns);
-    last_frame_time = frame_start;
+    last_frame_time    = frame_start;
     double current_fps = fps_get(&fps_calc);
 
-    // Check for 'q' key non-blocking
-    if (read(STDIN_FILENO, &input_char, 1) == 1) {
-      if (input_char == 'q' || input_char == 'Q') {
-        keep_running = 0;
-        break;
+    // Keypress handling
+    char ch;
+    while (read(STDIN_FILENO, &ch, 1) == 1) {
+      if (ch == '\033') {
+        char seq[2] = {0, 0};
+        if (read(STDIN_FILENO, &seq[0], 1) == 1 && seq[0] == '[') {
+          if (read(STDIN_FILENO, &seq[1], 1) == 1) {
+            switch (seq[1]) {
+            case 'A': // up arrow key, previous plugin
+              if (plugin_count > 0)
+                selected = (selected - 1 + plugin_count) % plugin_count;
+              break;
+            case 'B': // down arrow key, next plugin
+              if (plugin_count > 0)
+                selected = (selected + 1) % plugin_count;
+              break;
+            }
+          }
+        }
+        continue;
+      }
+ 
+      // adjust plugin param if selected
+      int *p = (plugin_count > 0) ? &plugin_params[selected] : NULL;
+      switch (ch) {
+      case 'q': case 'Q': keep_running        = 0;                                  break;
+      case ']'          : if (p && *p < 255)  (*p)++;                               break;
+      case '['          : if (p && *p > 0)    (*p)--;                               break;
+      case '}'          : if (p)              *p = (*p + 10 > 255) ? 255 : *p + 10; break;
+      case '{'          : if (p)              *p = (*p - 10 <   0) ?   0 : *p - 10; break;
+      case 'r': case 'R': if (p)              *p = 128;                             break;
       }
     }
+    if (!keep_running)
+      break;
 
-    if (plugin_path)
-      plugin_check_reload(&pl);
+    // Hot-reload check for all plugins
+    for (int i = 0; i < plugin_count; i++)
+      plugin_check_reload(&plugins[i]);
 
+    // Frame capture 
     if (webcam_wait_frame(&cam, 1000) < 0)
       continue; // timeout, retry
 
@@ -289,8 +395,11 @@ int main(int argc, char *argv[]) {
       break;
     }
 
-    if (pl.plugin)
-      pl.plugin->process(gray, cam.width, cam.height, NULL);
+    // Run all plugins in order
+    for (int i = 0; i < plugin_count; i++) {
+      if (plugins[i].plugin)
+        plugins[i].plugin->process(gray, cam.width, cam.height, &plugin_params[i]);
+    }
 
     if (opts.color && rgb)
       yuyv_to_rgb((const uint8_t *)cam.buffer, rgb, cam.width, cam.height);
@@ -300,7 +409,8 @@ int main(int argc, char *argv[]) {
 
     if (len > 0) {
       (void)write(STDOUT_FILENO, out_buf, (size_t)len);
-      overlay_fps_box(ascii_w, current_fps, opts.color);
+      overlay_panel(ascii_h, current_fps, plugins, plugin_params, plugin_count,
+                    selected, opts.color);
     }
 
     if (webcam_requeue_buffer(&cam) < 0) {
@@ -313,12 +423,16 @@ int main(int argc, char *argv[]) {
 
   // Cleanup
   term_restore();
-  (void)write(STDOUT_FILENO, "\033[0m\033[?25h\n", 11);
+  // \033[2J = erase screen, \033[H = cursor home, \033[?25h = show cursor
+  static const char CLEANUP[] = "\033[2J\033[H\033[0m\033[?25h\n";
+  (void)write(STDOUT_FILENO, CLEANUP, sizeof(CLEANUP) - 1);
   fprintf(stderr, "Stopped.\n");
 
   free(gray);
   free(rgb);
   free(out_buf);
+  for (int i = 0; i < plugin_count; i++)
+    plugin_cleanup(&plugins[i]);
   webcam_cleanup(&cam);
   return 0;
 }

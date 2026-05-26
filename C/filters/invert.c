@@ -2,13 +2,19 @@
 #include <stdint.h>
 
 static void do_invert(uint8_t *gray, int w, int h, void *ctx) {
-  (void)ctx;
+  int strength = ctx ? *(int *)ctx : 255;
   int total_pixels = w * h;
   for (int i = 0; i < total_pixels; i++) {
-    gray[i] = 255 - gray[i]; // Flip brightness
+    int inverted = 255 - gray[i];
+    // Linear blend: output = original + strength/255 * (inverted - original)
+    gray[i] = (uint8_t)(gray[i] + (inverted - gray[i]) * strength / 255);
   }
 }
 
-static filter_plugin_t self = {.process = do_invert, .name = "Invert"};
-
-filter_plugin_t *plugin_get(void) { return &self; }
+static filter_plugin_t self = {
+  .process = do_invert,
+  .name = "invert"
+};
+filter_plugin_t *plugin_get(void) {
+  return &self;
+}
