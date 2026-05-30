@@ -1,7 +1,12 @@
 # AsciiCam
 Ascii video output from webcam in terminal.
 
+## Demo
 <img src="assets/demo2.gif" width="325">
+
+### Edge Detection and invert (brightness) threshold change
+
+<img src="assets/demo-edgedetection.gif" width="325">
 
 ## Build and Run
 ```
