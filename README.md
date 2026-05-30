@@ -1,7 +1,7 @@
 # AsciiCam
 Ascii video output from webcam in terminal.
 
-<img src="assets/demo.gif" width="325">
+<img src="assets/demo2.gif" width="325">
 
 ## Build and Run
 ```
@@ -32,5 +32,9 @@ Run with all or selected plugins (currently 3)
 - [x] Sobel edge detection (kernel convolution). Algorithm reference: https://homepages.inf.ed.ac.uk/rbf/HIPR2/sobel.htm
 - [x] SIMD for YUYV to grayscale coversion.
 - [x] Hot-reloading plugin system
+- [ ] Analyzing frames for what changed (inter-frame compression)
+- [ ] Temporal Compression
+- [ ] Lookup Table (LUT) Cache Optimization
 
-- [ ] Migrate from C to Cpp.
+
+- [ ] Migrate from C to Cpp after, I consider, I have done enough optimisation in C.
