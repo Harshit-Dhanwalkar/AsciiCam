@@ -46,5 +46,6 @@ Run with all or selected plugins (currently 3)
 
 ---
 
-Project is under [CC BY-NC LICENCE] by [Creative Commons licence](https://creativecommons.org/cc-licenses)
+Project is under [PolyForm Noncommercial License BY-NC LICENCE](LICENCE)
+
 For commercial use, please contact me at *harshitpd1729@gmail.com* to purchase a commercial license."
