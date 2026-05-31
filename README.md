@@ -43,3 +43,6 @@ Run with all or selected plugins (currently 3)
 
 
 - [ ] Migrate from C to Cpp after, I consider, I have done enough optimisation in C.
+
+
+For commercial use, please contact me at *harshitpd1729@gmail.com* to purchase a commercial license."
