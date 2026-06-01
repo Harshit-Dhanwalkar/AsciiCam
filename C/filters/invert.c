@@ -1,7 +1,7 @@
 #include "plugins.h"
 #include <stdint.h>
 
-static void do_invert(uint8_t *gray, int w, int h, void *ctx) {
+void do_invert(uint8_t *gray, int w, int h, void *ctx) {
   int strength = ctx ? *(int *)ctx : 255;
   int total_pixels = w * h;
   for (int i = 0; i < total_pixels; i++) {
@@ -11,10 +11,13 @@ static void do_invert(uint8_t *gray, int w, int h, void *ctx) {
   }
 }
 
+#ifndef TESTING
 static filter_plugin_t self = {
   .process = do_invert,
   .name = "invert"
 };
+
 filter_plugin_t *plugin_get(void) {
   return &self;
 }
+#endif

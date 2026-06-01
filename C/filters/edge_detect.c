@@ -4,11 +4,11 @@
 
 static inline int clamp(int v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
 
-static void do_edge_boost(uint8_t *gray, int w, int h, void *ctx) {
+void do_edge_boost(uint8_t *gray, int w, int h, void *ctx) {
   int strength = ctx ? *(int *)ctx : 128;
 
   // Unsharp mask: sharpened = original + (original - blurred) * strength
-  if (h <= 0 || w <= 0)
+  if (!gray || h <= 0 || w <= 0)
     return;
   uint8_t *tmp = calloc((size_t)w, (size_t)h);
   if (!tmp)
@@ -38,10 +38,13 @@ static void do_edge_boost(uint8_t *gray, int w, int h, void *ctx) {
   free(tmp);
 }
 
+#ifndef TESTING
 static filter_plugin_t self = {
   do_edge_boost,
   "edge_boost"
 };
+
 filter_plugin_t *plugin_get(void) {
   return &self;
 }
+#endif

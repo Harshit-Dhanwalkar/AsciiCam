@@ -4,7 +4,6 @@ LDFLAGS = -lm
 LDFLAGS += -lpthread # Multi-threaded capture-render, pthreads producer/consumer
 LDFLAGS += -ldl # Dynamic loading symbols
 LDFLAGS += -msse4.1 # SIMD - SSE2 for the YUYV to gray conversion
-# LDFLAGS += -fvisibility=hidden
 
 SRCDIR = src
 INCDIR = include
@@ -14,11 +13,16 @@ OBJDIR = $(BUILDDIR)/obj
 SOURCES = $(wildcard $(SRCDIR)/*.c)
 OBJECTS = $(patsubst $(SRCDIR)/%.c,$(OBJDIR)/%.o,$(SOURCES))
 TARGET = $(BUILDDIR)/webcam_ascii
-PLUGIN_SRCS   = $(wildcard filters/*.c)
-PLUGIN_TARGETS = $(patsubst filters/%.c,$(BUILDDIR)/%.so,$(PLUGIN_SRCS))
+PLUGIN_SRCS    = $(wildcard filters/*.c)
+PLUGIN_C_SRCS  = $(filter-out filters/%.h, $(PLUGIN_SRCS))
+PLUGIN_TARGETS = $(patsubst filters/%.c,$(BUILDDIR)/%.so,$(PLUGIN_C_SRCS))
 
+# Security Testing Targets
+TEST_TARGET = $(BUILDDIR)/security_tests
+TEST_SRC = ../tests/secutrity_test.c
+FILTER_SRCS = filters/edge_detect.c filters/invert.c filters/threshold.c
 
-.PHONY: all clean plugins
+.PHONY: all clean plugins test
 
 all: $(TARGET) plugins
 
@@ -32,15 +36,18 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.c | $(OBJDIR)
 $(OBJDIR):
 	mkdir -p $(OBJDIR)
 
-# Plugins
-plugins: $(PLUGIN_TARGET)
+# Plugins compilation
+plugins: $(PLUGIN_TARGETS)
 
 $(BUILDDIR)/%.so: filters/%.c | $(BUILDDIR)
 	$(CC) $(CFLAGS) -fPIC -shared $< -o $@.tmp
 	mv $@.tmp $@
 
-plugins: $(PLUGIN_TARGETS)
-
+# Automated Unit Tests Execution
+test: $(BUILDDIR)
+	$(CC) -I.. $(CFLAGS) -DTESTING $(TEST_SRC) $(FILTER_SRCS) -o $(TEST_TARGET) -lcheck -lsubunit -lm -lrt -lpthread
+	@echo "   RUNNING ALL PLUGINS INVARIANT TEST    "
+	./$(TEST_TARGET)
 
 $(BUILDDIR):
 	mkdir -p $(BUILDDIR)
