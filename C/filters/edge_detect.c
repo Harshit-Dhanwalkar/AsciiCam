@@ -8,7 +8,9 @@ static void do_edge_boost(uint8_t *gray, int w, int h, void *ctx) {
   int strength = ctx ? *(int *)ctx : 128;
 
   // Unsharp mask: sharpened = original + (original - blurred) * strength
-  uint8_t *tmp = malloc(w * h);
+  if (h <= 0 || w <= 0)
+    return;
+  uint8_t *tmp = calloc((size_t)w, (size_t)h);
   if (!tmp)
     return;
 
