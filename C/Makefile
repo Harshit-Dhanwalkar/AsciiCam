@@ -19,7 +19,7 @@ PLUGIN_TARGETS = $(patsubst filters/%.c,$(BUILDDIR)/%.so,$(PLUGIN_C_SRCS))
 
 # Security Testing Targets
 TEST_TARGET = $(BUILDDIR)/security_tests
-TEST_SRC = ../tests/secutrity_test.c
+TEST_SRC = ../tests/security_tests.c
 FILTER_SRCS = filters/edge_detect.c filters/invert.c filters/threshold.c
 
 .PHONY: all clean plugins test

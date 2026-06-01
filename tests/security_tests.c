@@ -1,3 +1,8 @@
+/*
+Tests for plugins must never corrupt heap or crash due to integer
+overflow in dimension-based allocations.
+*/
+
 #include <check.h>
 #include <stdlib.h>
 #include <stdint.h>
