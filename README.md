@@ -1,4 +1,5 @@
-# AsciiCam
+# AsciiCam Version v1.0.0
+
 Ascii video output from webcam in terminal.
 
 ## Demo
