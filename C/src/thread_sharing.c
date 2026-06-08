@@ -1,11 +1,15 @@
+/*
+Still uses pthread functions, TODO: replace them with raw futex syscalls and clone()
+*/
+
+
 #include "ascii.h"
 #include "capture.h"
 #include "thread_sharing.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/mman.h>
+#include <stdint.h>
+
+#include "nolibc.h"
 
 // Producer thread for capturing frames
 void *capture_thread(void *arg) {

@@ -1,13 +1,9 @@
 #include "plugins.h"
 
 #include <dlfcn.h>
-#include <fcntl.h>
-#include <libgen.h> // dirname()
-#include <stdio.h>
-#include <string.h>
 #include <sys/inotify.h>
-#include <time.h>
-#include <unistd.h>
+
+#include "nolibc.h"
 
 static int copy_file(const char *src, const char *dst) {
   int fd_src = open(src, O_RDONLY);
@@ -90,16 +86,19 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
   }
 
   pl->plugin = get_plugin();
-  snprintf(pl->status_msg, sizeof(pl->status_msg),
-           "loaded: %s", pl->plugin->name);
+  snprintf(pl->status_msg, sizeof(pl->status_msg), "loaded: %s",
+           pl->plugin->name);
+
+  // FIX: Temporary file leak in plugin_load() when dlsym fails
+  // unlink(pl->tmp_path)
   return 0;
 }
 
 void plugin_watch_init(plugin_loader_t *pl, const char *path) {
-  strncpy(pl->path, path, sizeof(pl->path) - 1);
+  nl_strncpy_safe(pl->path, path, sizeof(pl->path) - 1);
 
   char dir_copy[256];
-  strncpy(dir_copy, path, sizeof(dir_copy) - 1);
+  nl_strncpy_safe(dir_copy, path, sizeof(dir_copy) - 1);
   const char *dir = dirname(dir_copy);
 
   pl->inotify_fd = inotify_init1(IN_NONBLOCK);
@@ -127,7 +126,7 @@ void plugin_check_reload(plugin_loader_t *pl) {
     return; // No new filesystem modifications detected
 
   char path_copy[256];
-  strncpy(path_copy, pl->path, sizeof(path_copy) - 1);
+  nl_strncpy_safe(path_copy, pl->path, sizeof(path_copy) - 1);
   const char *soname = basename(path_copy);
 
   int relevant = 0;
@@ -144,11 +143,12 @@ void plugin_check_reload(plugin_loader_t *pl) {
   if (!relevant)
     return;
 
+  // TODO: Replace with inotify event coalescing for more deterministic reload.
   usleep(100000); // 0.1s delay for linker
 
   if (plugin_load(pl, pl->path) == 0) {
-    snprintf(pl->status_msg, sizeof(pl->status_msg),
-             "hot-swapped -> %s", pl->plugin->name);
+    snprintf(pl->status_msg, sizeof(pl->status_msg), "hot-swapped -> %s",
+             pl->plugin->name);
   } else {
     snprintf(pl->status_msg, sizeof(pl->status_msg),
              "hot-swap FAILED - old filter retained");

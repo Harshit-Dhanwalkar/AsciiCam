@@ -1,16 +1,28 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -O2 -Iinclude
-LDFLAGS = -lm
-LDFLAGS += -lpthread # Multi-threaded capture-render, pthreads producer/consumer
+CFLAGS = -Wall -Wextra -O2 -Iinclude -Ilib -fno-stack-protector
+# LDFLAGS = -lm
+LDFLAGS += -nostdlib # drops crt startup files and default libs
+# LDFLAGS += -nodefaultlibs # drops default libs but keeps crt startup files
+LDFLAGS += -Wl,--no-as-needed
+# LDFLAGS += -Wl,-rpath,/lib/x86_64-linux-gnu # for libdl.so # TEST:
+# LDFLAGS += /lib/x86_64-linux-gnu/libdl.so.2
+LDFLAGS += -Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2
+LDFLAGS += /usr/lib/x86_64-linux-gnu/crti.o
+LDFLAGS += /usr/lib/x86_64-linux-gnu/crtn.o
 LDFLAGS += -ldl # Dynamic loading symbols
+LDFLAGS += -lpthread # Multi-threaded capture-render, pthreads producer/consumer
+LDFLAGS += -lc
 LDFLAGS += -msse4.1 # SIMD - SSE2 for the YUYV to gray conversion
+# LDFLAGS += -static
 
 SRCDIR = src
 INCDIR = include
+LIBDIR = lib
 BUILDDIR = build
 OBJDIR = $(BUILDDIR)/obj
 
-SOURCES = $(wildcard $(SRCDIR)/*.c)
+LIBSRCS = $(wildcard $(LIBDIR)/*.c)
+SOURCES = $(wildcard $(SRCDIR)/*.c) $(LIBSRCS)
 OBJECTS = $(patsubst $(SRCDIR)/%.c,$(OBJDIR)/%.o,$(SOURCES))
 TARGET = $(BUILDDIR)/webcam_ascii
 PLUGIN_SRCS    = $(wildcard filters/*.c)
