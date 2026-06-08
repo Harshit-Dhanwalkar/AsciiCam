@@ -6,9 +6,10 @@
    inotify
  */
 
-#include "nl_syscall.h"
 #include <time.h>
 
+#ifdef __LINUX_NOLIBC__
+#include "nl_syscall.h"
 /* Basic I/O */
 static inline ssize_t nl_write(int fd, const void *buf, size_t n) {
   return (ssize_t)__sc3(SYS_write, fd, (long)buf, (long)n);
@@ -120,5 +121,11 @@ static inline int nl_tcsetattr(int fd, int action, const struct termios *t) {
 #define tcsetattr(fd, act, t) nl_tcsetattr(fd, act, t)
 #define inotify_init1(f) nl_inotify_init1(f)
 #define inotify_add_watch(f, p, m) nl_inotify_add_watch(f, p, m)
+
+#else
+// #include <sys/mmap.h>
+#include <sys/select.h>
+#include <unistd.h>
+#endif
 
 #endif

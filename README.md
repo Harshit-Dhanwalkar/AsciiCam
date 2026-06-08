@@ -105,6 +105,10 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 - [ ] Replace `pthread` with raw `futex` syscalls
 - [ ] Replace `dlopen` with a minimal ELF loader
 
+## Fixes
+- [ ] [Issue #2](https://github.com/Harshit-Dhanwalkar/AsciiCam/issues/2) MacOS support
+  - Rewrite `capture.c` for MacOS port using [AVFoundation](https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/AVFoundationPG/Articles/04_MediaCapture.html). ([Stackoverflow : how do I set up a video input using the AVFoundation framework](https://stackoverflow.com/questions/32053460/how-do-i-set-up-a-video-input-using-the-avfoundation-framework))
+
 ---
 
 Project is under [PolyForm Noncommercial License BY-NC](LICENCE).

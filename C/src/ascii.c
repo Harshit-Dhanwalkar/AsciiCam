@@ -1,6 +1,5 @@
 #include "ascii.h"
 
-#include <immintrin.h>
 #include <stdint.h>
 
 #include "nolibc.h"
@@ -9,11 +8,12 @@
 static inline uint8_t clamp_u8(int v) {
   return (v < 0) ? 0 : (v > 255) ? 255 : (uint8_t)v;
 }
-static inline int my_abs(int x) {
-  return x < 0 ? -x : x;
-}
+static inline int my_abs(int x) { return x < 0 ? -x : x; }
 
 // Image conversion
+#ifdef __x86_64__
+#include <immintrin.h>
+
 void yuyv_to_gray_simd(const uint8_t *yuyv, uint8_t *gray, int width,
                        int height) {
   int total_pixels = width * height;
@@ -36,6 +36,15 @@ void yuyv_to_gray_simd(const uint8_t *yuyv, uint8_t *gray, int width,
   for (; i < total_pixels; i++)
     gray[i] = yuyv[i * 2];
 }
+#else
+void yuyv_to_gray_simd(const uint8_t *yuyv, uint8_t *gray, int width,
+                       int height) {
+  int total = width * height;
+  for (int i = 0; i < total; i++) {
+    gray[i] = yuyv[i * 2];
+  }
+}
+#endif
 
 void yuyv_to_rgb(const uint8_t *yuyv, uint8_t *rgb, int width, int height) {
   int pairs = (width * height) / 2;

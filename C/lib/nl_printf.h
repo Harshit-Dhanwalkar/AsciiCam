@@ -31,7 +31,8 @@ static inline int nl_fmt_fps(char *buf, size_t sz, double fps) {
     char _fb[1024];                                                            \
     int _fn = nl_snprintf(_fb, sizeof(_fb), fmt, ##__VA_ARGS__);               \
     if (_fn > 0) {                                                             \
-      size_t _nwrite = (_fn < (int)sizeof(_fb) - 1) ? _fn : sizeof(_fb) - 1;   \
+      size_t _nwrite =                                                         \
+          (_fn < (int)sizeof(_fb) - 1) ? (size_t)_fn : sizeof(_fb) - 1;        \
       nl_write((int)(long)(fd), _fb, _nwrite);                                 \
     }                                                                          \
   } while (0)
