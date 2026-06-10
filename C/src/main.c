@@ -4,18 +4,11 @@
 #include "thread_sharing.h"
 #include "timing.h"
 
+#include "nolibc.h"
+
 #include <pthread.h>
 #include <stdint.h>
 #include <time.h>
-
-#include "nolibc.h"
-
-typedef int sig_atomic_t;
-
-#define MAP_FAILED ((void *)-1)
-#define PROT_READ 1
-#define PROT_WRITE 2
-#define MAP_SHARED 1
 
 // Defaults
 #define DEFAULT_ASCII_WIDTH 80

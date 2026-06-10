@@ -1,5 +1,4 @@
-#include "nl_printf.h"
-// #include "nolibc.h"
+#include "nolibc.h"
 #include <stdarg.h>
 #include <stddef.h>
 
@@ -162,4 +161,8 @@ int nl_snprintf(char *buf, size_t size, const char *fmt, ...) {
   int r = nl_vsnprintf(buf, size, fmt, ap);
   va_end(ap);
   return r;
+}
+
+void nl_eprint(const char *msg) {
+    nl_write(2, msg, nl_strlen(msg));
 }

@@ -1,18 +1,22 @@
 #ifndef CAPTURE_H
 #define CAPTURE_H
 
+#include <stddef.h>
 #include <stdint.h>
-#include <linux/videodev2.h>
+
+typedef struct webcam_impl webcam_impl_t;
 
 typedef struct {
-    int fd;
-    int width;
-    int height;
-    void *buffer;
-    struct v4l2_buffer buf_info;
+  int fd; /* Linux: V4L2 fd. macOS: -1 (unused externally) */
+  int width;
+  int height;
+  void *buffer;
+  webcam_impl_t *impl;
 } webcam_t;
 
 // Initialize webcam
+// On Linux: device = "/dev/video0"
+// On macOS: device = NULL (uses system default camera) or a device name string
 int webcam_init(webcam_t *cam, const char *device, int width, int height);
 
 // Wait for frame to be ready
