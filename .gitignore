@@ -56,3 +56,7 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# LSP
+C/compile_commands.json
+C/.cache/

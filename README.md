@@ -14,15 +14,24 @@ Real-time ASCII video from your webcam in the terminal - pure C99, no heavy runt
 
 | Feature                   | Details                                                                               |
 | ------------------------- | ------------------------------------------------------------------------------------- |
-| YUYV to grayscale          | SSE2 SIMD (`yuyv_to_gray_simd`) - 16 pixels per iteration                             |
-| YUYV to RGB                | Fixed-point BT.601 conversion for truecolor output                                    |
-| ASCII rendering           | Configurable charset, brightness, contrast, invert                                    |
-| Sobel edge detection      | L1-norm kernel convolution                                                            |
-| Floyd-Steinberg dithering | Error-diffusion to reduce banding                                                     |
-| ANSI truecolor            | `\033[38;2;R;G;Bm` per-cell coloring                                                  |
-| Hot-reload plugin system  | `inotify` + `dlopen` - rebuild a filter `.so`, it reloads live                        |
-| FPS-capped render loop    | `CLOCK_MONOTONIC` + `nanosleep` frame pacing                                          |
-| Producer/consumer threads | Double-buffered capture + render (stubbed in main loop, active in `thread_sharing.c`) |
+| **YUYV to grayscale**     | SSE2 SIMD (`yuyv_to_gray_simd`) - 16 pixels per iteration on x86_64, NEON on ARM64    |
+| **YUYV to RGB**           | Fixed‑point BT.601 conversion for truecolor output                                    |
+| **Multiple render modes** | Braille (`⠿`), Blocks (`█ ░`), ASCII ramp, Half‑block, Dots - switch live with `m`/`M` |
+| **Edge detection**        | Sobel, Sobel with direction, Laplacian - toggle with `x`/`X`                          |
+| **Hot‑reloadable charsets**| Load `.txt` ramps from a directory, switch with `n`/`N`, monitor with inotify          |
+| **Pseudo‑3D depth pop**   | Parallax effect based on brightness - adjust with `+`/`-`/`v`                         |
+| **Floyd‑Steinberg dither**| Error‑diffusion to reduce banding                                                     |
+| **ANSI truecolor**        | `\033[38;2;R;G;Bm` per‑cell coloring                                                  |
+| **Hot‑reload plugin system**| `inotify` + `dlopen` - rebuild a filter `.so`, it reloads live                       |
+| **FPS‑capped render loop**| `CLOCK_MONOTONIC` + `nanosleep` frame pacing                                         |
+| **Producer/consumer threads**| Double‑buffered capture + render (stubbed in main loop, active in `thread_sharing.c`) |
+| **Cross‑platform**        | Linux (V4L2, nolibc) and macOS (AVFoundation, system libc)                           |
+
+
+Linux: requires `gcc`, `linux/videodev2.h` (kernel headers), `libdl`, `libpthread`.
+macOS: requires `Clang` and `AVFoundation` frameworks (linked automatically).
+
+No other external dependencies.
 
 ---
 
@@ -98,16 +107,21 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 - [x] SIMD YUYV to grayscale (SSE2)
 - [x] Hot-reload plugin system
 - [x] nolibc - zero libc calls
-- [ ] Custom charset via config file
+- [x] Custom charset via config file
 - [ ] Record to `.mp4` / `.gif`
 - [ ] Inter-frame delta compression
 - [ ] LUT cache optimization
 - [ ] Replace `pthread` with raw `futex` syscalls
 - [ ] Replace `dlopen` with a minimal ELF loader
+- [ ] Custom threading library using `clone()` + `futex` to eliminate `-lpthread` (`pthread` functions) dependency
+- [ ] Implement an ELF loader (or statically link plugins) to eliminate `-ldl` (`dlopen`/`dlsym`/`dlclose` which are part of `libdl.so` also `glibc`) dependency
+- [x] MacOS support
+  - [ ] Color support for MacOS
+- [ ] Windows support
 
 ## Fixes
-- [ ] [Issue #2](https://github.com/Harshit-Dhanwalkar/AsciiCam/issues/2) MacOS support
-  - Rewrite `capture.c` for MacOS port using [AVFoundation](https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/AVFoundationPG/Articles/04_MediaCapture.html). ([Stackoverflow : how do I set up a video input using the AVFoundation framework](https://stackoverflow.com/questions/32053460/how-do-i-set-up-a-video-input-using-the-avfoundation-framework))
+- [x] [Issue #2](https://github.com/Harshit-Dhanwalkar/AsciiCam/issues/2) MacOS support
+  - [x] Rewrite `capture.c` for MacOS port using [AVFoundation](https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/AVFoundationPG/Articles/04_MediaCapture.html). ([Stackoverflow : how do I set up a video input using the AVFoundation framework](https://stackoverflow.com/questions/32053460/how-do-i-set-up-a-video-input-using-the-avfoundation-framework))
 
 ---
 
