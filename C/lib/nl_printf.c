@@ -1,4 +1,5 @@
 #include "nolibc.h"
+
 #include <stdarg.h>
 #include <stddef.h>
 
@@ -44,13 +45,16 @@ int nl_vsnprintf(char *buf, size_t size, const char *fmt, va_list ap) {
 
 #define PUT(c)                                                                 \
   do {                                                                         \
+    char _ch = (c);                                                            \
     if (pos + 1 < size)                                                        \
-      buf[pos++] = (c);                                                        \
+      buf[pos++] = _ch;                                                        \
   } while (0)
 
   while (*fmt) {
     if (*fmt != '%') {
-      PUT(*fmt++);
+      char ch = *fmt;
+      fmt++;
+      PUT(ch);
       continue;
     }
     fmt++; // skip '%'
@@ -163,6 +167,4 @@ int nl_snprintf(char *buf, size_t size, const char *fmt, ...) {
   return r;
 }
 
-void nl_eprint(const char *msg) {
-    nl_write(2, msg, nl_strlen(msg));
-}
+void nl_eprint(const char *msg) { nl_write(2, msg, nl_strlen(msg)); }
