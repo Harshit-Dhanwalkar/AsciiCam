@@ -1,10 +1,10 @@
+#include "nolibc.h"
+
 #include "ascii.h"
 #include "capture.h"
 #include "plugins.h"
 #include "thread_sharing.h"
 #include "timing.h"
-
-#include "nolibc.h"
 
 #include <pthread.h>
 #include <stdint.h>
@@ -13,10 +13,11 @@
 // Defaults
 #define DEFAULT_ASCII_WIDTH 80
 #define DEFAULT_ASCII_HEIGHT 40
-#define DEFAULT_CAPTURE_WIDTH 160
-#define DEFAULT_CAPTURE_HEIGHT 120
+#define DEFAULT_CAPTURE_WIDTH 640
+#define DEFAULT_CAPTURE_HEIGHT 480
 #define DEFAULT_FPS 20
 #define MAX_PLUGINS 8
+#define DEFAULT_CHARSET_DIR "./charsets"
 
 // Signal handling
 volatile sig_atomic_t keep_running = 1;
@@ -55,16 +56,53 @@ static void print_usage(const char *prog) {
       "  -H <height>   ASCII output rows        (default: %d)          \n"
       "  -s <chars>    custom charset string    (default: \"%s\")      \n"
       "  -p <path>     filter plugin .so path                          \n"
+      "  -m <mode>     render mode: braille|blocks|ascii|halfblock|dots\n"
+      "  -k <dir>      charset directory (hot-reloadable .txt ramps)   \n"
       "\n"
       "Image adjustments:\n"
       "  -b <val>      brightness offset        -128..128  (default: 0)\n"
       "  -c <val>      contrast in percent      >0; 100=none (default: 100)\n"
       "  -i            invert mapping                                  \n"
-      "  -e            enable Sobel edge detection                     \n"
+      "  -E <mode>     edge mode                off|sobel|sobel-dir|laplacian\n"
       "  -C            ANSI truecolor output                           \n"
-      "  -D            Floyd-Steinberg dithering                       \n",
+      "  -D            Floyd-Steinberg dithering                       \n"
+      "  -P <0-100>    depth-pop 3D parallax strength (0=off)          \n"
+      "\n"
+      "Live keybindings:\n"
+      "  m / M         cycle render mode forward / backward            \n"
+      "  x / X         cycle edge detection mode forward / backward    \n"
+      "  n / N         cycle loaded charset forward / backward         \n"
+      "  p / o         increase / decrease depth-pop strength          \n"
+      "  up/down       select plugin    [ ] +-1   { } +-10   r reset   \n"
+      "  q             quit                                            \n",
       prog, DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT, DEFAULT_FPS,
       DEFAULT_ASCII_WIDTH, DEFAULT_ASCII_HEIGHT, ASCII_CHARS_DEFAULT);
+}
+
+static render_mode_t parse_render_mode(const char *s) {
+  if (nl_strcmp(s, "braille") == 0)
+    return RENDER_BRAILLE;
+  if (nl_strcmp(s, "blocks") == 0)
+    return RENDER_BLOCKS;
+  if (nl_strcmp(s, "ascii") == 0)
+    return RENDER_ASCII_RAMP;
+  if (nl_strcmp(s, "halfblock") == 0)
+    return RENDER_HALF_BLOCK;
+  if (nl_strcmp(s, "dots") == 0)
+    return RENDER_DOTS;
+  return RENDER_BRAILLE;
+}
+
+static edge_mode_t parse_edge_mode(const char *s) {
+  if (nl_strcmp(s, "off") == 0)
+    return EDGE_OFF;
+  if (nl_strcmp(s, "sobel") == 0)
+    return EDGE_SOBEL;
+  if (nl_strcmp(s, "sobel-dir") == 0)
+    return EDGE_SOBEL_DIR;
+  if (nl_strcmp(s, "laplacian") == 0)
+    return EDGE_LAPLACIAN;
+  return EDGE_OFF;
 }
 
 // termios
@@ -81,7 +119,8 @@ void term_restore(void) { tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_terminal); }
 
 static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
                           int *plugin_params, int count, int selected,
-                          int color) {
+                          int color, const ascii_opts_t *opts,
+                          const charset_registry_t *charsets) {
   char buf[1024];
   int n, base_row = ascii_h + 1; // 1-indexed panel row
 
@@ -103,7 +142,32 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
   if (n > 0 && n < (int)sizeof(buf))
     (void)write(STDOUT_FILENO, buf, (size_t)n);
 
+  // Mode/edge/charset/depth-pop status row
+  const char *cset_name = (charsets && charsets->count > 0 &&
+                           opts->render_mode == RENDER_ASCII_RAMP)
+                              ? charsets->sets[charsets->active].name
+                              : "-";
   n = nl_snprintf(buf, sizeof(buf), "\033[%d;1H\033[K", base_row + 1);
+  if (n > 0)
+    (void)write(STDOUT_FILENO, buf, (size_t)n);
+  if (color) {
+    n = nl_snprintf(buf, sizeof(buf),
+                    "\033[38;2;0;180;220m mode: %s (m/M)  edges: %s (x/X)  "
+                    "charset: %s (n/N)  depth-pop: %d%s (+/-, v)\033[0m\033[K",
+                    render_mode_name(opts->render_mode),
+                    edge_mode_name(opts->edges), cset_name, opts->depth_pop,
+                    opts->depth_invert ? " [inv]" : "");
+  } else {
+    n = nl_snprintf(buf, sizeof(buf),
+                    " mode: %s  edges: %s  charset: %s  depth-pop: %d%s\033[K",
+                    render_mode_name(opts->render_mode),
+                    edge_mode_name(opts->edges), cset_name, opts->depth_pop,
+                    opts->depth_invert ? " [inv]" : "");
+  }
+  if (n > 0 && n < (int)sizeof(buf))
+    (void)write(STDOUT_FILENO, buf, (size_t)n);
+
+  n = nl_snprintf(buf, sizeof(buf), "\033[%d;1H\033[K", base_row + 2);
   if (n > 0)
     (void)write(STDOUT_FILENO, buf, (size_t)n);
 
@@ -163,15 +227,20 @@ int main(int argc, char *argv[]) {
   int cap_w = DEFAULT_CAPTURE_WIDTH;
   int cap_h = DEFAULT_CAPTURE_HEIGHT;
   int fps = DEFAULT_FPS;
+  const char *charset_dir = DEFAULT_CHARSET_DIR;
 
   ascii_opts_t opts = {
       .brightness = 0,
       .contrast = 100,
       .invert = 0,
       .color = 0,
-      .edges = 0,
+      .edges = EDGE_OFF,
       .dither = 0,
+      .threshold_val = 35,
       .charset = NULL,
+      .render_mode = RENDER_BRAILLE,
+      .depth_pop = 0,
+      .depth_invert = 0,
   };
 
   // Plugins
@@ -180,7 +249,7 @@ int main(int argc, char *argv[]) {
 
   // CLI parsing
   int opt;
-  while ((opt = nl_getopt(argc, argv, "d:W:H:w:h:f:b:c:iCDes:p:")) != -1)
+  while ((opt = nl_getopt(argc, argv, "d:W:H:w:h:f:b:c:iCDs:p:m:E:k:P:")) != -1)
     switch (opt) {
     case 'd':
       device = optarg;
@@ -224,8 +293,21 @@ int main(int argc, char *argv[]) {
     case 'C':
       opts.color = 1;
       break;
-    case 'e':
-      opts.edges = 1;
+    case 'E':
+      opts.edges = parse_edge_mode(optarg);
+      break;
+    case 'm':
+      opts.render_mode = parse_render_mode(optarg);
+      break;
+    case 'k':
+      charset_dir = optarg;
+      break;
+    case 'P':
+      opts.depth_pop = my_atoi(optarg);
+      if (opts.depth_pop < 0)
+        opts.depth_pop = 0;
+      if (opts.depth_pop > 100)
+        opts.depth_pop = 100;
       break;
     case 'D':
       opts.dither = 1;
@@ -275,10 +357,11 @@ int main(int argc, char *argv[]) {
   }
   fprintf(stderr,
           "Device: %s | capture %dx%d | ASCII %dx%d | %d fps | %d "
-          "plugin(s)%s%s%s%s\n",
+          "plugin(s) | mode: %s%s%s%s\n",
           device, cam.width, cam.height, ascii_w, ascii_h, fps, plugin_count,
-          opts.color ? " | color" : "", opts.edges ? " | edges" : "",
-          opts.dither ? " | dither" : "", opts.invert ? " | inverted" : "");
+          render_mode_name(opts.render_mode), opts.color ? " | color" : "",
+          opts.edges != EDGE_OFF ? " | edges" : "",
+          opts.dither ? " | dither" : "");
 
   // Pixel buffers allocation
   int cam_pixels = cam.width * cam.height;
@@ -293,7 +376,13 @@ int main(int argc, char *argv[]) {
   }
 
   // Allocate output string buffer
-  size_t out_size = ascii_out_size(ascii_w, ascii_h, opts.color);
+  size_t out_size = 0;
+  for (render_mode_t rm = 0; rm < RENDER_MODE_COUNT; rm++) {
+    size_t s =
+        ascii_out_size_for_mode(ascii_w * 2, ascii_h * 4, opts.color, rm);
+    if (s > out_size)
+      out_size = s;
+  }
   char *out_buf = malloc(out_size);
 
   if (!out_buf) {
@@ -303,6 +392,11 @@ int main(int argc, char *argv[]) {
     webcam_cleanup(&cam);
     return 1;
   }
+
+  // Charset registry, hot-reloadable ramps from charset_dir
+  charset_registry_t charsets;
+  charset_registry_init(&charsets, charset_dir);
+  opts.charset = charset_registry_active_ramp(&charsets);
 
   // // Thead sharing
   // shared_frame_t sf = {0};
@@ -366,33 +460,68 @@ int main(int argc, char *argv[]) {
         continue;
       }
 
-      // adjust plugin param if selected
-      int *p = (plugin_count > 0) ? &plugin_params[selected] : NULL;
+      // Adjust plugin param if selected
+      int *pp = (plugin_count > 0) ? &plugin_params[selected] : NULL;
       switch (ch) {
       case 'q':
       case 'Q':
         keep_running = 0;
         break;
       case ']':
-        if (p && *p < 255)
-          (*p)++;
+        if (pp && *pp < 255)
+          (*pp)++;
         break;
       case '[':
-        if (p && *p > 0)
-          (*p)--;
+        if (pp && *pp > 0)
+          (*pp)--;
         break;
       case '}':
-        if (p)
-          *p = (*p + 10 > 255) ? 255 : *p + 10;
+        if (pp)
+          *pp = (*pp + 10 > 255) ? 255 : *pp + 10;
         break;
       case '{':
-        if (p)
-          *p = (*p - 10 < 0) ? 0 : *p - 10;
+        if (pp)
+          *pp = (*pp - 10 < 0) ? 0 : *pp - 10;
         break;
       case 'r':
       case 'R':
-        if (p)
-          *p = 128;
+        if (pp)
+          *pp = 128;
+        break;
+      case 'm':
+        opts.render_mode = (opts.render_mode + 1) % RENDER_MODE_COUNT;
+        break;
+      case 'M':
+        opts.render_mode =
+            (opts.render_mode - 1 + RENDER_MODE_COUNT) % RENDER_MODE_COUNT;
+        break;
+      case 'x':
+        opts.edges = (opts.edges + 1) % EDGE_MODE_COUNT;
+        break;
+      case 'X':
+        opts.edges = (opts.edges - 1 + EDGE_MODE_COUNT) % EDGE_MODE_COUNT;
+        break;
+      case 'n':
+        if (charsets.count > 0) {
+          charsets.active = (charsets.active + 1) % charsets.count;
+          opts.charset = charset_registry_active_ramp(&charsets);
+        }
+        break;
+      case 'N':
+        if (charsets.count > 0) {
+          charsets.active =
+              (charsets.active - 1 + charsets.count) % charsets.count;
+          opts.charset = charset_registry_active_ramp(&charsets);
+        }
+        break;
+      case '+':
+        opts.depth_pop = (opts.depth_pop + 5 > 100) ? 100 : opts.depth_pop + 5;
+        break;
+      case '-':
+        opts.depth_pop = (opts.depth_pop - 5 < 0) ? 0 : opts.depth_pop - 5;
+        break;
+      case 'v':
+        opts.depth_invert = !opts.depth_invert;
         break;
       }
     }
@@ -402,6 +531,10 @@ int main(int argc, char *argv[]) {
     // Hot-reload check for all plugins
     for (int i = 0; i < plugin_count; i++)
       plugin_check_reload(&plugins[i]);
+
+    // Hot-reload check for charset ramps
+    charset_registry_check_reload(&charsets);
+    opts.charset = charset_registry_active_ramp(&charsets);
 
     // Frame capture
     if (webcam_wait_frame(&cam, 1000) < 0)
@@ -419,17 +552,55 @@ int main(int argc, char *argv[]) {
                                    &plugin_params[i]);
     }
 
-    if (opts.color && rgb)
+    // NOTE: cam.buffer is the V4L2 mmap region (Linux only)
+    // On macOS, capture_macos.c delivers luma only; cam.buffer is NULL
+    // TODO: Add color support for macOS
+    // Color mode is therefore a Linux-only feature for now.
+    if (opts.color && rgb && cam.buffer && cam.buffer != MAP_FAILED)
       yuyv_to_rgb((const uint8_t *)cam.buffer, rgb, cam.width, cam.height);
 
-    int len = grayscale_to_ascii(gray, rgb, cam.width, cam.height, ascii_w,
-                                 ascii_h, out_buf, out_size, &opts);
+    // Calculate proper subpixel dimensions
+    int subpixel_w = ascii_w;
+    int subpixel_h = ascii_h;
+
+    switch (opts.render_mode) {
+    case RENDER_BRAILLE:
+      subpixel_w = ascii_w * 2;
+      subpixel_h = ascii_h * 4;
+      break;
+    case RENDER_HALF_BLOCK:
+      subpixel_w = ascii_w * 1;
+      subpixel_h = ascii_h * 2;
+      break;
+    default:
+      // RENDER_BLOCKS, RENDER_ASCII_RAMP, RENDER_DOTS are 1x1 per cell
+      subpixel_w = ascii_w * 2;
+      subpixel_h = ascii_h * 4;
+      break;
+    }
+
+    size_t out_size = ascii_out_size_for_mode(subpixel_w, subpixel_h,
+                                              opts.color, opts.render_mode);
+    char *out_buf = malloc(out_size);
+    if (!out_buf) {
+      perror("Failed to allocate text output buffer");
+      break;
+    }
+
+    // Process frame mapping using dynamically calculated bounds
+    int len = grayscale_to_ascii(gray, rgb, cam.width, cam.height, subpixel_w,
+                                 subpixel_h, out_buf, out_size, &opts);
+    if (len > (int)out_size) {
+      fprintf(stderr, "WARNING: len=%d > out_size=%zu\n", len, out_size);
+    }
 
     if (len > 0) {
       (void)write(STDOUT_FILENO, out_buf, (size_t)len);
       overlay_panel(ascii_h, current_fps, plugins, plugin_params, plugin_count,
-                    selected, opts.color);
+                    selected, opts.color, &opts, &charsets);
     }
+
+    free(out_buf);
 
     if (webcam_requeue_buffer(&cam) < 0) {
       perror("requeue_buffer");
@@ -442,7 +613,7 @@ int main(int argc, char *argv[]) {
   // Cleanup
   term_restore();
   // \033[2J = erase screen, \033[H = cursor home, \033[?25h = show cursor
-  static const char CLEANUP[] = "\033[2J\033[H\033[0m\033[?25h\n";
+  static const char CLEANUP[] = "\033[2J\033[H\033[0m\033[?25h";
   (void)write(STDOUT_FILENO, CLEANUP, sizeof(CLEANUP) - 1);
   fprintf(stderr, "Stopped.\n");
 
@@ -451,6 +622,7 @@ int main(int argc, char *argv[]) {
   free(out_buf);
   for (int i = 0; i < plugin_count; i++)
     plugin_cleanup(&plugins[i]);
+  charset_registry_cleanup(&charsets);
   webcam_cleanup(&cam);
   return 0;
 }

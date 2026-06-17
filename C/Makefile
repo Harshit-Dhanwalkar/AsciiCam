@@ -26,23 +26,21 @@ FILTERDIR := filters
 BUILDDIR  := build
 OBJDIR    := $(BUILDDIR)/obj
 
-CFLAGS_COMMON := -Wall -Wextra -O2 -Iinclude -I$(LIBDIR) -fno-stack-protector -fno-builtin-memcpy -fno-builtin-memset -fno-builtin-strlen
-CFLAGS_COMMON += 
+CFLAGS_COMMON := -Wall -Wextra -O2 -Iinclude -I$(LIBDIR) -fno-stack-protector -fno-builtin -ffreestanding
 
 ifeq ($(PLATFORM),linux)
     # Linux: nolibc, V4L2, SSE4.1
     CFLAGS   := $(CFLAGS_COMMON) -DPLATFORM_LINUX -D__LINUX_NOLIBC__
     CFLAGS   += -msse4.1
 
-    LDFLAGS  := -nostdlib
+    LDFLAGS  := -nostdlib -nostdinc
     LDFLAGS  += -Wl,--no-as-needed
     LDFLAGS  += -Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2
-    LDFLAGS  += $(shell $(CC) --print-file-name=crti.o)
-    LDFLAGS  += $(shell $(CC) --print-file-name=crtn.o)
     LDFLAGS  += -L/usr/lib/x86_64-linux-gnu # TEST: Explicit library paths
     # LDFLAGS  += -Wl,-rpath-link=/usr/lib/x86_64-linux-gnu
-    LDFLAGS  += -ldl -lpthread -lc
-    # LDFLAGS  += -ldl -lpthread
+    LDFLAGS  += -ldl -lpthread -lc # FIX: lc flag pulls standard libc,but removing them will -lpthread and -ldl will fail to link because they themselves depend on libc
+    # TODO: custom threading library using clone() + futex to eliminate -lpthread (pthread functions) dependency
+    # TODO: implement an ELF loader (or statically link plugins) to eliminate -ldl (dlopen/dlsym/dlclose are part of libdl.so also glibc) dependency
     LDFLAGS  += -msse4.1
 
     LIBSRCS  := $(LIBDIR)/nl_alloc.c \

@@ -1,15 +1,15 @@
 /*
-Still uses pthread functions, TODO: replace them with raw futex syscalls and clone()
+Still uses pthread functions, TODO: replace them with raw futex syscalls and
+clone()
 */
 
+#include "nolibc.h"
 
 #include "ascii.h"
 #include "capture.h"
 #include "thread_sharing.h"
 
 #include <stdint.h>
-
-#include "nolibc.h"
 
 // Producer thread for capturing frames
 void *capture_thread(void *arg) {
@@ -53,11 +53,13 @@ void *capture_thread(void *arg) {
 void *render_thread(void *arg) {
   shared_frame_t *sf = arg;
 
-  // Allocate dynamic buffers
-  size_t out_size = ascii_out_size(sf->ascii_w, sf->ascii_h, sf->opts.color);
-  char *out_buf = malloc(out_size);
-  uint8_t *local_rgb =
-      sf->opts.color ? malloc(sf->width * sf->height * 3) : NULL;
+  int braille_w = sf->ascii_w * 2;
+  int braille_h = sf->ascii_h * 4;
+  size_t out_size = ascii_out_size(braille_w, braille_h, sf->opts.color);
+  char *out_buf = nl_malloc(out_size);
+
+  // TODO: extend shared_frame_t to carry an rgb double-buffer alongside gray
+  uint8_t *local_rgb = NULL;
 
   if (!out_buf) {
     perror("render_thread malloc");
@@ -78,9 +80,9 @@ void *render_thread(void *arg) {
     pthread_mutex_unlock(&sf->lock);
 
     // Process frame outside locked state
-    int len = grayscale_to_ascii(sf->buf[read_idx], local_rgb, sf->width,
-                                 sf->height, sf->ascii_w, sf->ascii_h, out_buf,
-                                 out_size, &sf->opts);
+    int len =
+        grayscale_to_ascii(sf->buf[read_idx], local_rgb, sf->width, sf->height,
+                           braille_w, braille_h, out_buf, out_size, &sf->opts);
 
     if (len > 0) {
       write(STDOUT_FILENO, "\033[H", 3); // cursor to top-left
@@ -92,11 +94,10 @@ void *render_thread(void *arg) {
 
   pthread_mutex_unlock(&sf->lock);
 
-  // Cleanup memory
   free(out_buf);
-  if (local_rgb) {
-    free(local_rgb);
-  }
+  // local_rgb is NULL in this path (see comment above); free is a no-op but
+  // safe
+  free(local_rgb);
 
   return NULL;
 }

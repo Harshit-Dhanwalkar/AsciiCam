@@ -36,7 +36,7 @@ static inline int nl_ioctl(int fd, unsigned long req, void *arg) {
 #define stderr 2
 #define fprintf(fd, fmt, ...)                                                  \
   do {                                                                         \
-    char _fb[1024];                                                            \
+    char _fb[4096];                                                            \
     int _fn = nl_snprintf(_fb, sizeof(_fb), fmt, ##__VA_ARGS__);               \
     if (_fn > 0) {                                                             \
       size_t _nw =                                                             \

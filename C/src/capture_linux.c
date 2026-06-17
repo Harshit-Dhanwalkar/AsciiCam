@@ -1,10 +1,11 @@
+#ifdef PLATFORM_LINUX
+
+#include "nolibc.h"
+
 #include "ascii.h"
 #include "capture.h"
 #include "platform.h"
 
-#ifdef PLATFORM_LINUX
-
-#include "nolibc.h"
 #include <linux/videodev2.h>
 #include <stdint.h>
 
@@ -126,4 +127,4 @@ void webcam_cleanup(webcam_t *cam) {
   cam->impl = (webcam_impl_t *)0;
 }
 
-#endif /* PLATFORM_LINUX */
+#endif

@@ -1,8 +1,8 @@
+#include "nolibc.h"
+
 #include "timing.h"
 
 #include <time.h>
-
-#include "nolibc.h"
 
 static long frame_duration_ns = 0; // nanoseconds per frame
 

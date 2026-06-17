@@ -1,14 +1,14 @@
+#ifdef PLATFORM_MACOS
 #include "capture.h"
 #include "platform.h"
 
-#ifdef PLATFORM_MACOS
+#include <pthread.h>
+#include <stdlib.h>
+#include <string.h>
 
 #import <AVFoundation/AVFoundation.h>
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
-#include <pthread.h>
-#include <stdlib.h>
-#include <string.h>
 
 #define FRAME_BUFS 2
 

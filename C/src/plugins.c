@@ -1,9 +1,9 @@
+#include "nolibc.h"
+
 #include "plugins.h"
 
 #include <dlfcn.h>
 #include <sys/inotify.h>
-
-#include "nolibc.h"
 
 static int copy_file(const char *src, const char *dst) {
   int fd_src = open(src, O_RDONLY);
@@ -67,17 +67,9 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
     return -1;
   }
 
-  void *sym = dlsym(pl->dl_handle, "plugin_get");
-  if (!sym) {
-    fprintf(stderr, "[plugin] dlsym: %s\n", dlerror());
-    dlclose(pl->dl_handle);
-    pl->dl_handle = NULL;
-    return -1;
-  }
-
   filter_plugin_t *(*get_plugin)(void) = dlsym(pl->dl_handle, "plugin_get");
   if (!get_plugin) {
-    fprintf(stderr, "[plugin] dlsym: %s\n", dlerror());
+    fprintf(stderr, "[plugin] dlsym plugin_get: %s\n", dlerror());
     dlclose(pl->dl_handle);
     pl->dl_handle = NULL;
     unlink(pl->tmp_path);
@@ -88,9 +80,6 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
   pl->plugin = get_plugin();
   snprintf(pl->status_msg, sizeof(pl->status_msg), "loaded: %s",
            pl->plugin->name);
-
-  // FIX: Temporary file leak in plugin_load() when dlsym fails
-  // unlink(pl->tmp_path)
   return 0;
 }
 
