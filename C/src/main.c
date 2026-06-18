@@ -238,7 +238,7 @@ int main(int argc, char *argv[]) {
       .dither = 0,
       .threshold_val = 35,
       .charset = NULL,
-      .render_mode = RENDER_BRAILLE,
+      .render_mode = RENDER_DOTS, // RENDER_BRAILLE,
       .depth_pop = 0,
       .depth_invert = 0,
   };
@@ -579,14 +579,6 @@ int main(int argc, char *argv[]) {
       break;
     }
 
-    size_t out_size = ascii_out_size_for_mode(subpixel_w, subpixel_h,
-                                              opts.color, opts.render_mode);
-    char *out_buf = malloc(out_size);
-    if (!out_buf) {
-      perror("Failed to allocate text output buffer");
-      break;
-    }
-
     // Process frame mapping using dynamically calculated bounds
     int len = grayscale_to_ascii(gray, rgb, cam.width, cam.height, subpixel_w,
                                  subpixel_h, out_buf, out_size, &opts);
@@ -599,8 +591,6 @@ int main(int argc, char *argv[]) {
       overlay_panel(ascii_h, current_fps, plugins, plugin_params, plugin_count,
                     selected, opts.color, &opts, &charsets);
     }
-
-    free(out_buf);
 
     if (webcam_requeue_buffer(&cam) < 0) {
       perror("requeue_buffer");

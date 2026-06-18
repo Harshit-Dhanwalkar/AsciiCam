@@ -388,8 +388,11 @@ static int emit_glyph(char *out, size_t out_size, int out_idx,
 int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
                        int src_h, int dst_w, int dst_h, char *out,
                        size_t out_size, const ascii_opts_t *opts) {
+  render_mode_t render_mode = opts ? opts->render_mode : RENDER_BRAILLE;
+
   int safe_dst_w = dst_w - (dst_w % 2);
-  int safe_dst_h = dst_h - (dst_h % 4);
+  int safe_dst_h = (render_mode == RENDER_HALF_BLOCK) ? dst_h - (dst_h % 2)
+                                                      : dst_h - (dst_h % 4);
 
   int brightness = opts ? opts->brightness : 0;
   int contrast = opts ? opts->contrast : 100;
@@ -398,7 +401,6 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
   edge_mode_t edge_mode = opts ? opts->edges : EDGE_OFF;
   int do_dither = opts ? opts->dither : 0;
   int thresh_limit = opts ? opts->threshold_val : 35;
-  render_mode_t render_mode = opts ? opts->render_mode : RENDER_BRAILLE;
   const char *ramp = (opts && opts->charset && opts->charset[0])
                          ? opts->charset
                          : ASCII_CHARS_DEFAULT;
