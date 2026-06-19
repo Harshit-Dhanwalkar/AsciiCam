@@ -33,7 +33,7 @@ typedef struct {
   char ramp[CHARSET_RAMP_LEN];
 } charset_entry_t;
 
-// Registry of loaded charsets, hot-reloadable from a directory of .txt files.
+// Registry of loaded charsets, hot-reloadable from directory of .txt files.
 typedef struct {
   charset_entry_t sets[MAX_CHARSETS];
   int count;
@@ -45,9 +45,9 @@ typedef struct {
 
 int charset_registry_init(charset_registry_t *reg, const char *dir);
 void charset_registry_scan(
-    charset_registry_t *reg); /* (re)loads all files in dir */
+    charset_registry_t *reg); // (re)loads all files in dir
 void charset_registry_check_reload(
-    charset_registry_t *reg); /* inotify poll, call once per frame */
+    charset_registry_t *reg); // inotify poll, call once per frame
 void charset_registry_cleanup(charset_registry_t *reg);
 const char *charset_registry_active_ramp(const charset_registry_t *reg);
 

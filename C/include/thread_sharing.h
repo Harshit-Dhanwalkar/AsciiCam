@@ -6,11 +6,11 @@
 #include <stdint.h>
 
 typedef struct {
-  uint8_t *buf[2];        // Double buffer, one slot per thread
-  int width, height;      // capture dimensions
-  int ascii_w, ascii_h;
-  int ready_idx;          // which slot has the freshest frame
-  int has_frame;          // non-zero once producer has written once
+  uint8_t *buf[2];      // Double buffer, one slot per thread
+  int width, height;    // capture dimensions
+  int ascii_w, ascii_h; // Ascii width and height
+  int ready_idx;        // which slot has the freshest frame
+  int has_frame;        // non-zero once producer has written once
   pthread_mutex_t lock;
   pthread_cond_t cond;
   volatile int stop;

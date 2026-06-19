@@ -7,7 +7,7 @@
 typedef struct webcam_impl webcam_impl_t;
 
 typedef struct {
-  int fd; /* Linux: V4L2 fd. macOS: -1 (unused externally) */
+  int fd; // Linux: V4L2 fd. macOS: -1 (unused externally)
   int width;
   int height;
   void *buffer;

@@ -5,12 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Media Foundation is the modern (post-Vista) successor to DirectShow for
-// webcam capture on Windows; DirectShow is still around mainly for legacy
-// filter graphs and is on Microsoft's "prefer Media Foundation for new code"
-// list, so that's what this backend uses. It needs COM initialized and
-// links against mfplat.lib, mf.lib, mfreadwrite.lib, mfuuid.lib, ole32.lib
-// (see the Windows section added to the Makefile).
 #include <mfapi.h>
 #include <mferror.h>
 #include <mfidl.h>
@@ -21,12 +15,6 @@ struct webcam_impl {
   IMFMediaSource *source;
   IMFSourceReader *reader;
 
-  // The frame fetched by webcam_wait_frame() and consumed by
-  // webcam_capture_frame(). Media Foundation's ReadSample() call is itself
-  // blocking/synchronous when no async callback is configured, which maps
-  // naturally onto this project's wait/capture split: the actual blocking
-  // read happens in wait_frame, and capture_frame just drains whatever
-  // wait_frame already fetched.
   IMFSample *pending_sample;
 
   int com_initialized;
@@ -48,9 +36,6 @@ static void release_pending_sample(struct webcam_impl *im) {
   }
 }
 
-// Enumerate video capture devices and pick the one whose friendly name
-// matches `device` (case-insensitive substring match), or the first device
-// found if `device` is NULL. Mirrors capture_macos.c's localizedName match.
 static IMFActivate *find_device(const char *device) {
   IMFAttributes *attrs = NULL;
   IMFActivate **devices = NULL;
@@ -102,11 +87,7 @@ static IMFActivate *find_device(const char *device) {
   return chosen;
 }
 
-// Walk the native media types on stream 0 and pick whichever is closest to
-// the requested width/height, same "closest match" approach
-// capture_macos.c uses for AVCaptureDeviceFormat. Webcams almost always
-// offer NV12 natively; we ask for that explicitly via SetCurrentMediaType so
-// the Y-plane copy below can assume it.
+// Walk native media types on stream 0 and pick closest to requested width/height
 static int negotiate_format(IMFSourceReader *reader, int want_w, int want_h,
                             int *out_w, int *out_h) {
   IMFMediaType *best = NULL;
@@ -142,10 +123,7 @@ static int negotiate_format(IMFSourceReader *reader, int want_w, int want_h,
   if (!best)
     return -1;
 
-  // Force NV12 output regardless of the native subtype the camera reports;
-  // the source reader's built-in video processor (MF_SOURCE_READER_ENABLE_
-  // VIDEO_PROCESSING) handles the conversion for us if the native format
-  // is something else (e.g. MJPG).
+  // Force NV12 output regardless of native subtype camera reports;
   IMFMediaType *want_type = NULL;
   if (FAILED(MFCreateMediaType(&want_type))) {
     SAFE_RELEASE(best);
@@ -240,11 +218,6 @@ fail:
 
 int webcam_wait_frame(webcam_t *cam, int timeout_ms) {
   struct webcam_impl *im = cam->impl;
-  // The synchronous reader doesn't take a timeout directly; ReadSample()
-  // blocks until a sample, error, or end-of-stream arrives. `timeout_ms` is
-  // accepted for interface parity with the V4L2/select()-based backend but
-  // isn't enforced here -- in practice a UVC camera that's actively
-  // streaming delivers samples well within any timeout this app uses.
   (void)timeout_ms;
 
   release_pending_sample(im);
@@ -281,11 +254,6 @@ int webcam_capture_frame(webcam_t *cam, uint8_t *gray_buffer) {
     return -1;
   }
 
-  // NV12: the Y (luma) plane comes first, tightly packed at cam->width
-  // stride for the formats this app negotiates -- if a given driver hands
-  // back a padded stride, IMF2DBuffer::Lock2D below would be the correct
-  // way to get the real stride, but plain Lock() with width-sized rows
-  // covers the overwhelming majority of UVC cameras.
   size_t plane_size = (size_t)cam->width * (size_t)cam->height;
   if ((size_t)cur_len >= plane_size)
     memcpy(gray_buffer, data, plane_size);
@@ -322,19 +290,8 @@ void webcam_cleanup(webcam_t *cam) {
   cam->buffer = NULL;
 }
 
-// ---------------------------------------------------------------------------
 // Hardware controls: not implemented on Windows yet.
-//
-// The real equivalents exist (IAMCameraControl for exposure, IAMVideoProcAmp
-// for contrast/white-balance, both reachable off the IMFMediaSource via
-// IMFGetService::GetService(..., MF_PROXY_PLAYER, IID_IAMCameraControl,...)-
-// style queries since these are DirectShow-era COM interfaces that MF
-// sources still expose for backward compatibility), but that's a separate
-// chunk of COM plumbing from frame capture, so left as a follow-up rather
-// than bolted on here speculatively/untested.
 // TODO: implement via IAMCameraControl / IAMVideoProcAmp.
-// ---------------------------------------------------------------------------
-
 int webcam_set_auto_exposure(webcam_t *cam, int enable) {
   (void)cam;
   (void)enable;
