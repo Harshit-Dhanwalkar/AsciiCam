@@ -39,12 +39,7 @@ void do_edge_boost(uint8_t *gray, int w, int h, void *ctx) {
 }
 
 #ifndef TESTING
-static filter_plugin_t self = {
-  do_edge_boost,
-  "edge_boost"
-};
+static filter_plugin_t self = {do_edge_boost, "edge_boost"};
 
-filter_plugin_t *plugin_get(void) {
-  return &self;
-}
+filter_plugin_t *plugin_get(void) { return &self; }
 #endif

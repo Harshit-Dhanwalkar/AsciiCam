@@ -12,12 +12,7 @@ void do_invert(uint8_t *gray, int w, int h, void *ctx) {
 }
 
 #ifndef TESTING
-static filter_plugin_t self = {
-  .process = do_invert,
-  .name = "invert"
-};
+static filter_plugin_t self = {.process = do_invert, .name = "invert"};
 
-filter_plugin_t *plugin_get(void) {
-  return &self;
-}
+filter_plugin_t *plugin_get(void) { return &self; }
 #endif
