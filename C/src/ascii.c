@@ -1,7 +1,8 @@
 // NOTE:
 // SIMD paths:
-// -   x86_64 Linux/macOS: SSE2 via <immintrin.h>
-// -   ARM64  macOS:       NEON via <arm_neon.h>
+// -   x86_64 Linux/macOS:  SSE2 via <immintrin.h>
+// -   ARM64  macOS:        NEON via <arm_neon.h>
+// - TODO:          Windows:
 
 #include "nolibc.h"
 

@@ -73,6 +73,9 @@ static void print_usage(const char *prog) {
       "  x / X         cycle edge detection mode forward / backward    \n"
       "  n / N         cycle loaded charset forward / backward         \n"
       "  p / o         increase / decrease depth-pop strength          \n"
+      "  e / E         hw exposure down / up        (V4L2, Linux only) \n"
+      "  w / W         hw white-balance down / up    (V4L2, Linux only) \n"
+      "  c / C         hw contrast down / up         (V4L2, Linux only) \n"
       "  up/down       select plugin    [ ] +-1   { } +-10   r reset   \n"
       "  q             quit                                            \n",
       prog, DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT, DEFAULT_FPS,
@@ -120,7 +123,8 @@ void term_restore(void) { tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_terminal); }
 static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
                           int *plugin_params, int count, int selected,
                           int color, const ascii_opts_t *opts,
-                          const charset_registry_t *charsets) {
+                          const charset_registry_t *charsets, int hw_exposure,
+                          int hw_contrast, int hw_wb) {
   char buf[1024];
   int n, base_row = ascii_h + 1; // 1-indexed panel row
 
@@ -167,7 +171,41 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
   if (n > 0 && n < (int)sizeof(buf))
     (void)write(STDOUT_FILENO, buf, (size_t)n);
 
+  // Hardware (V4L2) camera control row -- "n/a" fields when unsupported
+  // (macOS/Windows, or a driver that doesn't expose that control).
   n = nl_snprintf(buf, sizeof(buf), "\033[%d;1H\033[K", base_row + 2);
+  if (n > 0)
+    (void)write(STDOUT_FILENO, buf, (size_t)n);
+
+  char exp_buf[16], con_buf[16], wb_buf[16];
+  if (hw_exposure >= 0)
+    nl_snprintf(exp_buf, sizeof(exp_buf), "%d", hw_exposure);
+  else
+    nl_snprintf(exp_buf, sizeof(exp_buf), "n/a");
+  if (hw_contrast >= 0)
+    nl_snprintf(con_buf, sizeof(con_buf), "%d", hw_contrast);
+  else
+    nl_snprintf(con_buf, sizeof(con_buf), "n/a");
+  if (hw_wb >= 0)
+    nl_snprintf(wb_buf, sizeof(wb_buf), "%dK", hw_wb);
+  else
+    nl_snprintf(wb_buf, sizeof(wb_buf), "n/a");
+
+  if (color) {
+    n = nl_snprintf(buf, sizeof(buf),
+                    "\033[38;2;220;160;0m hw exposure: %s (e/E)  hw contrast: "
+                    "%s (c/C)  hw white-balance: %s (w/W)\033[0m\033[K",
+                    exp_buf, con_buf, wb_buf);
+  } else {
+    n = nl_snprintf(buf, sizeof(buf),
+                    " hw exposure: %s  hw contrast: %s  hw white-balance: "
+                    "%s\033[K",
+                    exp_buf, con_buf, wb_buf);
+  }
+  if (n > 0 && n < (int)sizeof(buf))
+    (void)write(STDOUT_FILENO, buf, (size_t)n);
+
+  n = nl_snprintf(buf, sizeof(buf), "\033[%d;1H\033[K", base_row + 3);
   if (n > 0)
     (void)write(STDOUT_FILENO, buf, (size_t)n);
 
@@ -363,6 +401,11 @@ int main(int argc, char *argv[]) {
           opts.edges != EDGE_OFF ? " | edges" : "",
           opts.dither ? " | dither" : "");
 
+  int hw_exposure = -1, hw_contrast = -1, hw_wb = -1;
+  webcam_get_exposure(&cam, &hw_exposure);
+  webcam_get_contrast(&cam, &hw_contrast);
+  webcam_get_white_balance(&cam, &hw_wb);
+
   // Pixel buffers allocation
   int cam_pixels = cam.width * cam.height;
   uint8_t *gray = malloc(cam_pixels);
@@ -523,6 +566,24 @@ int main(int argc, char *argv[]) {
       case 'v':
         opts.depth_invert = !opts.depth_invert;
         break;
+      case 'e':
+        webcam_adjust_exposure(&cam, -10, &hw_exposure);
+        break;
+      case 'E':
+        webcam_adjust_exposure(&cam, 10, &hw_exposure);
+        break;
+      case 'w':
+        webcam_adjust_white_balance(&cam, -100, &hw_wb);
+        break;
+      case 'W':
+        webcam_adjust_white_balance(&cam, 100, &hw_wb);
+        break;
+      case 'c':
+        webcam_adjust_contrast(&cam, -5, &hw_contrast);
+        break;
+      case 'C':
+        webcam_adjust_contrast(&cam, 5, &hw_contrast);
+        break;
       }
     }
     if (!keep_running)
@@ -579,7 +640,6 @@ int main(int argc, char *argv[]) {
       break;
     }
 
-    // Process frame mapping using dynamically calculated bounds
     int len = grayscale_to_ascii(gray, rgb, cam.width, cam.height, subpixel_w,
                                  subpixel_h, out_buf, out_size, &opts);
     if (len > (int)out_size) {
@@ -589,7 +649,8 @@ int main(int argc, char *argv[]) {
     if (len > 0) {
       (void)write(STDOUT_FILENO, out_buf, (size_t)len);
       overlay_panel(ascii_h, current_fps, plugins, plugin_params, plugin_count,
-                    selected, opts.color, &opts, &charsets);
+                    selected, opts.color, &opts, &charsets, hw_exposure,
+                    hw_contrast, hw_wb);
     }
 
     if (webcam_requeue_buffer(&cam) < 0) {

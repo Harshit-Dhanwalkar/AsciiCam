@@ -5,8 +5,10 @@
 #define PLATFORM_LINUX 1
 #elif defined(__APPLE__) && defined(__MACH__)
 #define PLATFORM_MACOS 1
+#elif defined(_WIN32)
+#define PLATFORM_WINDOWS 1
 #else
-#error "Unsupported platform (only Linux and macOS are supported)"
+#error "Unsupported platform (only Linux, macOS, and Windows are supported)"
 #endif
 
 #if defined(__x86_64__) || defined(_M_X64)

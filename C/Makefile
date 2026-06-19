@@ -1,8 +1,9 @@
 # AsciiCam cross-platform build
 # Supports:
-#   Linux  x86_64  (gcc, nolibc, V4L2)
-#   macOS  ARM64   (clang, system libc, AVFoundation)
-#   macOS  x86_64  (clang, system libc, AVFoundation)
+#   Linux    x86_64  (gcc,   nolibc,      V4L2)
+#   macOS    ARM64   (clang, system libc, AVFoundation)
+#   macOS    x86_64  (clang, system libc, AVFoundation)
+#   Windows          (gcc,   ststem libc, MinGW-w64)
 
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
@@ -16,6 +17,10 @@ else ifeq ($(UNAME_S),Darwin)
     CC       := clang
     LD       := clang
     OBJC     := clang
+else ifneq (,$(filter MINGW% MSYS%,$(UNAME_S)))
+    PLATFORM := windows
+    CC       := gcc
+    LD       := gcc
 else
     $(error Unsupported platform: $(UNAME_S))
 endif
@@ -84,6 +89,25 @@ else ifeq ($(PLATFORM),macos)
     # Plugin shared objects
     SO_EXT   := dylib
     SO_FLAGS := -dynamiclib
+else ifeq ($(PLATFORM),windows)
+    # Windows: system libc (MSVCRT via MinGW), Media Foundation.
+    CFLAGS   := $(CFLAGS_COMMON) -DPLATFORM_WINDOWS -DWIN32_LEAN_AND_MEAN \
+                -DUNICODE -D_UNICODE \
+                -msse4.1
+    CFLAGS   := $(filter-out -ffreestanding -fno-builtin,$(CFLAGS))
+
+    LDFLAGS  := -lmfplat -lmf -lmfreadwrite -lmfuuid -lole32 \
+                -loleaut32 -luuid -lstrmiids
+
+    # TODO: Update nolibc for windows support instead of system system libc, currently :
+    # No nolibc on Windows, uses system libc
+    LIBSRCS  :=
+
+    PLAT_SRC := $(SRCDIR)/capture_windows.c
+
+    # Plugin shared objects
+    SO_EXT   := dll
+    SO_FLAGS := -shared
 endif
 
 CORE_SRCS := $(SRCDIR)/ascii.c \
