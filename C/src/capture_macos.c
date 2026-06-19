@@ -294,4 +294,85 @@ void webcam_cleanup(webcam_t *cam) {
   cam->buffer = NULL;
 }
 
+// Hardware controls
+// TODO: : not implemented on macOS yet.
+// AVFoundation expose the equivalent knobs on AVCaptureDevice
+// (exposureMode/setExposureModeCustomWithDuration:ISO:, whiteBalanceMode/
+// setWhiteBalanceModeLocked:..., per-key-value-observed lockForConfiguration
+// dance), it needs its own implementation rather than
+// a thin wrapper 
+// HACK: "unsupported" for now so callers (main.c) don't.
+// TODO: implement via AVCaptureDevice exposure/white-balance APIs.
+int webcam_set_auto_exposure(webcam_t *cam, int enable) {
+  (void)cam;
+  (void)enable;
+  return -1;
+}
+
+int webcam_set_auto_white_balance(webcam_t *cam, int enable) {
+  (void)cam;
+  (void)enable;
+  return -1;
+}
+
+int webcam_adjust_exposure(webcam_t *cam, int delta, int *out_value) {
+  (void)cam;
+  (void)delta;
+  (void)out_value;
+  return -1;
+}
+
+int webcam_adjust_contrast(webcam_t *cam, int delta, int *out_value) {
+  (void)cam;
+  (void)delta;
+  (void)out_value;
+  return -1;
+}
+
+int webcam_adjust_white_balance(webcam_t *cam, int delta, int *out_value) {
+  (void)cam;
+  (void)delta;
+  (void)out_value;
+  return -1;
+}
+
+int webcam_get_exposure(webcam_t *cam, int *value) {
+  (void)cam;
+  (void)value;
+  return -1;
+}
+
+int webcam_get_contrast(webcam_t *cam, int *value) {
+  (void)cam;
+  (void)value;
+  return -1;
+}
+
+int webcam_get_white_balance(webcam_t *cam, int *value) {
+  (void)cam;
+  (void)value;
+  return -1;
+}
+
+int webcam_get_exposure_range(webcam_t *cam, int *min, int *max) {
+  (void)cam;
+  (void)min;
+  (void)max;
+  return -1;
+}
+
+int webcam_get_contrast_range(webcam_t *cam, int *min, int *max) {
+  (void)cam;
+  (void)min;
+  (void)max;
+  return -1;
+}
+
+int webcam_get_white_balance_range(webcam_t *cam, int *min, int *max) {
+  (void)cam;
+  (void)min;
+  (void)max;
+  return -1;
+}
+
 #endif /* PLATFORM_MACOS */

@@ -31,4 +31,20 @@ int webcam_requeue_buffer(webcam_t *cam);
 // Stop streaming and clean up resources
 void webcam_cleanup(webcam_t *cam);
 
+// Hardware camera controls.
+int webcam_set_auto_exposure(webcam_t *cam, int enable);
+int webcam_set_auto_white_balance(webcam_t *cam, int enable);
+
+int webcam_adjust_exposure(webcam_t *cam, int delta, int *out_value);
+int webcam_adjust_contrast(webcam_t *cam, int delta, int *out_value);
+int webcam_adjust_white_balance(webcam_t *cam, int delta, int *out_value);
+
+int webcam_get_exposure(webcam_t *cam, int *value);
+int webcam_get_contrast(webcam_t *cam, int *value);
+int webcam_get_white_balance(webcam_t *cam, int *value);
+
+int webcam_get_exposure_range(webcam_t *cam, int *min, int *max);
+int webcam_get_contrast_range(webcam_t *cam, int *min, int *max);
+int webcam_get_white_balance_range(webcam_t *cam, int *min, int *max);
+
 #endif

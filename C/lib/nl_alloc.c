@@ -56,18 +56,19 @@ void *nl_malloc(size_t n) {
     }
     p += sizeof(block_hdr_t) + h->size;
   }
-  return (void *)0; /* OOM */
+  return (void *)0; // OOM
 }
 
 void *nl_calloc(size_t nmemb, size_t size) {
+  if (nmemb != 0 && size > SIZE_MAX / nmemb)
+    return NULL;
+
   size_t total = nmemb * size;
   void *p = nl_malloc(total);
   if (p) {
-    //   uint8_t *b = (uint8_t *)p;
-    //   for (size_t i = 0; i < total; i++)
-    //     b[i] = 0;
-    if (nmemb && size > SIZE_MAX / nmemb)
-      return NULL;
+    uint8_t *b = (uint8_t *)p;
+    for (size_t i = 0; i < total; i++)
+      b[i] = 0;
   }
   return p;
 }
@@ -91,6 +92,19 @@ void nl_free(void *ptr) {
     }
   }
 
-  // Coalesce Backward
-  // TODO:
+  // Coalesce backward
+  unsigned char *p = _arena;
+  unsigned char *target = (unsigned char *)h;
+  block_hdr_t *prev = NULL;
+  while (p < target) {
+    block_hdr_t *cur = (block_hdr_t *)p;
+    if (cur->magic != HDR_MAGIC)
+      break; // heap corruption guard
+    prev = cur;
+    p += sizeof(block_hdr_t) + cur->size;
+  }
+  if (prev && prev->free && p == target) {
+    prev->size += sizeof(block_hdr_t) + h->size;
+    h->magic = 0; // h is now absorbed into prev
+  }
 }
