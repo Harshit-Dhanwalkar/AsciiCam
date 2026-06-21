@@ -20,6 +20,7 @@ struct webcam_impl {
 static webcam_impl_t _impl_storage;
 
 int webcam_init(webcam_t *cam, const char *device, int width, int height) {
+  nl_memset(&_impl_storage, 0, sizeof(_impl_storage));
   cam->impl = &_impl_storage;
   cam->buffer = MAP_FAILED;
 
@@ -172,8 +173,6 @@ int webcam_set_auto_exposure(webcam_t *cam, int enable) {
     return -1;
   // NOTE: UVC drivers expose V4L2_CID_EXPOSURE_AUTO as a menu (0=manual,
   // 1=aperture priority, 3=auto, driver-dependent which subset exists).
-  // Some webcam drivers instead/also expose the simpler boolean
-  // V4L2_CID_AUTOGAIN. Try the proper one first, fall back to the boolean.
   if (v4l2_set_value(cam->fd, V4L2_CID_EXPOSURE_AUTO,
                      enable ? V4L2_EXPOSURE_AUTO : V4L2_EXPOSURE_MANUAL) == 0)
     return 0;

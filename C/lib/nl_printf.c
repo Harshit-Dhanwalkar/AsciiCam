@@ -167,4 +167,6 @@ int nl_snprintf(char *buf, size_t size, const char *fmt, ...) {
   return r;
 }
 
-void nl_eprint(const char *msg) { nl_write(2, msg, nl_strlen(msg)); }
+void nl_eprint(const char *msg) {
+  nl_write(2, msg, nl_strlen(msg));
+}

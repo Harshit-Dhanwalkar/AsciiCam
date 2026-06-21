@@ -13,6 +13,14 @@
 #ifndef MAP_FAILED
 #define MAP_FAILED ((void *)-1)
 #endif
+#ifndef MAP_PRIVATE
+#define MAP_PRIVATE 0x02
+#endif
+#ifndef MAP_ANONYMOUS
+#define MAP_ANONYMOUS 0x20
+#endif
+
+#include "nl_printf.h"
 #include "nl_syscall.h"
 
 // Basic I/O
@@ -33,6 +41,7 @@ static inline ssize_t nl_read(int fd, void *buf, size_t n) {
   }
   return (ssize_t)ret;
 }
+
 static inline int nl_open(const char *path, int flags, int mode) {
   long ret = __sc3(SYS_open, (long)path, flags, mode);
   if (ret < 0) {
@@ -41,6 +50,7 @@ static inline int nl_open(const char *path, int flags, int mode) {
   }
   return (int)ret;
 }
+
 static inline int nl_close(int fd) {
   long ret = __sc1(SYS_close, fd);
   if (ret < 0) {
@@ -49,6 +59,7 @@ static inline int nl_close(int fd) {
   }
   return 0;
 }
+
 static inline int nl_unlink(const char *path) {
   long ret = __sc1(SYS_unlink, (long)path);
   if (ret < 0) {
@@ -57,6 +68,7 @@ static inline int nl_unlink(const char *path) {
   }
   return (int)ret;
 }
+
 static inline int nl_ioctl(int fd, unsigned long req, void *arg) {
   long ret = __sc3(SYS_ioctl, fd, (long)req, (long)arg);
   if (ret < 0) {
@@ -89,6 +101,7 @@ static inline void *nl_mmap(void *addr, size_t len, int prot, int flags, int fd,
   }
   return (void *)ret;
 }
+
 static inline int nl_munmap(void *addr, size_t len) {
   long ret = __sc2(SYS_munmap, (long)addr, (long)len);
   if (ret < 0) {
@@ -129,6 +142,7 @@ static inline int nl_select(int nfds, nl_fd_set *r, nl_fd_set *w, nl_fd_set *e,
 static inline int nl_clock_gettime(clockid_t id, struct timespec *ts) {
   return (int)__sc2(SYS_clock_gettime, id, (long)ts);
 }
+
 static inline int nl_nanosleep(const struct timespec *req,
                                struct timespec *rem) {
   long ret = __sc2(SYS_nanosleep, (long)req, (long)rem);
@@ -138,11 +152,21 @@ static inline int nl_nanosleep(const struct timespec *req,
   }
   return 0;
 }
+
 static inline void nl_usleep(unsigned long us) {
   struct timespec ts = {(long)(us / 1000000), (long)((us % 1000000) * 1000)};
   nl_nanosleep(&ts, (struct timespec *)0);
 }
-static inline long nl_time(void) { return (long)__sc1(SYS_time, 0); }
+
+static inline long nl_time(void) {
+  long ret = __sc1(SYS_time, 0);
+  if (ret < 0) {
+    errno = (int)-ret;
+    return -1;
+  }
+  return ret;
+}
+
 static inline void nl_exit(int code) {
   __sc1(SYS_exit_group, code);
   __builtin_unreachable();

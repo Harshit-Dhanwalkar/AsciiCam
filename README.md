@@ -28,9 +28,9 @@ Real-time ASCII video from your webcam in the terminal - pure C99, no heavy runt
 | **Hardware camera controls**  | V4L2 exposure, contrast, white-balance via `ioctl` — live keys `e`/`E`, `c`/`C`, `w`/`W` (Linux only; macOS/Windows display `n/a`) |
 | **Cross‑platform**            | Linux (V4L2, nolibc), macOS (AVFoundation, system libc), Windows (Media Foundation)                                                |
 
-Linux: requires `gcc`, `linux/videodev2.h` (kernel headers), `libdl`, `libpthread`.
-macOS: requires `Clang` and `AVFoundation` frameworks (linked automatically).
-Windows: requires MinGW-w64; links `mfplat`, `mf`, `mfreadwrite`, `mfuuid`, `ole32` (Media Foundation). See Makefile `windows` branch.
+- Linux: requires `gcc`, `linux/videodev2.h` (kernel headers), `libdl`, `libpthread`.
+- macOS: requires `Clang` and `AVFoundation` frameworks (linked automatically).
+- Windows: requires `MinGW-w64`; links `mfplat`, `mf`, `mfreadwrite`, `mfuuid`, `ole32` (Media Foundation).
 
 No other external dependencies.
 
@@ -42,12 +42,7 @@ No other external dependencies.
 git clone https://github.com/Harshit-Dhanwalkar/AsciiCam.git
 cd AsciiCam/C/
 make
-```
 
-Requires: `gcc`, `linux/videodev2.h` (kernel headers), `libdl`, `libpthread`.
-No other external dependencies.
-
-```
 build/webcam_ascii --help
 ```
 
@@ -96,8 +91,8 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 | `w` / `W` | hw white-balance down / up _(V4L2, Linux only)_ |
 | `c` / `C` | hw contrast down / up _(V4L2, Linux only)_ |
 | `↑` / `↓` | select plugin |
-| `[` / `]` | param $\pm$1 |
-| `{` / `}` | param $\pm$10 |
+| `[` / `]` | param &plusmn; 1 |
+| `{` / `}` | param &plusmn; 10 |
 | `r` | reset param to 128 |
 | `q` | quit |
 

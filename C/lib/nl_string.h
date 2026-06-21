@@ -77,6 +77,17 @@ static inline char *nl_dirname(char *path) {
   return path;
 }
 
+static inline int nl_atoi(const char *s) {
+  int n = 0, neg = 0;
+  if (*s == '-') {
+    neg = 1;
+    s++;
+  }
+  while (*s >= '0' && *s <= '9')
+    n = n * 10 + (*s++ - '0');
+  return neg ? -n : n;
+}
+
 #define strlen(s) nl_strlen(s)
 #define memcpy(d, s, n) nl_memcpy(d, s, n)
 #define memset(d, c, n) nl_memset(d, c, n)
@@ -84,5 +95,6 @@ static inline char *nl_dirname(char *path) {
 #define strncpy(d, s, n) nl_strncpy_safe(d, s, n)
 #define basename(p) nl_basename(p)
 #define dirname(p) nl_dirname(p)
+// #define atoi(s) nl_atoi(s)
 
 #endif
