@@ -8,6 +8,9 @@
 #define HDR_MAGIC 0xDEAD
 #define MMAP_THRESHOLD (ARENA_SIZE / 2) // 1 MB
 
+#ifndef MAP_PRIVATE
+#define MAP_PRIVATE 0x02
+#endif
 #ifndef MAP_ANONYMOUS
 #define MAP_ANONYMOUS 0x20
 #endif
