@@ -1,15 +1,23 @@
 #include "nl_alloc.h"
+#include "nl_io.h"
+
 #include <stdint.h>
 
 #define ARENA_SIZE (2 * 1024 * 1024)
 #define ALIGN 16
 #define HDR_MAGIC 0xDEAD
+#define MMAP_THRESHOLD (ARENA_SIZE / 2) // 1 MB
+
+#ifndef MAP_ANONYMOUS
+#define MAP_ANONYMOUS 0x20
+#endif
 
 typedef struct block_hdr {
-  size_t size;           // 8
-  int free;              // 4
-  unsigned short magic;  // 2
-  unsigned char _pad[2]; // 2
+  size_t size;              // 8
+  int free;                 // 4
+  unsigned short magic;     // 2
+  unsigned char mmap_alloc; // 1  (1 if mmap'ed)
+  unsigned char _pad[1];    // 1
 } block_hdr_t;
 
 static unsigned char _arena[ARENA_SIZE] __attribute__((aligned(ALIGN)));
@@ -20,6 +28,7 @@ static void arena_boot(void) {
   h->size = ARENA_SIZE - sizeof(block_hdr_t);
   h->free = 1;
   h->magic = HDR_MAGIC;
+  h->mmap_alloc = 0;
   _arena_init = 1;
 }
 
@@ -28,11 +37,28 @@ static inline size_t align_up(size_t n) {
 }
 
 void *nl_malloc(size_t n) {
-  if (!_arena_init)
-    arena_boot();
   if (n == 0)
     n = 1;
   n = align_up(n);
+
+  // Large allocation: use mmap
+  if (n > MMAP_THRESHOLD) {
+    size_t total = sizeof(block_hdr_t) + n;
+    void *p = nl_mmap(NULL, total, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (p == MAP_FAILED)
+      return NULL;
+    block_hdr_t *h = (block_hdr_t *)p;
+    h->size = n;
+    h->free = 0;
+    h->magic = HDR_MAGIC;
+    h->mmap_alloc = 1;
+    return (char *)p + sizeof(block_hdr_t);
+  }
+
+  // Else use arena
+  if (!_arena_init)
+    arena_boot();
 
   unsigned char *p = _arena;
   unsigned char *end = _arena + ARENA_SIZE;
@@ -49,6 +75,7 @@ void *nl_malloc(size_t n) {
         next->size = leftover - sizeof(block_hdr_t);
         next->free = 1;
         next->magic = HDR_MAGIC;
+        next->mmap_alloc = 0;
         h->size = n;
       }
       h->free = 0;
@@ -79,6 +106,15 @@ void nl_free(void *ptr) {
   block_hdr_t *h = (block_hdr_t *)((unsigned char *)ptr - sizeof(block_hdr_t));
   if (h->magic != HDR_MAGIC)
     return; // bad pointer guard
+
+  if (h->mmap_alloc) {
+    // Free mmap'ed block
+    size_t total = sizeof(block_hdr_t) + h->size;
+    nl_munmap(h, total);
+    return;
+  }
+
+  // Arena block: mark free and coalesce
   h->free = 1;
 
   // Coalesce forward
