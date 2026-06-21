@@ -14,22 +14,56 @@
 #define MAP_FAILED ((void *)-1)
 #endif
 #include "nl_syscall.h"
+
 // Basic I/O
 static inline ssize_t nl_write(int fd, const void *buf, size_t n) {
-  return (ssize_t)__sc3(SYS_write, fd, (long)buf, (long)n);
+  long ret = __sc3(SYS_write, fd, (long)buf, (long)n);
+  if (ret < 0) {
+    errno = (int)-ret;
+    return -1;
+  }
+  return (ssize_t)ret;
 }
+
 static inline ssize_t nl_read(int fd, void *buf, size_t n) {
-  return (ssize_t)__sc3(SYS_read, fd, (long)buf, (long)n);
+  long ret = __sc3(SYS_read, fd, (long)buf, (long)n);
+  if (ret < 0) {
+    errno = (int)-ret;
+    return -1;
+  }
+  return (ssize_t)ret;
 }
 static inline int nl_open(const char *path, int flags, int mode) {
-  return (int)__sc3(SYS_open, (long)path, flags, mode);
+  long ret = __sc3(SYS_open, (long)path, flags, mode);
+  if (ret < 0) {
+    errno = (int)-ret;
+    return -1;
+  }
+  return (int)ret;
 }
-static inline int nl_close(int fd) { return (int)__sc1(SYS_close, fd); }
+static inline int nl_close(int fd) {
+  long ret = __sc1(SYS_close, fd);
+  if (ret < 0) {
+    errno = (int)-ret;
+    return -1;
+  }
+  return 0;
+}
 static inline int nl_unlink(const char *path) {
-  return (int)__sc1(SYS_unlink, (long)path);
+  long ret = __sc1(SYS_unlink, (long)path);
+  if (ret < 0) {
+    errno = (int)-ret;
+    return -1;
+  }
+  return (int)ret;
 }
 static inline int nl_ioctl(int fd, unsigned long req, void *arg) {
-  return (int)__sc3(SYS_ioctl, fd, (long)req, (long)arg);
+  long ret = __sc3(SYS_ioctl, fd, (long)req, (long)arg);
+  if (ret < 0) {
+    errno = (int)-ret;
+    return -1;
+  }
+  return (int)ret;
 }
 
 // fprintf / stderr
@@ -48,10 +82,20 @@ static inline int nl_ioctl(int fd, unsigned long req, void *arg) {
 // mmap / munmap
 static inline void *nl_mmap(void *addr, size_t len, int prot, int flags, int fd,
                             long off) {
-  return (void *)__sc6(SYS_mmap, (long)addr, (long)len, prot, flags, fd, off);
+  long ret = __sc6(SYS_mmap, (long)addr, (long)len, prot, flags, fd, off);
+  if (ret < 0) {
+    errno = (int)-ret;
+    return MAP_FAILED;
+  }
+  return (void *)ret;
 }
 static inline int nl_munmap(void *addr, size_t len) {
-  return (int)__sc2(SYS_munmap, (long)addr, (long)len);
+  long ret = __sc2(SYS_munmap, (long)addr, (long)len);
+  if (ret < 0) {
+    errno = (int)-ret;
+    return -1;
+  }
+  return (int)ret;
 }
 
 // select
@@ -67,9 +111,18 @@ typedef struct {
 #define NL_FD_SET(fd, s) ((s)->fds_bits[(fd) / 64] |= (1UL << ((fd) % 64)))
 #define NL_FD_ISSET(fd, s) ((s)->fds_bits[(fd) / 64] & (1UL << ((fd) % 64)))
 
+#define FD_ZERO(s) NL_FD_ZERO(s)
+#define FD_SET(fd, s) NL_FD_SET(fd, s)
+#define FD_ISSET(fd, s) NL_FD_ISSET(fd, s)
+
 static inline int nl_select(int nfds, nl_fd_set *r, nl_fd_set *w, nl_fd_set *e,
                             struct nl_timeval *tv) {
-  return (int)__sc6(SYS_select, nfds, (long)r, (long)w, (long)e, (long)tv, 0);
+  long ret = __sc6(SYS_select, nfds, (long)r, (long)w, (long)e, (long)tv, 0);
+  if (ret < 0) {
+    errno = (int)-ret;
+    return -1;
+  }
+  return (int)ret;
 }
 
 // clock / sleep
@@ -78,9 +131,9 @@ static inline int nl_clock_gettime(clockid_t id, struct timespec *ts) {
 }
 static inline int nl_nanosleep(const struct timespec *req,
                                struct timespec *rem) {
-  long r = __sc2(SYS_nanosleep, (long)req, (long)rem);
-  if (r < 0) {
-    errno = (int)-r;
+  long ret = __sc2(SYS_nanosleep, (long)req, (long)rem);
+  if (ret < 0) {
+    errno = (int)-ret;
     return -1;
   }
   return 0;
@@ -97,11 +150,21 @@ static inline void nl_exit(int code) {
 
 // inotify
 static inline int nl_inotify_init1(int flags) {
-  return (int)__sc1(SYS_inotify_init1, flags);
+  long ret = __sc1(SYS_inotify_init1, flags);
+  if (ret < 0) {
+    errno = (int)-ret;
+    return -1;
+  }
+  return (int)ret;
 }
 static inline int nl_inotify_add_watch(int fd, const char *path,
                                        uint32_t mask) {
-  return (int)__sc3(SYS_inotify_add_watch, fd, (long)path, mask);
+  long ret = __sc3(SYS_inotify_add_watch, fd, (long)path, mask);
+  if (ret < 0) {
+    errno = (int)-ret;
+    return -1;
+  }
+  return (int)ret;
 }
 
 // termios via ioctl
@@ -144,7 +207,6 @@ static inline int nl_tcsetattr(int fd, int action, const struct termios *t) {
 #define inotify_add_watch(f, p, m) nl_inotify_add_watch(f, p, m)
 
 #else
-// #include <sys/mmap.h>
 #include <sys/select.h>
 #include <unistd.h>
 #endif
