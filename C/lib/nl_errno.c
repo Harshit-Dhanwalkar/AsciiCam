@@ -1,3 +1,5 @@
+#include "nolibc.h"
+
 #include "nl_errno.h"
 #include "nl_syscall.h"
 
@@ -33,12 +35,37 @@ const char *nl_strerror(int e) {
   return "Unknown error";
 }
 
+// void nl_perror(const char *msg) {
+//   const char *estr = nl_strerror(errno);
+//   if (msg && msg[0]) {
+//     _ewrite(msg, _slen(msg));
+//     _ewrite(": ", 2);
+//   }
+//   _ewrite(estr, _slen(estr));
+//   _ewrite("\n", 1);
+// }
+
 void nl_perror(const char *msg) {
-  const char *estr = nl_strerror(errno);
-  if (msg && msg[0]) {
-    _ewrite(msg, _slen(msg));
-    _ewrite(": ", 2);
+  /* Write the label */
+  if (msg) {
+    nl_write(2, msg, nl_strlen(msg));
+    nl_write(2, ": errno=", 8);
   }
-  _ewrite(estr, _slen(estr));
-  _ewrite("\n", 1);
+  char tmp[12];
+  int n = 0;
+  unsigned int e = (errno < 0) ? (unsigned int)-errno : (unsigned int)errno;
+  if (e == 0) {
+    tmp[n++] = '0';
+  } else {
+    char rev[10];
+    int r = 0;
+    while (e) {
+      rev[r++] = '0' + (int)(e % 10);
+      e /= 10;
+    }
+    while (r--)
+      tmp[n++] = rev[r + 1]; // reverse
+  }
+  tmp[n++] = '\n';
+  nl_write(2, tmp, (size_t)n);
 }

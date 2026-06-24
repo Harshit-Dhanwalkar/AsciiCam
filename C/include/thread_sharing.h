@@ -6,7 +6,8 @@
 #include <stdint.h>
 
 typedef struct {
-  uint8_t *buf[2];      // Double buffer, one slot per thread
+  uint8_t *gray_buf[2]; // Double buffer, one slot per thread
+  uint8_t *rgb_buf[2];  // Double buffer, when color is enabled, one slot per thread
   int width, height;    // capture dimensions
   int ascii_w, ascii_h; // Ascii width and height
   int ready_idx;        // which slot has the freshest frame

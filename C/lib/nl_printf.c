@@ -38,6 +38,16 @@ static int _uint_to_hex(char *out, size_t avail, unsigned long long v) {
   return w;
 }
 
+void nl_eprintf(const char *fmt, ...) {
+  char buf[1024];
+  va_list ap;
+  va_start(ap, fmt);
+  int n = nl_vsnprintf(buf, sizeof(buf), fmt, ap);
+  va_end(ap);
+  if (n > 0 && n < (int)sizeof(buf))
+    nl_write(2, buf, (size_t)n);
+}
+
 int nl_vsnprintf(char *buf, size_t size, const char *fmt, va_list ap) {
   if (!buf || size == 0)
     return 0;

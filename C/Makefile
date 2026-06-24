@@ -31,7 +31,7 @@ FILTERDIR := filters
 BUILDDIR  := build
 OBJDIR    := $(BUILDDIR)/obj
 
-CFLAGS_COMMON := -Wall -Wextra -O2 -Iinclude -I$(LIBDIR) -fno-stack-protector -fno-builtin -ffreestanding
+CFLAGS_COMMON := -Wall -Wextra -O2 -Iinclude -I$(LIBDIR) -fno-stack-protector -fno-builtin -ffreestanding -g -O0
 
 ifeq ($(PLATFORM),linux)
     # Linux: nolibc, V4L2, SSE4.1
@@ -112,6 +112,7 @@ endif
 
 CORE_SRCS := $(SRCDIR)/ascii.c \
              $(SRCDIR)/main.c  \
+             $(SRCDIR)/mouse.c  \
              $(SRCDIR)/plugins.c \
              $(SRCDIR)/thread_sharing.c \
              $(SRCDIR)/timing.c
