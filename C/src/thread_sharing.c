@@ -30,11 +30,17 @@ void *capture_thread(void *arg) {
       continue;
     }
 
-    // Capture into inactive frame buffer slot
-    if (webcam_capture_frame(&cam, sf->buf[write_idx]) < 0) {
+    // Capture grayscale into inactive frame buffer slot
+    if (webcam_capture_frame(&cam, sf->gray_buf[write_idx]) < 0) {
       break;
     }
     webcam_requeue_buffer(&cam);
+
+    // If color enabled, convert YUYV to RGB
+    if (sf->opts.color && cam.buffer && cam.buffer != MAP_FAILED) {
+      yuyv_to_rgb((const uint8_t *)cam.buffer, sf->rgb_buf[write_idx],
+                  cam.width, cam.height);
+    }
 
     pthread_mutex_lock(&sf->lock);
     sf->ready_idx = write_idx;
@@ -57,8 +63,6 @@ void *render_thread(void *arg) {
   int braille_h = sf->ascii_h * 4;
   size_t out_size = ascii_out_size(braille_w, braille_h, sf->opts.color);
   char *out_buf = nl_malloc(out_size);
-
-  // TODO: extend shared_frame_t to carry an rgb double-buffer alongside gray
   uint8_t *local_rgb = NULL;
 
   if (!out_buf) {
@@ -79,14 +83,17 @@ void *render_thread(void *arg) {
 
     pthread_mutex_unlock(&sf->lock);
 
+    // Get RGB pointer if color is on
+    uint8_t *rgb_ptr = sf->opts.color ? sf->rgb_buf[read_idx] : NULL;
+
     // Process frame outside locked state
-    int len =
-        grayscale_to_ascii(sf->buf[read_idx], local_rgb, sf->width, sf->height,
-                           braille_w, braille_h, out_buf, out_size, &sf->opts);
+    int len = grayscale_to_ascii(sf->gray_buf[read_idx], rgb_ptr, sf->width,
+                                 sf->height, braille_w, braille_h, out_buf,
+                                 out_size, &sf->opts);
 
     if (len > 0) {
-      write(STDOUT_FILENO, "\033[H", 3); // cursor to top-left
-      write(STDOUT_FILENO, out_buf, (size_t)len);
+      nl_write(STDOUT_FILENO, "\033[H", 3); // cursor to top-left
+      nl_write(STDOUT_FILENO, out_buf, (size_t)len);
     }
 
     pthread_mutex_lock(&sf->lock);
@@ -94,10 +101,8 @@ void *render_thread(void *arg) {
 
   pthread_mutex_unlock(&sf->lock);
 
-  free(out_buf);
-  // local_rgb is NULL in this path (see comment above); free is a no-op but
-  // safe
-  free(local_rgb);
+  nl_free(out_buf);
+  nl_free(local_rgb);
 
   return NULL;
 }

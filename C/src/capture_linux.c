@@ -24,11 +24,13 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
   cam->impl = &_impl_storage;
   cam->buffer = MAP_FAILED;
 
-  // Open device non-blocking (for select)
+  // open
   cam->fd = open(device ? device : "/dev/video0", O_RDWR | O_NONBLOCK, 0);
-  if (cam->fd < 0)
+  if (cam->fd < 0) {
     return -1;
+  }
 
+  // negotiate format
   struct v4l2_format fmt = {0};
   fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   fmt.fmt.pix.width = (unsigned)width;
@@ -37,13 +39,14 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
   fmt.fmt.pix.field = V4L2_FIELD_NONE;
 
   if (ioctl(cam->fd, VIDIOC_S_FMT, &fmt) < 0) {
+    // TODO: Print fail
     close(cam->fd);
     return -1;
   }
-
   cam->width = (int)fmt.fmt.pix.width;
   cam->height = (int)fmt.fmt.pix.height;
 
+  // request + query buffer
   struct v4l2_requestbuffers req = {0};
   req.count = 1;
   req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -63,7 +66,11 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
     close(cam->fd);
     return -1;
   }
+  // nl_printf("VIDIOC_QUERYBUF  buf.length=%u  offset=%u",
+  // (unsigned)buf.length,
+  //        (unsigned)buf.m.offset);
 
+  // mmap
   cam->buffer = mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED,
                      cam->fd, (long)buf.m.offset);
   if (cam->buffer == MAP_FAILED) {
@@ -73,6 +80,7 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
 
   cam->impl->buf_info = buf;
 
+  // queue buffer + start streaming
   if (ioctl(cam->fd, VIDIOC_QBUF, &buf) < 0) {
     munmap(cam->buffer, buf.length);
     close(cam->fd);
@@ -81,6 +89,7 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
 
   enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if (ioctl(cam->fd, VIDIOC_STREAMON, &type) < 0) {
+    // nl_printf("VIDIOC_STREAMON  reinit failure USB (EBUSY=16)");
     munmap(cam->buffer, buf.length);
     close(cam->fd);
     return -1;
@@ -98,23 +107,31 @@ int webcam_wait_frame(webcam_t *cam, int timeout_ms) {
   tv.tv_usec = (timeout_ms % 1000) * 1000;
 
   int ret = nl_select(cam->fd + 1, &fds, (nl_fd_set *)0, (nl_fd_set *)0, &tv);
-  return (ret <= 0) ? -1 : 0;
+  if (ret <= 0) {
+    // nl_printf("webcam_wait_frame: select timeout/error");
+    return -1;
+  }
+  return 0;
 }
 
 int webcam_capture_frame(webcam_t *cam, uint8_t *gray_buffer) {
   struct v4l2_buffer buf = cam->impl->buf_info;
-  if (ioctl(cam->fd, VIDIOC_DQBUF, &buf) < 0)
+  if (ioctl(cam->fd, VIDIOC_DQBUF, &buf) < 0) {
+    // nl_printf("webcam_capture_frame: VIDIOC_DQBUF");
     return -1;
-
+  }
   yuyv_to_gray_simd((uint8_t *)cam->buffer, gray_buffer, cam->width,
                     cam->height);
-
   cam->impl->buf_info = buf;
   return 0;
 }
 
 int webcam_requeue_buffer(webcam_t *cam) {
-  return (ioctl(cam->fd, VIDIOC_QBUF, &cam->impl->buf_info) < 0) ? -1 : 0;
+  if (ioctl(cam->fd, VIDIOC_QBUF, &cam->impl->buf_info) < 0) {
+    // nl_printf("webcam_requeue_buffer: VIDIOC_QBUF");
+    return -1;
+  }
+  return 0;
 }
 
 void webcam_cleanup(webcam_t *cam) {
@@ -130,7 +147,7 @@ void webcam_cleanup(webcam_t *cam) {
   cam->impl = (webcam_impl_t *)0;
 }
 
-// Hardware controls (V4L2_CID_*)
+// V4L2 hardware control helpers
 static int v4l2_query_range(int fd, unsigned int id, int *min, int *max) {
   struct v4l2_queryctrl q;
   nl_memset(&q, 0, sizeof(q));
@@ -171,8 +188,6 @@ static int v4l2_clamp(int v, int lo, int hi) {
 int webcam_set_auto_exposure(webcam_t *cam, int enable) {
   if (!cam || cam->fd < 0)
     return -1;
-  // NOTE: UVC drivers expose V4L2_CID_EXPOSURE_AUTO as a menu (0=manual,
-  // 1=aperture priority, 3=auto, driver-dependent which subset exists).
   if (v4l2_set_value(cam->fd, V4L2_CID_EXPOSURE_AUTO,
                      enable ? V4L2_EXPOSURE_AUTO : V4L2_EXPOSURE_MANUAL) == 0)
     return 0;
@@ -279,4 +294,4 @@ int webcam_adjust_white_balance(webcam_t *cam, int delta, int *out_value) {
   return 0;
 }
 
-#endif
+#endif /* PLATFORM_LINUX */

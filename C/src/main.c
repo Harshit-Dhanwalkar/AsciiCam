@@ -2,6 +2,7 @@
 
 #include "ascii.h"
 #include "capture.h"
+#include "mouse.h"
 #include "plugins.h"
 #include "thread_sharing.h"
 #include "timing.h"
@@ -27,17 +28,6 @@ void handle_signal(int sig) {
 }
 
 static struct termios orig_terminal;
-
-static int my_atoi(const char *s) {
-  int n = 0, neg = 0;
-  if (*s == '-') {
-    neg = 1;
-    s++;
-  }
-  while (*s >= '0' && *s <= '9')
-    n = n * 10 + (*s++ - '0');
-  return neg ? -n : n;
-}
 
 // Usage
 static void print_usage(const char *prog) {
@@ -124,24 +114,39 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
                           int *plugin_params, int count, int selected,
                           int color, const ascii_opts_t *opts,
                           const charset_registry_t *charsets, int hw_exposure,
-                          int hw_contrast, int hw_wb) {
+                          int hw_contrast, int hw_wb, int cap_w, int cap_h) {
   char buf[1024];
   int n, base_row = ascii_h + 1; // 1-indexed panel row
 
   // FPS + hint bar
   char fpsbuf[10];
   nl_fmt_fps(fpsbuf, sizeof(fpsbuf), fps);
-  if (color) {
+  if (dragging_corner == 1) {
+    // During drag
+    if (color) {
+      n = nl_snprintf(buf, sizeof(buf),
+                      "\033[%d;1H\033[38;2;255;60;60m\033[48;2;18;18;18m"
+                      " RESIZING  ->  release mouse to apply  |  preview: %dx%d"
+                      "\033[0m\033[K",
+                      base_row, cap_w, cap_h);
+    } else {
+      n = nl_snprintf(buf, sizeof(buf),
+                      "\033[%d;1H RESIZING -- release mouse to apply  |  "
+                      "preview: %dx%d\033[K",
+                      base_row, cap_w, cap_h);
+    }
+  } else if (color) {
     n = nl_snprintf(buf, sizeof(buf),
                     "\033[%d;1H\033[38;2;0;220;0m\033[48;2;18;18;18m"
-                    " FPS: %s  │  ↑↓ select  [ ] ±1  { } ±10  r reset  q quit "
+                    " FPS: %s  |  ↑↓ select  [ ] ±1  { } ±10  r reset  q quit"
+                    "  |  cap: %dx%d  \342\227\242drag to resize"
                     "\033[0m\033[K",
-                    base_row, fpsbuf);
+                    base_row, fpsbuf, cap_w, cap_h);
   } else {
     n = nl_snprintf(buf, sizeof(buf),
                     "\033[%d;1H FPS: %s  |  up/dn select  [ ] +-1  { } +-10  r "
-                    "reset  q quit\033[K",
-                    base_row, fpsbuf);
+                    "reset  q quit  |  cap: %dx%d  +drag to resize\033[K",
+                    base_row, fpsbuf, cap_w, cap_h);
   }
   if (n > 0 && n < (int)sizeof(buf))
     (void)write(STDOUT_FILENO, buf, (size_t)n);
@@ -171,8 +176,8 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
   if (n > 0 && n < (int)sizeof(buf))
     (void)write(STDOUT_FILENO, buf, (size_t)n);
 
-  // Hardware (V4L2) camera control row -- "n/a" fields when unsupported
-  // (macOS/Windows, or a driver that doesn't expose that control).
+  // Hardware (V4L2) camera control row
+  // NOTE: macOS/Windows or driver that doesn't expose that control
   n = nl_snprintf(buf, sizeof(buf), "\033[%d;1H\033[K", base_row + 2);
   if (n > 0)
     (void)write(STDOUT_FILENO, buf, (size_t)n);
@@ -246,6 +251,62 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
 
 fps_counter_t fps_calc = {0};
 
+static int reinit_capture(webcam_t *cam, const char *device, int cap_w,
+                          int cap_h, uint8_t **gray_out, uint8_t **rgb_out,
+                          int color, int *hw_exposure, int *hw_contrast,
+                          int *hw_wb) {
+  // Round to nearest multiple of 2
+  cap_w = (cap_w + 1) & ~1;
+  cap_h = (cap_h + 1) & ~1;
+
+  webcam_cleanup(cam);
+  *cam = (webcam_t){.fd = -1, .buffer = MAP_FAILED};
+
+  nl_usleep(120000); // 120 ms (For time required by USB UVC between STREAMOFF
+                     // and open)
+
+  if (webcam_init(cam, device, cap_w, cap_h) < 0) {
+    char _b[128];
+    int _n =
+        nl_snprintf(_b, sizeof(_b),
+                    "reinit_capture: webcam_init FAILED (errno=%d)\n", errno);
+    if (_n > 0)
+      write(2, _b, (size_t)_n);
+    return -1;
+  }
+
+  uint8_t *ng = malloc((size_t)cam->width * (size_t)cam->height);
+  uint8_t *nr =
+      color ? malloc((size_t)cam->width * (size_t)cam->height * 3) : NULL;
+  if (!ng || (color && !nr)) {
+    char _b[128];
+    int _n = nl_snprintf(_b, sizeof(_b),
+                         "reinit_capture: malloc FAILED: ng=%p nr=%p color=%d",
+                         (void *)ng, (void *)nr, color);
+    if (_n > 0)
+      write(2, _b, (size_t)_n);
+    free(ng);
+    free(nr);
+    webcam_cleanup(cam);
+    return -1;
+  }
+
+  free(*gray_out);
+  free(*rgb_out);
+  *gray_out = ng;
+  *rgb_out = nr;
+
+  // Re-seed hardware control display values
+  *hw_exposure = -1;
+  *hw_contrast = -1;
+  *hw_wb = -1;
+  webcam_get_exposure(cam, hw_exposure);
+  webcam_get_contrast(cam, hw_contrast);
+  webcam_get_white_balance(cam, hw_wb);
+
+  return 0;
+}
+
 // Main
 int main(int argc, char *argv[]) {
   for (int i = 1; i < argc; i++) {
@@ -293,35 +354,35 @@ int main(int argc, char *argv[]) {
       device = optarg;
       break;
     case 'W':
-      ascii_w = my_atoi(optarg);
+      ascii_w = nl_atoi(optarg);
       if (ascii_w <= 0)
         ascii_w = DEFAULT_ASCII_WIDTH;
       break;
     case 'H':
-      ascii_h = my_atoi(optarg);
+      ascii_h = nl_atoi(optarg);
       if (ascii_h <= 0)
         ascii_h = DEFAULT_ASCII_HEIGHT;
       break;
     case 'w':
-      cap_w = my_atoi(optarg);
+      cap_w = nl_atoi(optarg);
       if (cap_w <= 0)
         cap_w = DEFAULT_CAPTURE_WIDTH;
       break;
     case 'h':
-      cap_h = my_atoi(optarg);
+      cap_h = nl_atoi(optarg);
       if (cap_h <= 0)
         cap_h = DEFAULT_CAPTURE_HEIGHT;
       break;
     case 'f':
-      fps = my_atoi(optarg);
+      fps = nl_atoi(optarg);
       if (fps <= 0)
         fps = DEFAULT_FPS;
       break;
     case 'b':
-      opts.brightness = my_atoi(optarg);
+      opts.brightness = nl_atoi(optarg);
       break;
     case 'c':
-      opts.contrast = my_atoi(optarg);
+      opts.contrast = nl_atoi(optarg);
       if (opts.contrast <= 0)
         opts.contrast = 100;
       break;
@@ -341,7 +402,7 @@ int main(int argc, char *argv[]) {
       charset_dir = optarg;
       break;
     case 'P':
-      opts.depth_pop = my_atoi(optarg);
+      opts.depth_pop = nl_atoi(optarg);
       if (opts.depth_pop < 0)
         opts.depth_pop = 0;
       if (opts.depth_pop > 100)
@@ -401,6 +462,8 @@ int main(int argc, char *argv[]) {
           opts.edges != EDGE_OFF ? " | edges" : "",
           opts.dither ? " | dither" : "");
 
+  // Hardware (V4L2) camera control state
+  // NOTE: -1 = unsupported/unavailable
   int hw_exposure = -1, hw_contrast = -1, hw_wb = -1;
   webcam_get_exposure(&cam, &hw_exposure);
   webcam_get_contrast(&cam, &hw_contrast);
@@ -412,7 +475,7 @@ int main(int argc, char *argv[]) {
   uint8_t *rgb = opts.color ? malloc(cam_pixels * 3) : NULL;
 
   if (!gray || (opts.color && !rgb)) {
-    perror("malloc pixel buffers");
+    perror("malloc pixel buffers FAILED");
     free(gray);
     webcam_cleanup(&cam);
     return 1;
@@ -429,7 +492,7 @@ int main(int argc, char *argv[]) {
   char *out_buf = malloc(out_size);
 
   if (!out_buf) {
-    perror("malloc out_buf");
+    perror("malloc out_buf FAILED");
     free(gray);
     free(rgb);
     webcam_cleanup(&cam);
@@ -441,6 +504,7 @@ int main(int argc, char *argv[]) {
   charset_registry_init(&charsets, charset_dir);
   opts.charset = charset_registry_active_ramp(&charsets);
 
+  // TODO: implement own thread sharing using futex and clone()
   // // Thead sharing
   // shared_frame_t sf = {0};
   // sf.buf[0] = malloc(cam_pixels);
@@ -459,10 +523,37 @@ int main(int argc, char *argv[]) {
   // pthread_cond_broadcast(&sf.cond);
   // pthread_join(tid_cap,    NULL);
   // pthread_join(tid_render, NULL);
+  //
+  // // Allocate grayscale buffers
+  // sf.gray_buf[0] = malloc((size_t)cam.width * cam.height);
+  // sf.gray_buf[1] = malloc((size_t)cam.width * cam.height);
+  // if (!sf.gray_buf[0] || !sf.gray_buf[1]) {
+  //     perror("malloc gray buffers");
+  //     // cleanup and exit
+  // }
+  //
+  // // Allocate RGB buffers if color is on
+  // if (opts.color) {
+  //     sf.rgb_buf[0] = malloc((size_t)cam.width * cam.height * 3);
+  //     sf.rgb_buf[1] = malloc((size_t)cam.width * cam.height * 3);
+  //     if (!sf.rgb_buf[0] || !sf.rgb_buf[1]) {
+  //         perror("malloc rgb buffers");
+  //         // cleanup and exit
+  //     }
+  // }
+  //
+  // // Free buffers
+  // free(sf.gray_buf[0]);
+  // free(sf.gray_buf[1]);
+  // if (opts.color) {
+  //   free(sf.rgb_buf[0]);
+  //   free(sf.rgb_buf[1]);
+  // }
 
   // Initial screen setup
   (void)write(STDOUT_FILENO, "\033[2J\033[H\033[?25l", 13);
   term_raw_mode();
+  enable_mouse_tracking();
 
   struct timespec frame_start, last_frame_time;
   clock_gettime(CLOCK_MONOTONIC, &frame_start);
@@ -482,110 +573,197 @@ int main(int argc, char *argv[]) {
     double current_fps = fps_get(&fps_calc);
 
     // Keypress handling
+    // NOTE: VMIN=0/VTIME=0 means read() is non-blocking and can return 0 even
+    // mid-sequence. Use small retry loops for multi-byte escape sequences so we
+    // don't misinterpret partial packets.
     char ch;
     while (read(STDIN_FILENO, &ch, 1) == 1) {
       if (ch == '\033') {
-        char seq[2] = {0, 0};
-        if (read(STDIN_FILENO, &seq[0], 1) == 1 && seq[0] == '[') {
-          if (read(STDIN_FILENO, &seq[1], 1) == 1) {
-            switch (seq[1]) {
-            case 'A': // up arrow key, previous plugin
-              if (plugin_count > 0)
-                selected = (selected - 1 + plugin_count) % plugin_count;
-              break;
-            case 'B': // down arrow key, next plugin
-              if (plugin_count > 0)
-                selected = (selected + 1) % plugin_count;
-              break;
+        char seq1 = 0, seq2 = 0;
+
+        // Retry up to ~5ms for the '[' introducer
+        for (int _try = 0; _try < 50; _try++) {
+          if (read(STDIN_FILENO, &seq1, 1) == 1)
+            break;
+          nl_usleep(100);
+        }
+        if (seq1 != '[')
+          continue; // bare ESC or unsupported sequence
+
+        for (int _try = 0; _try < 50; _try++) {
+          if (read(STDIN_FILENO, &seq2, 1) == 1)
+            break;
+          nl_usleep(100);
+        }
+        if (seq2 == 0)
+          continue; // timed out
+
+        if (seq2 == 'M') {
+          // X10 / ?1002 mouse report: 3 more bytes, retry each
+          unsigned char mb[3] = {0, 0, 0};
+          int got = 0;
+          for (int j = 0; j < 3; j++) {
+            for (int _try = 0; _try < 50; _try++) {
+              if (read(STDIN_FILENO, (char *)&mb[j], 1) == 1) {
+                got++;
+                break;
+              }
+              nl_usleep(100);
             }
           }
-        }
-        continue;
-      }
+          if (got < 3)
+            continue; // incomplete mouse packet
 
-      // Adjust plugin param if selected
-      int *pp = (plugin_count > 0) ? &plugin_params[selected] : NULL;
-      switch (ch) {
-      case 'q':
-      case 'Q':
-        keep_running = 0;
-        break;
-      case ']':
-        if (pp && *pp < 255)
-          (*pp)++;
-        break;
-      case '[':
-        if (pp && *pp > 0)
-          (*pp)--;
-        break;
-      case '}':
-        if (pp)
-          *pp = (*pp + 10 > 255) ? 255 : *pp + 10;
-        break;
-      case '{':
-        if (pp)
-          *pp = (*pp - 10 < 0) ? 0 : *pp - 10;
-        break;
-      case 'r':
-      case 'R':
-        if (pp)
-          *pp = 128;
-        break;
-      case 'm':
-        opts.render_mode = (opts.render_mode + 1) % RENDER_MODE_COUNT;
-        break;
-      case 'M':
-        opts.render_mode =
-            (opts.render_mode - 1 + RENDER_MODE_COUNT) % RENDER_MODE_COUNT;
-        break;
-      case 'x':
-        opts.edges = (opts.edges + 1) % EDGE_MODE_COUNT;
-        break;
-      case 'X':
-        opts.edges = (opts.edges - 1 + EDGE_MODE_COUNT) % EDGE_MODE_COUNT;
-        break;
-      case 'n':
-        if (charsets.count > 0) {
-          charsets.active = (charsets.active + 1) % charsets.count;
-          opts.charset = charset_registry_active_ramp(&charsets);
+          int button = (int)mb[0] - 32;
+          int mx = (int)mb[1] - 32; // 1-based column
+          int my = (int)mb[2] - 32; // 1-based row
+
+          int res = handle_mouse_event(button, mx, my, &cap_w, &cap_h, &cam,
+                                       ascii_w, ascii_h);
+          if (res == 2) {
+            int prev_w = drag_start_w;
+            int prev_h = drag_start_h;
+            (void)write(STDOUT_FILENO, "\033[2J\033[H", 7);
+            if (reinit_capture(&cam, device, cap_w, cap_h, &gray, &rgb,
+                               opts.color, &hw_exposure, &hw_contrast,
+                               &hw_wb) == 0) {
+              // Resize succeeded
+              cap_w = cam.width;
+              cap_h = cam.height;
+              char _b[128];
+              int _n = nl_snprintf(
+                  _b, sizeof(_b), "RESIZE: reinit OK at %dx%d\n", cap_w, cap_h);
+              if (_n > 0)
+                write(2, _b, (size_t)_n);
+            } else {
+              // Resize failed (restore old dimensions and retry)
+              char _b[128];
+              int _n = nl_snprintf(
+                  _b, sizeof(_b),
+                  "RESIZE: primary reinit FAILED: falling back to %dx%d\n",
+                  prev_w, prev_h);
+              if (_n > 0)
+                write(2, _b, (size_t)_n);
+              cap_w = prev_w;
+              cap_h = prev_h;
+              nl_usleep(200000); // 200 ms before recovery attempt
+              if (reinit_capture(&cam, device, cap_w, cap_h, &gray, &rgb,
+                                 opts.color, &hw_exposure, &hw_contrast,
+                                 &hw_wb) < 0) {
+                // Recovery also failed
+                keep_running = 0;
+              } else {
+                char _b2[128];
+                int _n2 =
+                    nl_snprintf(_b2, sizeof(_b2),
+                                "RESIZE: recovery OK at %dx%d\n", cap_w, cap_h);
+                if (_n2 > 0)
+                  write(2, _b2, (size_t)_n2);
+              }
+            }
+            break; // exit input drain loop; capture a fresh frame immediately
+          }
+
+          // Cursor keys and other CSI sequences
+          switch (seq2) {
+          case 'A': // up arrow key, previous plugin
+            if (plugin_count > 0)
+              selected = (selected - 1 + plugin_count) % plugin_count;
+            break;
+          case 'B': // down arrow key, next plugin
+            if (plugin_count > 0)
+              selected = (selected + 1) % plugin_count;
+            break;
+          }
+          continue;
         }
-        break;
-      case 'N':
-        if (charsets.count > 0) {
-          charsets.active =
-              (charsets.active - 1 + charsets.count) % charsets.count;
-          opts.charset = charset_registry_active_ramp(&charsets);
+
+        // Adjust plugin param if selected
+        int *pp = (plugin_count > 0) ? &plugin_params[selected] : NULL;
+        switch (ch) {
+        case 'q':
+        case 'Q':
+          keep_running = 0;
+          break;
+        case ']':
+          if (pp && *pp < 255)
+            (*pp)++;
+          break;
+        case '[':
+          if (pp && *pp > 0)
+            (*pp)--;
+          break;
+        case '}':
+          if (pp)
+            *pp = (*pp + 10 > 255) ? 255 : *pp + 10;
+          break;
+        case '{':
+          if (pp)
+            *pp = (*pp - 10 < 0) ? 0 : *pp - 10;
+          break;
+        case 'r':
+        case 'R':
+          if (pp)
+            *pp = 128;
+          break;
+        case 'm':
+          opts.render_mode = (opts.render_mode + 1) % RENDER_MODE_COUNT;
+          break;
+        case 'M':
+          opts.render_mode =
+              (opts.render_mode - 1 + RENDER_MODE_COUNT) % RENDER_MODE_COUNT;
+          break;
+        case 'x':
+          opts.edges = (opts.edges + 1) % EDGE_MODE_COUNT;
+          break;
+        case 'X':
+          opts.edges = (opts.edges - 1 + EDGE_MODE_COUNT) % EDGE_MODE_COUNT;
+          break;
+        case 'n':
+          if (charsets.count > 0) {
+            charsets.active = (charsets.active + 1) % charsets.count;
+            opts.charset = charset_registry_active_ramp(&charsets);
+          }
+          break;
+        case 'N':
+          if (charsets.count > 0) {
+            charsets.active =
+                (charsets.active - 1 + charsets.count) % charsets.count;
+            opts.charset = charset_registry_active_ramp(&charsets);
+          }
+          break;
+        case '+':
+          opts.depth_pop =
+              (opts.depth_pop + 5 > 100) ? 100 : opts.depth_pop + 5;
+          break;
+        case '-':
+          opts.depth_pop = (opts.depth_pop - 5 < 0) ? 0 : opts.depth_pop - 5;
+          break;
+        case 'v':
+          opts.depth_invert = !opts.depth_invert;
+          break;
+        case 'e':
+          webcam_adjust_exposure(&cam, -10, &hw_exposure);
+          break;
+        case 'E':
+          webcam_adjust_exposure(&cam, 10, &hw_exposure);
+          break;
+        case 'w':
+          webcam_adjust_white_balance(&cam, -100, &hw_wb);
+          break;
+        case 'W':
+          webcam_adjust_white_balance(&cam, 100, &hw_wb);
+          break;
+        case 'c':
+          webcam_adjust_contrast(&cam, -5, &hw_contrast);
+          break;
+        case 'C':
+          webcam_adjust_contrast(&cam, 5, &hw_contrast);
+          break;
         }
-        break;
-      case '+':
-        opts.depth_pop = (opts.depth_pop + 5 > 100) ? 100 : opts.depth_pop + 5;
-        break;
-      case '-':
-        opts.depth_pop = (opts.depth_pop - 5 < 0) ? 0 : opts.depth_pop - 5;
-        break;
-      case 'v':
-        opts.depth_invert = !opts.depth_invert;
-        break;
-      case 'e':
-        webcam_adjust_exposure(&cam, -10, &hw_exposure);
-        break;
-      case 'E':
-        webcam_adjust_exposure(&cam, 10, &hw_exposure);
-        break;
-      case 'w':
-        webcam_adjust_white_balance(&cam, -100, &hw_wb);
-        break;
-      case 'W':
-        webcam_adjust_white_balance(&cam, 100, &hw_wb);
-        break;
-      case 'c':
-        webcam_adjust_contrast(&cam, -5, &hw_contrast);
-        break;
-      case 'C':
-        webcam_adjust_contrast(&cam, 5, &hw_contrast);
-        break;
       }
     }
+
     if (!keep_running)
       break;
 
@@ -598,12 +776,13 @@ int main(int argc, char *argv[]) {
     opts.charset = charset_registry_active_ramp(&charsets);
 
     // Frame capture
-    if (webcam_wait_frame(&cam, 1000) < 0)
+    int frame_timeout_ms = 2000 / (fps > 0 ? fps : DEFAULT_FPS);
+    if (webcam_wait_frame(&cam, frame_timeout_ms) < 0)
       continue; // timeout, retry
 
     if (webcam_capture_frame(&cam, gray) < 0) {
-      perror("capture_frame");
-      break;
+      webcam_requeue_buffer(&cam);
+      continue;
     }
 
     // Run all plugins in order
@@ -648,13 +827,17 @@ int main(int argc, char *argv[]) {
 
     if (len > 0) {
       (void)write(STDOUT_FILENO, out_buf, (size_t)len);
+      // Overlay control panel
       overlay_panel(ascii_h, current_fps, plugins, plugin_params, plugin_count,
                     selected, opts.color, &opts, &charsets, hw_exposure,
-                    hw_contrast, hw_wb);
+                    hw_contrast, hw_wb, cap_w, cap_h);
+
+      // Draw drag handle
+      draw_corner_indicator(ascii_w, ascii_h, opts.color);
     }
 
     if (webcam_requeue_buffer(&cam) < 0) {
-      perror("requeue_buffer");
+      perror("requeue_buffer FAILED");
       break;
     }
 
@@ -662,6 +845,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Cleanup
+  disable_mouse_tracking();
   term_restore();
   // \033[2J = erase screen, \033[H = cursor home, \033[?25h = show cursor
   static const char CLEANUP[] = "\033[2J\033[H\033[0m\033[?25h";
@@ -675,5 +859,6 @@ int main(int argc, char *argv[]) {
     plugin_cleanup(&plugins[i]);
   charset_registry_cleanup(&charsets);
   webcam_cleanup(&cam);
+
   return 0;
 }
