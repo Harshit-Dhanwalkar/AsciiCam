@@ -28,6 +28,15 @@ typedef enum {
   EDGE_MODE_COUNT
 } edge_mode_t;
 
+// Color output mode, used when ascii_opts_t.color is set. Truecolor
+// (24-bit \033[38;2;r;g;bm) for terminals supports it;
+// ANSI-256 (\033[38;5;<idx>m) the standard 256-color palette for terminals that
+// only support that
+typedef enum {
+  COLOR_TRUECOLOR = 0,
+  COLOR_256,
+} color_mode_t;
+
 typedef struct {
   char name[CHARSET_NAME_LEN];
   char ramp[CHARSET_RAMP_LEN];
@@ -52,15 +61,17 @@ void charset_registry_cleanup(charset_registry_t *reg);
 const char *charset_registry_active_ramp(const charset_registry_t *reg);
 
 typedef struct {
-  int brightness;      /* additive offset: -128..128       */
-  int contrast;        /* percent, 100 = no change         */
-  int invert;          /* flip brightness->charset mapping */
-  int color;           /* ANSI truecolor output            */
-  edge_mode_t edges;   /* edge detection mode              */
-  int dither;          /* Floyd-Steinberg dithering        */
-  int threshold_val;   /* Binarization limit               */
-  const char *charset; /* NULL = ASCII_CHARS_DEFAULT; active ramp for
-                          RENDER_ASCII_RAMP */
+  int brightness;          /* additive offset: -128..128           */
+  int contrast;            /* percent, 100 = no change             */
+  int invert;              /* flip brightness->charset mapping     */
+  int color;               /* ANSI color output (truecolor or 256) */
+  color_mode_t color_mode; /* which color output when `color` is set;
++                             defaults to COLOR_TRUECOLOR (0)       */
+  edge_mode_t edges;       /* edge detection mode                   */
+  int dither;              /* Floyd-Steinberg dithering             */
+  int threshold_val;       /* Binarization limit                    */
+  const char *charset;     /* NULL = ASCII_CHARS_DEFAULT; active
+                              ramp for RENDER_ASCII_RAMP            */
   render_mode_t render_mode;
 
   // TESTING:

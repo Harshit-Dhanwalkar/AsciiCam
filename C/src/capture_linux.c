@@ -26,8 +26,9 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
 
   // Open device non-blocking (for select)
   cam->fd = open(device ? device : "/dev/video0", O_RDWR | O_NONBLOCK, 0);
-  if (cam->fd < 0)
+  if (cam->fd < 0) {
     return -1;
+  }
 
   struct v4l2_format fmt = {0};
   fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -38,6 +39,7 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
 
   if (ioctl(cam->fd, VIDIOC_S_FMT, &fmt) < 0) {
     close(cam->fd);
+
     return -1;
   }
 
@@ -51,6 +53,7 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
 
   if (ioctl(cam->fd, VIDIOC_REQBUFS, &req) < 0) {
     close(cam->fd);
+
     return -1;
   }
 
@@ -61,6 +64,7 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
 
   if (ioctl(cam->fd, VIDIOC_QUERYBUF, &buf) < 0) {
     close(cam->fd);
+
     return -1;
   }
 
@@ -68,6 +72,7 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
                      cam->fd, (long)buf.m.offset);
   if (cam->buffer == MAP_FAILED) {
     close(cam->fd);
+
     return -1;
   }
 
@@ -76,6 +81,7 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
   if (ioctl(cam->fd, VIDIOC_QBUF, &buf) < 0) {
     munmap(cam->buffer, buf.length);
     close(cam->fd);
+
     return -1;
   }
 
@@ -83,6 +89,7 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
   if (ioctl(cam->fd, VIDIOC_STREAMON, &type) < 0) {
     munmap(cam->buffer, buf.length);
     close(cam->fd);
+
     return -1;
   }
 
@@ -98,18 +105,21 @@ int webcam_wait_frame(webcam_t *cam, int timeout_ms) {
   tv.tv_usec = (timeout_ms % 1000) * 1000;
 
   int ret = nl_select(cam->fd + 1, &fds, (nl_fd_set *)0, (nl_fd_set *)0, &tv);
+
   return (ret <= 0) ? -1 : 0;
 }
 
 int webcam_capture_frame(webcam_t *cam, uint8_t *gray_buffer) {
   struct v4l2_buffer buf = cam->impl->buf_info;
-  if (ioctl(cam->fd, VIDIOC_DQBUF, &buf) < 0)
+  if (ioctl(cam->fd, VIDIOC_DQBUF, &buf) < 0) {
     return -1;
+  }
 
   yuyv_to_gray_simd((uint8_t *)cam->buffer, gray_buffer, cam->width,
                     cam->height);
 
   cam->impl->buf_info = buf;
+
   return 0;
 }
 
@@ -121,10 +131,13 @@ void webcam_cleanup(webcam_t *cam) {
   if (cam->fd >= 0) {
     enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     ioctl(cam->fd, VIDIOC_STREAMOFF, &type);
-    if (cam->buffer != MAP_FAILED)
+    if (cam->buffer != MAP_FAILED) {
       munmap(cam->buffer, cam->impl->buf_info.length);
+    }
+
     close(cam->fd);
   }
+
   cam->fd = -1;
   cam->buffer = MAP_FAILED;
   cam->impl = (webcam_impl_t *)0;
@@ -135,14 +148,19 @@ static int v4l2_query_range(int fd, unsigned int id, int *min, int *max) {
   struct v4l2_queryctrl q;
   nl_memset(&q, 0, sizeof(q));
   q.id = id;
-  if (ioctl(fd, VIDIOC_QUERYCTRL, &q) < 0)
+  if (ioctl(fd, VIDIOC_QUERYCTRL, &q) < 0) {
     return -1;
-  if (q.flags & V4L2_CTRL_FLAG_DISABLED)
+  }
+  if (q.flags & V4L2_CTRL_FLAG_DISABLED) {
     return -1;
-  if (min)
+  }
+  if (min) {
     *min = q.minimum;
-  if (max)
+  }
+  if (max) {
     *max = q.maximum;
+  }
+
   return 0;
 }
 
@@ -150,9 +168,11 @@ static int v4l2_get_value(int fd, unsigned int id, int *value) {
   struct v4l2_control c;
   nl_memset(&c, 0, sizeof(c));
   c.id = id;
-  if (ioctl(fd, VIDIOC_G_CTRL, &c) < 0)
+  if (ioctl(fd, VIDIOC_G_CTRL, &c) < 0) {
     return -1;
+  }
   *value = c.value;
+
   return 0;
 }
 
@@ -161,6 +181,7 @@ static int v4l2_set_value(int fd, unsigned int id, int value) {
   nl_memset(&c, 0, sizeof(c));
   c.id = id;
   c.value = value;
+
   return ioctl(fd, VIDIOC_S_CTRL, &c);
 }
 
@@ -169,113 +190,166 @@ static int v4l2_clamp(int v, int lo, int hi) {
 }
 
 int webcam_set_auto_exposure(webcam_t *cam, int enable) {
-  if (!cam || cam->fd < 0)
+  if (!cam || cam->fd < 0) {
     return -1;
+  }
+
   // NOTE: UVC drivers expose V4L2_CID_EXPOSURE_AUTO as a menu (0=manual,
   // 1=aperture priority, 3=auto, driver-dependent which subset exists).
   if (v4l2_set_value(cam->fd, V4L2_CID_EXPOSURE_AUTO,
-                     enable ? V4L2_EXPOSURE_AUTO : V4L2_EXPOSURE_MANUAL) == 0)
+                     enable ? V4L2_EXPOSURE_AUTO : V4L2_EXPOSURE_MANUAL) == 0) {
     return 0;
+  }
+
   return v4l2_set_value(cam->fd, V4L2_CID_AUTOGAIN, enable ? 1 : 0);
 }
 
 int webcam_set_auto_white_balance(webcam_t *cam, int enable) {
-  if (!cam || cam->fd < 0)
+  if (!cam || cam->fd < 0) {
     return -1;
+  }
+
   return v4l2_set_value(cam->fd, V4L2_CID_AUTO_WHITE_BALANCE, enable ? 1 : 0);
 }
 
 int webcam_get_exposure(webcam_t *cam, int *value) {
-  if (!cam || cam->fd < 0 || !value)
+  if (!cam || cam->fd < 0 || !value) {
     return -1;
+  }
+
   return v4l2_get_value(cam->fd, V4L2_CID_EXPOSURE_ABSOLUTE, value);
 }
 
 int webcam_get_contrast(webcam_t *cam, int *value) {
-  if (!cam || cam->fd < 0 || !value)
+  if (!cam || cam->fd < 0 || !value) {
     return -1;
+  }
+
   return v4l2_get_value(cam->fd, V4L2_CID_CONTRAST, value);
 }
 
 int webcam_get_white_balance(webcam_t *cam, int *value) {
-  if (!cam || cam->fd < 0 || !value)
+  if (!cam || cam->fd < 0 || !value) {
     return -1;
+  }
+
   return v4l2_get_value(cam->fd, V4L2_CID_WHITE_BALANCE_TEMPERATURE, value);
 }
 
 int webcam_get_exposure_range(webcam_t *cam, int *min, int *max) {
-  if (!cam || cam->fd < 0)
+  if (!cam || cam->fd < 0) {
     return -1;
+  }
+
   return v4l2_query_range(cam->fd, V4L2_CID_EXPOSURE_ABSOLUTE, min, max);
 }
 
 int webcam_get_contrast_range(webcam_t *cam, int *min, int *max) {
-  if (!cam || cam->fd < 0)
+  if (!cam || cam->fd < 0) {
     return -1;
+  }
+
   return v4l2_query_range(cam->fd, V4L2_CID_CONTRAST, min, max);
 }
 
 int webcam_get_white_balance_range(webcam_t *cam, int *min, int *max) {
-  if (!cam || cam->fd < 0)
+  if (!cam || cam->fd < 0) {
     return -1;
+  }
+
   return v4l2_query_range(cam->fd, V4L2_CID_WHITE_BALANCE_TEMPERATURE, min,
                           max);
 }
 
 int webcam_adjust_exposure(webcam_t *cam, int delta, int *out_value) {
-  if (!cam || cam->fd < 0)
+  if (!cam || cam->fd < 0) {
     return -1;
+  }
+
   if (!cam->impl->auto_exposure_disabled) {
     webcam_set_auto_exposure(cam, 0);
     cam->impl->auto_exposure_disabled = 1;
   }
-  int min, max, cur;
-  if (v4l2_query_range(cam->fd, V4L2_CID_EXPOSURE_ABSOLUTE, &min, &max) < 0)
+
+  int min;
+  int max;
+  int cur;
+  if (v4l2_query_range(cam->fd, V4L2_CID_EXPOSURE_ABSOLUTE, &min, &max) < 0) {
     return -1;
-  if (v4l2_get_value(cam->fd, V4L2_CID_EXPOSURE_ABSOLUTE, &cur) < 0)
+  }
+  if (v4l2_get_value(cam->fd, V4L2_CID_EXPOSURE_ABSOLUTE, &cur) < 0) {
     cur = min;
+  }
+
   int next = v4l2_clamp(cur + delta, min, max);
-  if (v4l2_set_value(cam->fd, V4L2_CID_EXPOSURE_ABSOLUTE, next) < 0)
+  if (v4l2_set_value(cam->fd, V4L2_CID_EXPOSURE_ABSOLUTE, next) < 0) {
     return -1;
-  if (out_value)
+  }
+
+  if (out_value) {
     *out_value = next;
+  }
+
   return 0;
 }
 
 int webcam_adjust_contrast(webcam_t *cam, int delta, int *out_value) {
-  if (!cam || cam->fd < 0)
+  if (!cam || cam->fd < 0) {
     return -1;
-  int min, max, cur;
-  if (v4l2_query_range(cam->fd, V4L2_CID_CONTRAST, &min, &max) < 0)
+  }
+
+  int min;
+  int max;
+  int cur;
+  if (v4l2_query_range(cam->fd, V4L2_CID_CONTRAST, &min, &max) < 0) {
     return -1;
-  if (v4l2_get_value(cam->fd, V4L2_CID_CONTRAST, &cur) < 0)
+  }
+  if (v4l2_get_value(cam->fd, V4L2_CID_CONTRAST, &cur) < 0) {
     cur = min;
+  }
+
   int next = v4l2_clamp(cur + delta, min, max);
-  if (v4l2_set_value(cam->fd, V4L2_CID_CONTRAST, next) < 0)
+  if (v4l2_set_value(cam->fd, V4L2_CID_CONTRAST, next) < 0) {
     return -1;
-  if (out_value)
+  }
+
+  if (out_value) {
     *out_value = next;
+  }
+
   return 0;
 }
 
 int webcam_adjust_white_balance(webcam_t *cam, int delta, int *out_value) {
-  if (!cam || cam->fd < 0)
+  if (!cam || cam->fd < 0) {
     return -1;
+  }
+
   if (!cam->impl->auto_wb_disabled) {
     webcam_set_auto_white_balance(cam, 0);
     cam->impl->auto_wb_disabled = 1;
   }
-  int min, max, cur;
+
+  int min;
+  int max;
+  int cur;
   if (v4l2_query_range(cam->fd, V4L2_CID_WHITE_BALANCE_TEMPERATURE, &min,
-                       &max) < 0)
+                       &max) < 0) {
     return -1;
-  if (v4l2_get_value(cam->fd, V4L2_CID_WHITE_BALANCE_TEMPERATURE, &cur) < 0)
+  }
+  if (v4l2_get_value(cam->fd, V4L2_CID_WHITE_BALANCE_TEMPERATURE, &cur) < 0) {
     cur = min;
+  }
+
   int next = v4l2_clamp(cur + delta, min, max);
-  if (v4l2_set_value(cam->fd, V4L2_CID_WHITE_BALANCE_TEMPERATURE, next) < 0)
+  if (v4l2_set_value(cam->fd, V4L2_CID_WHITE_BALANCE_TEMPERATURE, next) < 0) {
     return -1;
-  if (out_value)
+  }
+
+  if (out_value) {
     *out_value = next;
+  }
+
   return 0;
 }
 

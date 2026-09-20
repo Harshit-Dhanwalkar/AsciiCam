@@ -91,6 +91,8 @@ static void print_usage(const char *prog) {
       "  -i            invert mapping                                  \n"
       "  -E <mode>     edge mode                off|sobel|sobel-dir|laplacian\n"
       "  -C            ANSI truecolor output                           \n"
+      "  -2            ANSI-256 color output (fallback for terminals   \n"
+      "                without truecolor support, implies color on)    \n"
       "  -D            Floyd-Steinberg dithering                       \n"
       "  -P <0-100>    depth-pop 3D parallax strength (0=off)          \n"
       "\n"
@@ -247,6 +249,9 @@ static void load_config_file(const char *path, char **device, int *ascii_w,
           opts->invert = my_atoi(val) != 0;
         } else if (nl_strcmp(key, "color") == 0) {
           opts->color = my_atoi(val) != 0;
+        } else if (nl_strcmp(key, "color_mode") == 0) {
+          opts->color_mode =
+              (nl_strcmp(val, "256") == 0) ? COLOR_256 : COLOR_TRUECOLOR;
         } else if (nl_strcmp(key, "dither") == 0) {
           opts->dither = my_atoi(val) != 0;
         } else if (nl_strcmp(key, "threshold") == 0) {
@@ -539,7 +544,7 @@ int main(int argc, char *argv[]) {
 
   // CLI parsing
   int opt;
-  while ((opt = nl_getopt(argc, argv, "d:W:H:w:h:f:b:c:iCDs:p:m:E:k:P:")) != -1)
+  while ((opt = nl_getopt(argc, argv, "d:W:H:w:h:f:b:c:iCD2s:p:m:E:k:P:")) != -1)
     switch (opt) {
     case 'd':
       device = optarg;
@@ -582,6 +587,11 @@ int main(int argc, char *argv[]) {
       break;
     case 'C':
       opts.color = 1;
+      opts.color_mode = COLOR_TRUECOLOR;
+      break;
+    case '2':
+      opts.color = 1;
+      opts.color_mode = COLOR_256;
       break;
     case 'E':
       opts.edges = parse_edge_mode(optarg);
