@@ -1,12 +1,13 @@
 # AsciiCam
 
-Real-time ASCII video from your webcam in the terminal - pure C99, no heavy runtime dependencies.
+Real-time webcam video rendered as ASCII art directly in the terminal
 
-<img src="assets/demo.gif" width="325">
+Written in C99 with minimal runtime dependencies and platform-specific capture backends for Linux, macOS, and Windows.
 
-### Edge detection + threshold plugin
-
-<img src="assets/demo-edgedetection.gif" width="325">
+<p align="center">
+  <img src="assets/demo.gif" width="325">
+  <img src="assets/demo-edgedetection.gif" width="325">
+</p>
 
 ---
 
@@ -32,11 +33,53 @@ Real-time ASCII video from your webcam in the terminal - pure C99, no heavy runt
 - macOS: requires `Clang` and `AVFoundation` frameworks (linked automatically).
 - Windows: requires `MinGW-w64`; links `mfplat`, `mf`, `mfreadwrite`, `mfuuid`, `ole32` (Media Foundation).
 
-No other external dependencies.
+## Architecture
+
+```marmaid
+flowchart TD
+    APP["Common Application"]
+
+    subgraph LINUX["Linux"]
+        NOLIBC["__LINUX_NOLIBC__"]
+        SYSCALL["Raw syscalls"]
+        V4L2["V4L2"]
+        INOTIFY["inotify"]
+
+        NOLIBC --> SYSCALL
+        NOLIBC --> V4L2
+        NOLIBC --> INOTIFY
+    end
+
+    subgraph MAC["macOS"]
+        MACLIBC["System libc"]
+        AVF["AVFoundation"]
+        DLOPEN["dlopen"]
+
+        MACLIBC --> AVF
+        MACLIBC --> DLOPEN
+    end
+
+    subgraph WIN["Windows"]
+        CRT["MinGW CRT"]
+        WIN32["Win32"]
+        MF["Media Foundation"]
+        LOADLIB["LoadLibrary"]
+
+        CRT --> WIN32
+        WIN32 --> MF
+        WIN32 --> LOADLIB
+    end
+
+    APP --> LINUX
+    APP --> MAC
+    APP --> WIN
+```
 
 ---
 
 ## Build
+
+### Linux / macOS
 
 ```bash
 git clone https://github.com/Harshit-Dhanwalkar/AsciiCam.git
@@ -85,14 +128,14 @@ You can also run the binary directly:
 
 ## Plugin system
 
-Plugins are shared objects (`.so`).
+Plugins are dynamically loaded shared libraries. Linux currently uses `.so` plugins.
 
 ```bash
 gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 ./build/webcam_ascii -p build/my_filter.so
 ```
 
-**Hot-reload:** the binary watches the `.so` with `inotify`. Recompile it while the viewer is running and it reloads automatically within $\approx$100 ms.
+**Hot-reload:** Linux: the binary watches the `.so` with `inotify`. Recompile the plugin while the viewer is running and it reloads automatically within $\approx$100 ms.
 
 **Runtime controls:**
 | Key | Action |
@@ -114,10 +157,12 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 
 ## TODO
 
-- [ ] nolibc - zero libc calls
-  - Still links `-ldl -lpthread -lc`
+- [ ] Reduce remaining libc/runtime dependencies
+  - [ ] Eliminate `-lc`
+  - [ ] Replace `pthread` with raw `futex`/`clone`
+  - [ ] Replace `dlopen` with a minimal ELF loader
 - [x] Adjustable capture resolution
-- [x] Producer/consumer thread split (double-buffered)
+- [x] Producer/consumer thread split : Double-buffered capture/render architecture; implementation in `thread_sharing.c`
 - [x] Brightness / contrast adjustment
 - [x] Invert brightness to charset mapping
 - [x] ANSI truecolor output
@@ -127,7 +172,8 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 - [x] Hot-reload plugin system
 - [x] Custom charset via config file
 - [x] Hardware camera controls (V4L2 exposure / contrast / white-balance)
-- [x] MacOS support
+- [x] macOS support
+  - [ ] Color support for macOS
 - [ ] Windows support (Media Foundation capture backend)
   - [ ] Windows console raw-mode and signal handling (`SetConsoleMode` / `SetConsoleCtrlHandler`)
   - [ ] Hardware controls via `IAMCameraControl` / `IAMVideoProcAmp` (capture works, controls stubbed)
@@ -138,16 +184,12 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 - [ ] Record to `.mp4` / `.gif`
 - [ ] Inter-frame delta compression
 - [ ] LUT cache optimization
-- [ ] Replace `pthread` with raw `futex` syscalls
-- [ ] Replace `dlopen` with a minimal ELF loader
-- [ ] Custom threading library using `clone()` + `futex` to eliminate `-lpthread` dependency
 - [ ] Implement an ELF loader (or statically link plugins) to eliminate `-ldl` dependency
-  - [ ] Color support for MacOS
 
 ## Fixes
 
-- [x] [Issue #2](https://github.com/Harshit-Dhanwalkar/AsciiCam/issues/2) MacOS support
-  - [x] Rewrite `capture.c` for MacOS port using [AVFoundation](https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/AVFoundationPG/Articles/04_MediaCapture.html).
+- [x] [Issue #2](https://github.com/Harshit-Dhanwalkar/AsciiCam/issues/2) macOS support
+  - [x] Rewrite `capture.c` for macOS port using [AVFoundation](https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/AVFoundationPG/Articles/04_MediaCapture.html).
 
 ---
 
