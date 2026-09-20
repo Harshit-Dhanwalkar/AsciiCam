@@ -13,7 +13,11 @@
 #define DEFAULT_CAPTURE_HEIGHT 480
 #define DEFAULT_FPS 20
 #define MAX_PLUGINS 8
+
 #define DEFAULT_CHARSET_DIR "./charsets"
+#define DEFAULT_CONFIG_PATH ".asciicamrc"
+#define CONFIG_MAX_BYTES 4096
+
 #define PANEL_ROWS 4
 #define MIN_ASCII_W 10
 #define MIN_ASCII_H 5
@@ -90,6 +94,10 @@ static void print_usage(const char *prog) {
       "  -D            Floyd-Steinberg dithering                       \n"
       "  -P <0-100>    depth-pop 3D parallax strength (0=off)          \n"
       "\n"
+      "Config file:\n"
+      "  ./.asciicamrc, key=value per line (# comments), auto-loaded   \n"
+      "  if present. CLI flags above always override it.               \n"
+      "\n"
       "Live keybindings:\n"
       "  m / M         cycle render mode forward / backward            \n"
       "  x / X         cycle edge detection mode forward / backward    \n"
@@ -139,6 +147,142 @@ static edge_mode_t parse_edge_mode(const char *s) {
   }
 
   return EDGE_OFF;
+}
+
+// Config file support
+static void _cfg_trim(char *s) {
+  for (char *p = s; *p; p++) {
+    if (*p == '\n' || *p == '\r') {
+      *p = '\0';
+      break;
+    }
+  }
+
+  size_t len = nl_strlen(s);
+  while (len > 0 && (s[len - 1] == ' ' || s[len - 1] == '\t')) {
+    s[--len] = '\0';
+  }
+}
+
+static char *_cfg_skip_ws(char *s) {
+  while (*s == ' ' || *s == '\t') {
+    s++;
+  }
+
+  return s;
+}
+
+static void load_config_file(const char *path, char **device, int *ascii_w,
+                             int *ascii_h, int *cap_w, int *cap_h, int *fps,
+                             ascii_opts_t *opts, const char **charset_dir,
+                             const char *plugin_paths[],
+                             int *plugin_path_count) {
+  // Static storage
+  static char buf[CONFIG_MAX_BYTES];
+  static char cfg_device[256];
+  static char cfg_charset[CHARSET_RAMP_LEN];
+  static char cfg_charset_dir[256];
+  static char cfg_plugins[MAX_PLUGINS][256];
+
+  int fd = open(path, O_RDONLY, 0);
+  if (fd < 0) {
+    return; // no config file present, use CLI flags defaults
+  }
+
+  ssize_t n = read(fd, buf, sizeof(buf) - 1);
+  close(fd);
+  if (n <= 0) {
+    return;
+  }
+
+  buf[n] = '\0';
+
+  char *line = buf;
+  while (line && *line) {
+    char *next = line;
+    while (*next && *next != '\n') {
+      next++;
+    }
+
+    char had_nl = *next;
+    if (had_nl) {
+      *next = '\0';
+    }
+
+    char *l = _cfg_skip_ws(line);
+    _cfg_trim(l);
+
+    if (l[0] != '\0' && l[0] != '#') {
+      char *eq = l;
+      while (*eq && *eq != '=') {
+        eq++;
+      }
+
+      if (*eq != '=') {
+        fprintf(stderr, "[config] malformed line (missing '='): %s\n", l);
+      } else {
+        *eq = '\0';
+        char *key = l;
+        char *val = _cfg_skip_ws(eq + 1);
+        _cfg_trim(key); // strip whitespace left between key and '='
+
+        if (nl_strcmp(key, "device") == 0) {
+          nl_strncpy_safe(cfg_device, val, sizeof(cfg_device));
+          *device = cfg_device;
+        } else if (nl_strcmp(key, "capture_width") == 0) {
+          *cap_w = my_atoi(val);
+        } else if (nl_strcmp(key, "capture_height") == 0) {
+          *cap_h = my_atoi(val);
+        } else if (nl_strcmp(key, "ascii_width") == 0) {
+          *ascii_w = my_atoi(val);
+        } else if (nl_strcmp(key, "ascii_height") == 0) {
+          *ascii_h = my_atoi(val);
+        } else if (nl_strcmp(key, "fps") == 0) {
+          *fps = my_atoi(val);
+        } else if (nl_strcmp(key, "brightness") == 0) {
+          opts->brightness = my_atoi(val);
+        } else if (nl_strcmp(key, "contrast") == 0) {
+          opts->contrast = my_atoi(val);
+        } else if (nl_strcmp(key, "invert") == 0) {
+          opts->invert = my_atoi(val) != 0;
+        } else if (nl_strcmp(key, "color") == 0) {
+          opts->color = my_atoi(val) != 0;
+        } else if (nl_strcmp(key, "dither") == 0) {
+          opts->dither = my_atoi(val) != 0;
+        } else if (nl_strcmp(key, "threshold") == 0) {
+          opts->threshold_val = my_atoi(val);
+        } else if (nl_strcmp(key, "depth_pop") == 0) {
+          opts->depth_pop = my_atoi(val);
+        } else if (nl_strcmp(key, "depth_invert") == 0) {
+          opts->depth_invert = my_atoi(val) != 0;
+        } else if (nl_strcmp(key, "render_mode") == 0) {
+          opts->render_mode = parse_render_mode(val);
+        } else if (nl_strcmp(key, "edge_mode") == 0) {
+          opts->edges = parse_edge_mode(val);
+        } else if (nl_strcmp(key, "charset") == 0) {
+          nl_strncpy_safe(cfg_charset, val, sizeof(cfg_charset));
+          opts->charset = cfg_charset;
+        } else if (nl_strcmp(key, "charset_dir") == 0) {
+          nl_strncpy_safe(cfg_charset_dir, val, sizeof(cfg_charset_dir));
+          *charset_dir = cfg_charset_dir;
+        } else if (nl_strcmp(key, "plugin") == 0) {
+          if (*plugin_path_count < MAX_PLUGINS) {
+            nl_strncpy_safe(cfg_plugins[*plugin_path_count], val,
+                            sizeof(cfg_plugins[0]));
+            plugin_paths[*plugin_path_count] = cfg_plugins[*plugin_path_count];
+            (*plugin_path_count)++;
+          } else {
+            fprintf(stderr, "[config] max %d plugins, ignoring extra: %s\n",
+                    MAX_PLUGINS, val);
+          }
+        } else {
+          fprintf(stderr, "[config] unknown key '%s', ignoring\n", key);
+        }
+      }
+    }
+
+    line = had_nl ? next + 1 : NULL;
+  }
 }
 
 // termios
@@ -387,6 +531,11 @@ int main(int argc, char *argv[]) {
   // Plugins
   const char *plugin_paths[MAX_PLUGINS];
   int plugin_path_count = 0;
+
+  // Seed defaults from .asciicamrc (cwd) if present
+  load_config_file(DEFAULT_CONFIG_PATH, &device, &ascii_w, &ascii_h, &cap_w,
+                   &cap_h, &fps, &opts, &charset_dir, plugin_paths,
+                   &plugin_path_count);
 
   // CLI parsing
   int opt;
