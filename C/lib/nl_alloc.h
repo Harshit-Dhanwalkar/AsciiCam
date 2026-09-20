@@ -12,8 +12,12 @@ void nl_free(void *ptr);
 #define calloc(nm, sz) nl_calloc(nm, sz)
 #define free(p) nl_free(p)
 
-#else // MACOS
+#else // MACOS / Windows
 #include <stdlib.h>
+
+#define nl_malloc malloc
+#define nl_calloc calloc
+#define nl_free free
 #endif
 
 #endif
