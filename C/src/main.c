@@ -22,9 +22,12 @@
 #define MIN_ASCII_W 10
 #define MIN_ASCII_H 5
 
+#ifndef PLATFORM_MACOS
+
 #ifndef TIOCGWINSZ
 #define TIOCGWINSZ 0x5413
 #endif
+
 #ifndef SIGWINCH
 #define SIGWINCH 28
 #endif
@@ -32,6 +35,8 @@
 struct winsize {
   unsigned short ws_row, ws_col, ws_xpixel, ws_ypixel;
 };
+
+#endif
 
 // Signal handling
 volatile sig_atomic_t keep_running = 1;
@@ -544,7 +549,8 @@ int main(int argc, char *argv[]) {
 
   // CLI parsing
   int opt;
-  while ((opt = nl_getopt(argc, argv, "d:W:H:w:h:f:b:c:iCD2s:p:m:E:k:P:")) != -1)
+  while ((opt = nl_getopt(argc, argv, "d:W:H:w:h:f:b:c:iCD2s:p:m:E:k:P:")) !=
+         -1)
     switch (opt) {
     case 'd':
       device = optarg;

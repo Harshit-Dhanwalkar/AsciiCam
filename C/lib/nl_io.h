@@ -2,14 +2,18 @@
 #define NL_IO_H
 
 /* nl_io.h
-   I/O syscall wrappers: write, read, open, close, mmap, munmap, ioctl, select,
-   inotify
+ *  I/O syscall wrappers: write, read, open, close, mmap, munmap, ioctl, select,
+ * inotify
  */
 
-#include <termios.h>
 #include <time.h>
 
 #ifdef __LINUX_NOLIBC__
+
+#include "nl_printf.h"
+#include "nl_syscall.h"
+#include <termios.h>
+
 #ifndef MAP_FAILED
 #define MAP_FAILED ((void *)-1)
 #endif
@@ -20,16 +24,15 @@
 #define MAP_ANONYMOUS 0x20
 #endif
 
-#include "nl_printf.h"
-#include "nl_syscall.h"
-
 // Basic I/O
 static inline ssize_t nl_write(int fd, const void *buf, size_t n) {
   long ret = __sc3(SYS_write, fd, (long)buf, (long)n);
   if (ret < 0) {
     errno = (int)-ret;
+
     return -1;
   }
+
   return (ssize_t)ret;
 }
 
@@ -37,8 +40,10 @@ static inline ssize_t nl_read(int fd, void *buf, size_t n) {
   long ret = __sc3(SYS_read, fd, (long)buf, (long)n);
   if (ret < 0) {
     errno = (int)-ret;
+
     return -1;
   }
+
   return (ssize_t)ret;
 }
 
@@ -46,8 +51,10 @@ static inline int nl_open(const char *path, int flags, int mode) {
   long ret = __sc3(SYS_open, (long)path, flags, mode);
   if (ret < 0) {
     errno = (int)-ret;
+
     return -1;
   }
+
   return (int)ret;
 }
 
@@ -55,8 +62,10 @@ static inline int nl_close(int fd) {
   long ret = __sc1(SYS_close, fd);
   if (ret < 0) {
     errno = (int)-ret;
+
     return -1;
   }
+
   return 0;
 }
 
@@ -64,8 +73,10 @@ static inline int nl_unlink(const char *path) {
   long ret = __sc1(SYS_unlink, (long)path);
   if (ret < 0) {
     errno = (int)-ret;
+
     return -1;
   }
+
   return (int)ret;
 }
 
@@ -73,8 +84,10 @@ static inline int nl_ioctl(int fd, unsigned long req, void *arg) {
   long ret = __sc3(SYS_ioctl, fd, (long)req, (long)arg);
   if (ret < 0) {
     errno = (int)-ret;
+
     return -1;
   }
+
   return (int)ret;
 }
 
@@ -97,8 +110,10 @@ static inline void *nl_mmap(void *addr, size_t len, int prot, int flags, int fd,
   long ret = __sc6(SYS_mmap, (long)addr, (long)len, prot, flags, fd, off);
   if (ret < 0) {
     errno = (int)-ret;
+
     return MAP_FAILED;
   }
+
   return (void *)ret;
 }
 
@@ -106,8 +121,10 @@ static inline int nl_munmap(void *addr, size_t len) {
   long ret = __sc2(SYS_munmap, (long)addr, (long)len);
   if (ret < 0) {
     errno = (int)-ret;
+
     return -1;
   }
+
   return (int)ret;
 }
 
@@ -116,6 +133,7 @@ struct nl_timeval {
   long tv_sec;
   long tv_usec;
 };
+
 typedef struct {
   unsigned long fds_bits[16];
 } nl_fd_set;
@@ -133,8 +151,10 @@ static inline int nl_select(int nfds, nl_fd_set *r, nl_fd_set *w, nl_fd_set *e,
   long ret = __sc6(SYS_select, nfds, (long)r, (long)w, (long)e, (long)tv, 0);
   if (ret < 0) {
     errno = (int)-ret;
+
     return -1;
   }
+
   return (int)ret;
 }
 
@@ -148,8 +168,10 @@ static inline int nl_nanosleep(const struct timespec *req,
   long ret = __sc2(SYS_nanosleep, (long)req, (long)rem);
   if (ret < 0) {
     errno = (int)-ret;
+
     return -1;
   }
+
   return 0;
 }
 
@@ -162,8 +184,10 @@ static inline long nl_time(void) {
   long ret = __sc1(SYS_time, 0);
   if (ret < 0) {
     errno = (int)-ret;
+
     return -1;
   }
+
   return ret;
 }
 
@@ -177,22 +201,26 @@ static inline int nl_inotify_init1(int flags) {
   long ret = __sc1(SYS_inotify_init1, flags);
   if (ret < 0) {
     errno = (int)-ret;
+
     return -1;
   }
+
   return (int)ret;
 }
+
 static inline int nl_inotify_add_watch(int fd, const char *path,
                                        uint32_t mask) {
   long ret = __sc3(SYS_inotify_add_watch, fd, (long)path, mask);
   if (ret < 0) {
     errno = (int)-ret;
+
     return -1;
   }
+
   return (int)ret;
 }
 
 // termios via ioctl
-#include <termios.h>
 #define NL_TCGETS 0x5401
 #define NL_TCSETS 0x5402
 #define NL_TCSETSF 0x5404
@@ -204,8 +232,10 @@ static inline int nl_inotify_add_watch(int fd, const char *path,
 static inline int nl_tcgetattr(int fd, struct termios *t) {
   return nl_ioctl(fd, NL_TCGETS, t);
 }
+
 static inline int nl_tcsetattr(int fd, int action, const struct termios *t) {
   unsigned long req = (action == 2) ? NL_TCSETSF : NL_TCSETS;
+
   return nl_ioctl(fd, req, (void *)t);
 }
 
@@ -230,9 +260,55 @@ static inline int nl_tcsetattr(int fd, int action, const struct termios *t) {
 #define inotify_init1(f) nl_inotify_init1(f)
 #define inotify_add_watch(f, p, m) nl_inotify_add_watch(f, p, m)
 
-#else
+#else /* system libc: macOS / Windows */
+
+#if defined(PLATFORM_MACOS)
+
+#include <fcntl.h>
+#include <stdio.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <sys/select.h>
+#include <termios.h>
 #include <unistd.h>
-#endif
+
+static inline int nl_ioctl(int fd, unsigned long req, void *arg) {
+  return ioctl(fd, req, arg);
+}
+
+static inline int nl_nanosleep(const struct timespec *req,
+                               struct timespec *rem) {
+  return nanosleep(req, rem);
+}
+
+#else /* Windows */
+
+// TODO: Windos Implementation
+// #include <fcntl.h>
+// #include <stdio.h>
+// #include <sys/select.h>
+// #include <unistd.h>
+//
+// #ifndef MAP_FAILED
+// #define MAP_FAILED ((void *)-1)
+// #endif
+//
+// static inline int nl_ioctl(int fd, unsigned long req, void *arg) {
+//     (void)fd;
+//     (void)req;
+//     (void)arg;
+//     return -1;
+// }
+//
+// static inline int nl_nanosleep(const struct timespec *req,
+//                                struct timespec *rem) {
+//     (void)req;
+//     (void)rem;
+//     return -1;
+// }
 
 #endif
+
+#endif /* __LINUX_NOLIBC__ */
+
+#endif /* NL_IO_H */
