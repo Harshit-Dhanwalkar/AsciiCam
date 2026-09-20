@@ -10,7 +10,7 @@
 #include "platform.h"
 
 #include <stdint.h>
-#include <sys/inotify.h>
+#include "nl_inotify.h"
 
 // Helpers
 static inline uint8_t clamp_u8(int v) {

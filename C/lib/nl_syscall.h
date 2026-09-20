@@ -1,6 +1,8 @@
 #ifndef NL_SYSCALL_H
 #define NL_SYSCALL_H
 
+#ifdef __LINUX_NOLIBC__
+
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -102,5 +104,10 @@ static inline long __sc6(long n, long a1, long a2, long a3, long a4, long a5,
                    : "rcx", "r11", "memory");
   return r;
 }
+
+#else // macOS / Windows: these are Linux x86-64-only raw syscalls;
+      // non-Linux platforms use system libc instead
+#include <stddef.h>
+#endif
 
 #endif
