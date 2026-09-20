@@ -60,6 +60,7 @@ static inline long __sc1(long n, long a1) {
                    : "rcx", "r11", "memory");
   return r;
 }
+
 static inline long __sc2(long n, long a1, long a2) {
   long r;
   __asm__ volatile("syscall"
@@ -68,6 +69,7 @@ static inline long __sc2(long n, long a1, long a2) {
                    : "rcx", "r11", "memory");
   return r;
 }
+
 static inline long __sc3(long n, long a1, long a2, long a3) {
   long r;
   __asm__ volatile("syscall"
@@ -76,6 +78,17 @@ static inline long __sc3(long n, long a1, long a2, long a3) {
                    : "rcx", "r11", "memory");
   return r;
 }
+
+static inline long __sc4(long n, long a1, long a2, long a3, long a4) {
+  long r;
+  register long r10 __asm__("r10") = a4;
+  __asm__ volatile("syscall"
+                   : "=a"(r)
+                   : "0"(n), "D"(a1), "S"(a2), "d"(a3), "r"(r10)
+                   : "rcx", "r11", "memory");
+  return r;
+}
+
 static inline long __sc6(long n, long a1, long a2, long a3, long a4, long a5,
                          long a6) {
   long r;

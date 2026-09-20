@@ -6,10 +6,6 @@
 #include "thread_sharing.h"
 #include "timing.h"
 
-#include <pthread.h>
-#include <stdint.h>
-#include <time.h>
-
 // Defaults
 #define DEFAULT_ASCII_WIDTH 80
 #define DEFAULT_ASCII_HEIGHT 40
@@ -18,12 +14,35 @@
 #define DEFAULT_FPS 20
 #define MAX_PLUGINS 8
 #define DEFAULT_CHARSET_DIR "./charsets"
+#define PANEL_ROWS 4
+#define MIN_ASCII_W 10
+#define MIN_ASCII_H 5
+
+#ifndef TIOCGWINSZ
+#define TIOCGWINSZ 0x5413
+#endif
+#ifndef SIGWINCH
+#define SIGWINCH 28
+#endif
+
+struct winsize {
+  unsigned short ws_row, ws_col, ws_xpixel, ws_ypixel;
+};
 
 // Signal handling
 volatile sig_atomic_t keep_running = 1;
 void handle_signal(int sig) {
   (void)sig;
   keep_running = 0;
+}
+
+// SIGWINCH: terminal resized
+volatile sig_atomic_t term_resized = 0;
+volatile sig_atomic_t winch_count = 0;
+void handle_winch(int sig) {
+  (void)sig;
+  term_resized = 1;
+  winch_count++;
 }
 
 static struct termios orig_terminal;
@@ -34,8 +53,11 @@ static int my_atoi(const char *s) {
     neg = 1;
     s++;
   }
-  while (*s >= '0' && *s <= '9')
+
+  while (*s >= '0' && *s <= '9') {
     n = n * 10 + (*s++ - '0');
+  }
+
   return neg ? -n : n;
 }
 
@@ -74,8 +96,8 @@ static void print_usage(const char *prog) {
       "  n / N         cycle loaded charset forward / backward         \n"
       "  p / o         increase / decrease depth-pop strength          \n"
       "  e / E         hw exposure down / up        (V4L2, Linux only) \n"
-      "  w / W         hw white-balance down / up    (V4L2, Linux only) \n"
-      "  c / C         hw contrast down / up         (V4L2, Linux only) \n"
+      "  w / W         hw white-balance down / up   (V4L2, Linux only) \n"
+      "  c / C         hw contrast down / up        (V4L2, Linux only) \n"
       "  up/down       select plugin    [ ] +-1   { } +-10   r reset   \n"
       "  q             quit                                            \n",
       prog, DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT, DEFAULT_FPS,
@@ -83,28 +105,39 @@ static void print_usage(const char *prog) {
 }
 
 static render_mode_t parse_render_mode(const char *s) {
-  if (nl_strcmp(s, "braille") == 0)
+  if (nl_strcmp(s, "braille") == 0) {
     return RENDER_BRAILLE;
-  if (nl_strcmp(s, "blocks") == 0)
+  }
+  if (nl_strcmp(s, "blocks") == 0) {
     return RENDER_BLOCKS;
-  if (nl_strcmp(s, "ascii") == 0)
+  }
+  if (nl_strcmp(s, "ascii") == 0) {
     return RENDER_ASCII_RAMP;
-  if (nl_strcmp(s, "halfblock") == 0)
+  }
+  if (nl_strcmp(s, "halfblock") == 0) {
     return RENDER_HALF_BLOCK;
-  if (nl_strcmp(s, "dots") == 0)
+  }
+  if (nl_strcmp(s, "dots") == 0) {
     return RENDER_DOTS;
+  }
+
   return RENDER_BRAILLE;
 }
 
 static edge_mode_t parse_edge_mode(const char *s) {
-  if (nl_strcmp(s, "off") == 0)
+  if (nl_strcmp(s, "off") == 0) {
     return EDGE_OFF;
-  if (nl_strcmp(s, "sobel") == 0)
+  }
+  if (nl_strcmp(s, "sobel") == 0) {
     return EDGE_SOBEL;
-  if (nl_strcmp(s, "sobel-dir") == 0)
+  }
+  if (nl_strcmp(s, "sobel-dir") == 0) {
     return EDGE_SOBEL_DIR;
-  if (nl_strcmp(s, "laplacian") == 0)
+  }
+  if (nl_strcmp(s, "laplacian") == 0) {
     return EDGE_LAPLACIAN;
+  }
+
   return EDGE_OFF;
 }
 
@@ -143,8 +176,9 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
                     "reset  q quit\033[K",
                     base_row, fpsbuf);
   }
-  if (n > 0 && n < (int)sizeof(buf))
+  if (n > 0 && n < (int)sizeof(buf)) {
     (void)write(STDOUT_FILENO, buf, (size_t)n);
+  }
 
   // Mode/edge/charset/depth-pop status row
   const char *cset_name = (charsets && charsets->count > 0 &&
@@ -152,8 +186,9 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
                               ? charsets->sets[charsets->active].name
                               : "-";
   n = nl_snprintf(buf, sizeof(buf), "\033[%d;1H\033[K", base_row + 1);
-  if (n > 0)
+  if (n > 0) {
     (void)write(STDOUT_FILENO, buf, (size_t)n);
+  }
   if (color) {
     n = nl_snprintf(buf, sizeof(buf),
                     "\033[38;2;0;180;220m mode: %s (m/M)  edges: %s (x/X)  "
@@ -168,28 +203,34 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
                     edge_mode_name(opts->edges), cset_name, opts->depth_pop,
                     opts->depth_invert ? " [inv]" : "");
   }
-  if (n > 0 && n < (int)sizeof(buf))
+
+  if (n > 0 && n < (int)sizeof(buf)) {
     (void)write(STDOUT_FILENO, buf, (size_t)n);
+  }
 
   // Hardware (V4L2) camera control row -- "n/a" fields when unsupported
   // (macOS/Windows, or a driver that doesn't expose that control).
   n = nl_snprintf(buf, sizeof(buf), "\033[%d;1H\033[K", base_row + 2);
-  if (n > 0)
+  if (n > 0) {
     (void)write(STDOUT_FILENO, buf, (size_t)n);
+  }
 
   char exp_buf[16], con_buf[16], wb_buf[16];
-  if (hw_exposure >= 0)
+  if (hw_exposure >= 0) {
     nl_snprintf(exp_buf, sizeof(exp_buf), "%d", hw_exposure);
-  else
+  } else {
     nl_snprintf(exp_buf, sizeof(exp_buf), "n/a");
-  if (hw_contrast >= 0)
+  }
+  if (hw_contrast >= 0) {
     nl_snprintf(con_buf, sizeof(con_buf), "%d", hw_contrast);
-  else
+  } else {
     nl_snprintf(con_buf, sizeof(con_buf), "n/a");
-  if (hw_wb >= 0)
+  }
+  if (hw_wb >= 0) {
     nl_snprintf(wb_buf, sizeof(wb_buf), "%dK", hw_wb);
-  else
+  } else {
     nl_snprintf(wb_buf, sizeof(wb_buf), "n/a");
+  }
 
   if (color) {
     n = nl_snprintf(buf, sizeof(buf),
@@ -202,18 +243,21 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
                     "%s\033[K",
                     exp_buf, con_buf, wb_buf);
   }
-  if (n > 0 && n < (int)sizeof(buf))
+  if (n > 0 && n < (int)sizeof(buf)) {
     (void)write(STDOUT_FILENO, buf, (size_t)n);
+  }
 
   n = nl_snprintf(buf, sizeof(buf), "\033[%d;1H\033[K", base_row + 3);
-  if (n > 0)
+  if (n > 0) {
     (void)write(STDOUT_FILENO, buf, (size_t)n);
+  }
 
   // Plugin cells
   if (count == 0) {
     const char *msg = color ? "\033[38;2;120;120;120m no plugins loaded \033[0m"
                             : " no plugins loaded";
     (void)write(STDOUT_FILENO, msg, strlen(msg));
+
     return;
   }
 
@@ -239,9 +283,67 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
       n = nl_snprintf(buf, sizeof(buf), is_sel ? " *%s[%3d]  " : "  %s[%3d]  ",
                       name, param);
     }
-    if (n > 0 && n < (int)sizeof(buf))
+    if (n > 0 && n < (int)sizeof(buf)) {
       (void)write(STDOUT_FILENO, buf, (size_t)n);
+    }
   }
+}
+
+// Returns >0 if the ASCII dimensions changed, 0 otherwise.
+// Reallocates *out_buf and updates *out_size.
+int handle_term_resize(int *ascii_w, int *ascii_h, char **out_buf,
+                       size_t *out_size, int color) {
+  // Query terminal size via ioctl(TIOCGWINSZ)
+  struct winsize ws;
+  nl_memset(&ws, 0, sizeof(ws));
+  if (nl_ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) < 0) {
+    return 0;
+  }
+  if (ws.ws_col == 0 || ws.ws_row == 0) {
+    return 0;
+  }
+
+  int new_w = ws.ws_col;
+  int new_h = ws.ws_row - PANEL_ROWS; // reserve rows for overlay panel
+  if (new_h < MIN_ASCII_H) {
+    new_h = MIN_ASCII_H;
+  }
+  if (new_w < MIN_ASCII_W) {
+    new_w = MIN_ASCII_W;
+  }
+  if (new_w == *ascii_w && new_h == *ascii_h) {
+    return 0;
+  }
+
+  *ascii_w = new_w;
+  *ascii_h = new_h;
+
+  // Recompute output buffer size for the new dimensions (max over all modes)
+  size_t need = 0;
+  for (render_mode_t rm = 0; rm < RENDER_MODE_COUNT; rm++) {
+    size_t s = ascii_out_size_for_mode(new_w * 2, new_h * 4, color, rm);
+    if (s > need) {
+      need = s;
+    }
+  }
+
+  char dbg[96];
+  int dn = nl_snprintf(dbg, sizeof(dbg), "[resize] ws_row=%u ws_col=%u\n",
+                       (unsigned)ws.ws_row, (unsigned)ws.ws_col);
+  if (dn > 0) {
+    write(2, dbg, (size_t)dn);
+  }
+
+  char *nb = malloc(need);
+  if (!nb) {
+    return 0; // keep old buffer, dimensions updated
+  }
+
+  free(*out_buf);
+  *out_buf = nb;
+  *out_size = need;
+
+  return 1;
 }
 
 fps_counter_t fps_calc = {0};
@@ -257,6 +359,7 @@ int main(int argc, char *argv[]) {
 
   nl_signal(SIGINT, handle_signal);
   nl_signal(SIGTERM, handle_signal);
+  nl_signal(SIGWINCH, handle_winch);
 
   // Config
   char *device = "/dev/video0";
@@ -415,6 +518,7 @@ int main(int argc, char *argv[]) {
     perror("malloc pixel buffers");
     free(gray);
     webcam_cleanup(&cam);
+
     return 1;
   }
 
@@ -433,6 +537,7 @@ int main(int argc, char *argv[]) {
     free(gray);
     free(rgb);
     webcam_cleanup(&cam);
+
     return 1;
   }
 
@@ -476,10 +581,40 @@ int main(int argc, char *argv[]) {
         (frame_start.tv_sec - last_frame_time.tv_sec) * 1000000000L + // Seconds
         (frame_start.tv_nsec - last_frame_time.tv_nsec); // Nano seconds
 
-    if (frame_diff_ns > 0)
+    if (frame_diff_ns > 0) {
       fps_push(&fps_calc, frame_diff_ns);
+    }
+
     last_frame_time = frame_start;
     double current_fps = fps_get(&fps_calc);
+
+    // Apply any pending terminal resize (SIGWINCH) before drawing this frame.
+    if (term_resized) {
+      term_resized = 0;
+      int rc = handle_term_resize(&ascii_w, &ascii_h, &out_buf, &out_size,
+                                  opts.color);
+      if (rc > 0) {
+        char _b[96];
+        int _n = nl_snprintf(_b, sizeof(_b),
+                             "Resized: ASCII %dx%d (terminal changed)\n",
+                             ascii_w, ascii_h);
+        if (_n > 0) {
+          write(2, _b, (size_t)_n);
+        }
+      }
+    }
+
+    {
+      static sig_atomic_t last = 0;
+      if (winch_count != last) {
+        last = winch_count;
+        char b[64];
+        int n = nl_snprintf(b, sizeof(b), "[winch #%d]\n", (int)winch_count);
+        if (n > 0) {
+          write(2, b, (size_t)n);
+        }
+      }
+    }
 
     // Keypress handling
     char ch;
@@ -500,6 +635,7 @@ int main(int argc, char *argv[]) {
             }
           }
         }
+
         continue;
       }
 
@@ -586,20 +722,24 @@ int main(int argc, char *argv[]) {
         break;
       }
     }
-    if (!keep_running)
+
+    if (!keep_running) {
       break;
+    }
 
     // Hot-reload check for all plugins
-    for (int i = 0; i < plugin_count; i++)
+    for (int i = 0; i < plugin_count; i++) {
       plugin_check_reload(&plugins[i]);
+    }
 
     // Hot-reload check for charset ramps
     charset_registry_check_reload(&charsets);
     opts.charset = charset_registry_active_ramp(&charsets);
 
     // Frame capture
-    if (webcam_wait_frame(&cam, 1000) < 0)
+    if (webcam_wait_frame(&cam, 1000) < 0) {
       continue; // timeout, retry
+    }
 
     if (webcam_capture_frame(&cam, gray) < 0) {
       perror("capture_frame");
@@ -608,17 +748,19 @@ int main(int argc, char *argv[]) {
 
     // Run all plugins in order
     for (int i = 0; i < plugin_count; i++) {
-      if (plugins[i].plugin)
+      if (plugins[i].plugin) {
         plugins[i].plugin->process(gray, cam.width, cam.height,
                                    &plugin_params[i]);
+      }
     }
 
     // NOTE: cam.buffer is the V4L2 mmap region (Linux only)
     // On macOS, capture_macos.c delivers luma only; cam.buffer is NULL
     // TODO: Add color support for macOS
     // Color mode is therefore a Linux-only feature for now.
-    if (opts.color && rgb && cam.buffer && cam.buffer != MAP_FAILED)
+    if (opts.color && rgb && cam.buffer && cam.buffer != MAP_FAILED) {
       yuyv_to_rgb((const uint8_t *)cam.buffer, rgb, cam.width, cam.height);
+    }
 
     // Calculate proper subpixel dimensions
     int subpixel_w = ascii_w;
@@ -671,9 +813,11 @@ int main(int argc, char *argv[]) {
   free(gray);
   free(rgb);
   free(out_buf);
-  for (int i = 0; i < plugin_count; i++)
+  for (int i = 0; i < plugin_count; i++) {
     plugin_cleanup(&plugins[i]);
+  }
   charset_registry_cleanup(&charsets);
   webcam_cleanup(&cam);
+
   return 0;
 }
