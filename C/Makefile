@@ -129,9 +129,12 @@ TARGET := $(BUILDDIR)/webcam_ascii
 PLUGIN_SRCS    := $(wildcard $(FILTERDIR)/*.c)
 PLUGIN_TARGETS := $(patsubst $(FILTERDIR)/%.c, $(BUILDDIR)/%.$(SO_EXT), $(PLUGIN_SRCS))
 
-.PHONY: all clean plugins info
+.PHONY: all clean plugins info run
 
 all: $(TARGET) plugins
+
+run: $(TARGET) plugins
+	./$(TARGET) $(ARGS)
 
 $(TARGET): $(OBJECTS) | $(BUILDDIR)
 	$(LD) $^ -o $@ $(LDFLAGS)

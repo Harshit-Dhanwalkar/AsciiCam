@@ -42,29 +42,43 @@ No other external dependencies.
 git clone https://github.com/Harshit-Dhanwalkar/AsciiCam.git
 cd AsciiCam/C/
 make
-
-build/webcam_ascii --help
 ```
+
+This produces `build/webcam_ascii` and compiles any plugins found in `filters/` into `build/*.so`.
 
 ---
 
 ## Run
 
+Run is via `make run`, which builds first and then launches the binary.
+Pass arguments through the `ARGS` variable:
+
 ```bash
 # Basic (grayscale, 80×40, /dev/video0)
-./build/webcam_ascii
+make run
 
 # Truecolor output
-./build/webcam_ascii -C
+make run ARGS="-C"
+
+# Braille rendering at 30 fps
+make run ARGS="-C -m braille -f 30"
 
 # With all three plugins
-./build/webcam_ascii -p build/invert.so -p build/threshold.so -p build/edge_detect.so
+make run ARGS="-p build/invert.so -p build/threshold.so -p build/edge_detect.so"
 
 # Edge detection mode, custom resolution
-./build/webcam_ascii -e -w 320 -h 240 -W 120 -H 50
+make run ARGS="-E sobel -w 320 -h 240 -W 120 -H 50"
 
 # Dithering + inverted charset
-./build/webcam_ascii -D -i
+make run ARGS="-D -i"
+```
+
+You can also run the binary directly:
+
+```bash
+./build/webcam_ascii -C -m braille
+./build/webcam_ascii -p build/invert.so -p build/edge_detect.so
+./build/webcam_ascii --help
 ```
 
 ---
@@ -100,6 +114,8 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 
 ## TODO
 
+- [ ] nolibc - zero libc calls
+  - Still links `-ldl -lpthread -lc`
 - [x] Adjustable capture resolution
 - [x] Producer/consumer thread split (double-buffered)
 - [x] Brightness / contrast adjustment
@@ -109,16 +125,16 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 - [x] Sobel edge detection
 - [x] SIMD YUYV to grayscale (SSE2)
 - [x] Hot-reload plugin system
-- [x] nolibc - zero libc calls
 - [x] Custom charset via config file
 - [x] Hardware camera controls (V4L2 exposure / contrast / white-balance)
 - [x] MacOS support
-- [x] Windows support (Media Foundation capture backend)
+- [ ] Windows support (Media Foundation capture backend)
   - [ ] Windows console raw-mode and signal handling (`SetConsoleMode` / `SetConsoleCtrlHandler`)
   - [ ] Hardware controls via `IAMCameraControl` / `IAMVideoProcAmp` (capture works, controls stubbed)
   - [ ] macOS hardware controls via `AVCaptureDevice` exposure/white-balance APIs (capture works, controls stubbed)
 - [ ] Capture frame resizing
-  - [ ] Auto frame resizing (depends on terminal `w` and `h`)
+  - [x] Auto frame resizing (depends on terminal `w` and `h`)
+  - [ ] Frame resizing using cursor
 - [ ] Record to `.mp4` / `.gif`
 - [ ] Inter-frame delta compression
 - [ ] LUT cache optimization
@@ -137,3 +153,5 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 
 Project is under [PolyForm Noncommercial License BY-NC](LICENCE).
 For commercial use contact *harshitpd1729@gmail.com*.
+
+---
