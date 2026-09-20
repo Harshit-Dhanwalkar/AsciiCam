@@ -2,11 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
-    paths-ignore: [ '**.md', 'assets/**', 'LICENCE', '.gitignore' ]
+    branches: [main]
+    paths-ignore: ["**.md", "assets/**", "LICENCE", ".gitignore"]
   pull_request:
-    branches: [ main ]
-    paths-ignore: [ '**.md', 'assets/**', 'LICENCE', '.gitignore' ]
+    branches: [main]
+    paths-ignore: ["**.md", "assets/**", "LICENCE", ".gitignore"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -16,14 +16,41 @@ jobs:
   build:
     name: Build (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.allow_failure }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { name: linux-x86_64,   runner: ubuntu-latest,  platform: linux,   cc: gcc }
-          - { name: macos-arm64,    runner: macos-14,       platform: macos,   cc: clang }
-          - { name: macos-x86_64,   runner: macos-13,       platform: macos,   cc: clang }
-          - { name: windows-x86_64, runner: windows-latest, platform: windows, cc: gcc }
+          - {
+              name: linux-x86_64,
+              runner: ubuntu-latest,
+              platform: linux,
+              cc: gcc,
+              allow_failure: false,
+            }
+          # WARN: macOS/Windows nolibc portability is still in progress 
+          # Setting `allow_failure: true`
+          - {
+              name: macos-arm64,
+              runner: macos-14,
+              platform: macos,
+              cc: clang,
+              allow_failure: true,
+            }
+          - {
+              name: macos-x86_64,
+              runner: macos-13,
+              platform: macos,
+              cc: clang,
+              allow_failure: true,
+            }
+          - {
+              name: windows-x86_64,
+              runner: windows-latest,
+              platform: windows,
+              cc: gcc,
+              allow_failure: true,
+            }
 
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +68,12 @@ jobs:
       - name: Install MinGW
         if: matrix.platform == 'windows'
         uses: egor-tensin/setup-mingw@v2
-        with: { platform: x64 }
+        with:
+          platform: x64
+          # WARN: setup-mingw's static-linking workaround
+          # (try to remove libpthread.dll.a from a path that no longer exists):
+          # https://github.com/egor-tensin/setup-mingw/issues/17
+          version: "12.2.0"
 
       - name: Install make (Windows)
         if: matrix.platform == 'windows'
