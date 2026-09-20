@@ -25,7 +25,7 @@ Real-time ASCII video from your webcam in the terminal - pure C99, no heavy runt
 | **Hot‑reload plugin system**  | `inotify` + `dlopen` - rebuild a filter `.so`, it reloads live                                                                     |
 | **FPS‑capped render loop**    | `CLOCK_MONOTONIC` + `nanosleep` frame pacing                                                                                       |
 | **Producer/consumer threads** | Double‑buffered capture + render (stubbed in main loop, active in `thread_sharing.c`)                                              |
-| **Hardware camera controls**  | V4L2 exposure, contrast, white-balance via `ioctl` — live keys `e`/`E`, `c`/`C`, `w`/`W` (Linux only; macOS/Windows display `n/a`) |
+| **Hardware camera controls**  | V4L2 exposure, contrast, white-balance via `ioctl` - live keys `e`/`E`, `c`/`C`, `w`/`W` (Linux only; macOS/Windows display `n/a`) |
 | **Cross‑platform**            | Linux (V4L2, nolibc), macOS (AVFoundation, system libc), Windows (Media Foundation)                                                |
 
 - Linux: requires `gcc`, `linux/videodev2.h` (kernel headers), `libdl`, `libpthread`.
@@ -117,7 +117,8 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
   - [ ] Windows console raw-mode and signal handling (`SetConsoleMode` / `SetConsoleCtrlHandler`)
   - [ ] Hardware controls via `IAMCameraControl` / `IAMVideoProcAmp` (capture works, controls stubbed)
   - [ ] macOS hardware controls via `AVCaptureDevice` exposure/white-balance APIs (capture works, controls stubbed)
-- [ ] Cature frame resizing
+- [ ] Capture frame resizing
+  - [ ] Auto frame resizing (depends on terminal `w` and `h`)
 - [ ] Record to `.mp4` / `.gif`
 - [ ] Inter-frame delta compression
 - [ ] LUT cache optimization
@@ -131,10 +132,6 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 
 - [x] [Issue #2](https://github.com/Harshit-Dhanwalkar/AsciiCam/issues/2) MacOS support
   - [x] Rewrite `capture.c` for MacOS port using [AVFoundation](https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/AVFoundationPG/Articles/04_MediaCapture.html).
-- [x] `nl_calloc`: zero-fill loop was commented out (returned uninitialized memory) and the `SIZE_MAX` overflow guard ran _after_ the allocation, leaking the spurious block on overflow. Both fixed.
-- [x] `nl_free`: backward coalescing was a `TODO` stub — non-LIFO frees (e.g. edge-detection scratch buffers) left permanently unmerged holes. Implemented by walking from arena start to find the preceding block.
-- [x] `main.c` double-buffer bug: a second `out_buf` was `malloc`/`free`'d every frame inside the loop, shadowing the persistent pre-loop allocation. Frame-loop malloc removed; the single persistent buffer is reused for the program's lifetime.
-- [x] `ascii.c` `RENDER_HALF_BLOCK` height rounding: `safe_dst_h` was rounded down to a multiple of 4 unconditionally, but half-block mode only needs multiples of 2 (it stacks 2 subpixel rows per glyph, not 4). Fixed to be mode-aware.
 
 ---
 

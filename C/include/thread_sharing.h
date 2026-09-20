@@ -4,6 +4,7 @@
 #include "ascii.h"
 #include <pthread.h>
 #include <stdint.h>
+#include <bits/pthreadtypes.h>
 
 typedef struct {
   uint8_t *buf[2];      // Double buffer, one slot per thread
