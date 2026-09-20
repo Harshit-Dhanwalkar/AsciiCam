@@ -32,16 +32,16 @@ BUILDDIR  := build
 OBJDIR    := $(BUILDDIR)/obj
 
 CFLAGS_COMMON := -Wall -Wextra -O2 -Iinclude -I$(LIBDIR) -fno-stack-protector -fno-builtin -ffreestanding
+CFLAGS_EXTRA  ?=
+LDFLAGS_EXTRA ?=
 
 ifeq ($(PLATFORM),linux)
     # Linux: nolibc, V4L2, SSE4.1
-    CFLAGS   := $(CFLAGS_COMMON) -DPLATFORM_LINUX -D__LINUX_NOLIBC__
+    CFLAGS   := $(CFLAGS_COMMON) $(CFLAGS_EXTRA) -DPLATFORM_LINUX -D__LINUX_NOLIBC__
     CFLAGS   += -msse4.1
-
-    LDFLAGS  := -nostdlib -nostdinc
-    LDFLAGS  += -Wl,--no-as-needed
-    LDFLAGS  += -Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2
-    LDFLAGS  += -L/usr/lib/x86_64-linux-gnu # TEST: Explicit library paths
+    LDFLAGS  := $(LDFLAGS_EXTRA) -nostdlib -nostdinc \
+                -Wl,--no-as-needed -Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2 \
+                -L/usr/lib/x86_64-linux-gnu
     # LDFLAGS  += -Wl,-rpath-link=/usr/lib/x86_64-linux-gnu
     LDFLAGS  += -ldl -lpthread -lc # FIX: lc flag pulls standard libc,but removing them will -lpthread and -ldl will fail to link because they themselves depend on libc
     # TODO: custom threading library using clone() + futex to eliminate -lpthread (pthread functions) dependency
@@ -61,17 +61,17 @@ ifeq ($(PLATFORM),linux)
     SO_FLAGS := -fPIC -shared
 else ifeq ($(PLATFORM),macos)
     # macOS: system libc + AVFoundation, supports ARM64 + x86_64
-    CFLAGS   := $(CFLAGS_COMMON) -DPLATFORM_MACOS
+    CFLAGS   := $(CFLAGS_COMMON) $(CFLAGS_EXTRA) -DPLATFORM_MACOS
     OBJCFLAGS:= $(CFLAGS) -x objective-c \
                 -fobjc-arc \
                 -fmodules
 
     ifeq ($(UNAME_M),arm64)
         CFLAGS   += -arch arm64
-        LDFLAGS  := -arch arm64
+        LDFLAGS  := $(LDFLAGS_EXTRA) -arch arm64
     else
         CFLAGS   += -arch x86_64 -msse4.1
-        LDFLAGS  := -arch x86_64
+        LDFLAGS  := $(LDFLAGS_EXTRA) -arch x86_64
     endif
 
     LDFLAGS  += -framework AVFoundation \
@@ -81,7 +81,7 @@ else ifeq ($(PLATFORM),macos)
                 -lpthread
 
     # TODO: Update nolibc for macos support instead of system system libc, currently :
-    # No nolibc on macOS, uses system libc
+    # On macOS uses system libc
     LIBSRCS  :=
 
     PLAT_SRC := $(SRCDIR)/capture_macos.m
@@ -90,14 +90,14 @@ else ifeq ($(PLATFORM),macos)
     SO_EXT   := dylib
     SO_FLAGS := -dynamiclib
 else ifeq ($(PLATFORM),windows)
-    # Windows: system libc (MSVCRT via MinGW), Media Foundation.
-    CFLAGS   := $(CFLAGS_COMMON) -DPLATFORM_WINDOWS -DWIN32_LEAN_AND_MEAN \
+    # Windows: system libc (MSVCRT via MinGW), Media Foundation
+    CFLAGS   := $(CFLAGS_COMMON) $(CFLAGS_EXTRA) -DPLATFORM_WINDOWS -DWIN32_LEAN_AND_MEAN \
                 -DUNICODE -D_UNICODE \
                 -msse4.1
     CFLAGS   := $(filter-out -ffreestanding -fno-builtin,$(CFLAGS))
 
-    LDFLAGS  := -lmfplat -lmf -lmfreadwrite -lmfuuid -lole32 \
-                -loleaut32 -luuid -lstrmiids
+    LDFLAGS  := $(LDFLAGS_EXTRA) -lmfplat -lmf -lmfreadwrite -lmfuuid \
+                -lole32 -loleaut32 -luuid -lstrmiids
 
     # TODO: Update nolibc for windows support instead of system system libc, currently :
     # No nolibc on Windows, uses system libc
@@ -158,9 +158,10 @@ plugins: $(PLUGIN_TARGETS)
 $(BUILDDIR)/%.$(SO_EXT): $(FILTERDIR)/%.c | $(BUILDDIR)
 ifeq ($(PLATFORM),linux)
 	$(CC) $(CFLAGS) $(SO_FLAGS) $< -o $@.tmp && mv $@.tmp $@
+else ifeq ($(PLATFORM),macos)
+	$(CC) $(CFLAGS) $(SO_FLAGS) $< -o $@ -undefined dynamic_lookup
 else
-	$(CC) $(CFLAGS) $(SO_FLAGS) $< -o $@ \
-		-undefined dynamic_lookup
+	$(CC) $(CFLAGS) $(SO_FLAGS) $< -o $@
 endif
 
 $(OBJDIR):

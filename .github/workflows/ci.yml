@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore: [ '**.md', 'assets/**', 'LICENCE', '.gitignore' ]
+  pull_request:
+    branches: [ main ]
+    paths-ignore: [ '**.md', 'assets/**', 'LICENCE', '.gitignore' ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64,   runner: ubuntu-latest,  platform: linux,   cc: gcc }
+          - { name: macos-arm64,    runner: macos-14,       platform: macos,   cc: clang }
+          - { name: macos-x86_64,   runner: macos-13,       platform: macos,   cc: clang }
+          - { name: windows-x86_64, runner: windows-latest, platform: windows, cc: gcc }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux deps
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential linux-libc-dev libv4l-dev ccache
+
+      - name: Install macOS deps
+        if: matrix.platform == 'macos'
+        run: brew install ccache || true
+
+      - name: Install MinGW
+        if: matrix.platform == 'windows'
+        uses: egor-tensin/setup-mingw@v2
+        with: { platform: x64 }
+
+      - name: Install make (Windows)
+        if: matrix.platform == 'windows'
+        run: choco install make -y
+
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ matrix.name }}-ccache
+          max-size: 500M
+
+      - name: Build (Unix)
+        if: matrix.platform != 'windows'
+        working-directory: C
+        shell: bash
+        run: |
+          JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+          make clean
+          make -j"$JOBS" CC="${{ matrix.cc }}" all
+
+      - name: Build (Windows / Git Bash)
+        if: matrix.platform == 'windows'
+        working-directory: C
+        shell: bash
+        run: |
+          make clean
+          make -j4 CC="${{ matrix.cc }}" all
+
+      - name: Smoke test --help (Unix)
+        if: matrix.platform != 'windows'
+        working-directory: C
+        shell: bash
+        run: ./build/webcam_ascii --help | head -20
+
+      - name: Smoke test --help (Windows)
+        if: matrix.platform == 'windows'
+        working-directory: C
+        shell: bash
+        run: ./build/webcam_ascii.exe --help | head -20
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: asciicam-${{ matrix.name }}
+          path: |
+            C/build/webcam_ascii*
+            C/build/*.so
+            C/build/*.dylib
+            C/build/*.dll
+          if-no-files-found: error
