@@ -92,7 +92,7 @@ else ifeq ($(PLATFORM),macos)
 else ifeq ($(PLATFORM),windows)
     # Windows: system libc (MSVCRT via MinGW), Media Foundation
     CFLAGS   := $(CFLAGS_COMMON) $(CFLAGS_EXTRA) -DPLATFORM_WINDOWS -DWIN32_LEAN_AND_MEAN \
-                -DUNICODE -D_UNICODE \
+                -DUNICODE -D_UNICODE -D__USE_MINGW_ANSI_STDIO=1 \
                 -msse4.1
     CFLAGS   := $(filter-out -ffreestanding -fno-builtin,$(CFLAGS))
 

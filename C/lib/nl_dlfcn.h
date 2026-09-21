@@ -4,8 +4,12 @@
 #ifdef PLATFORM_WINDOWS
   #include <windows.h>
 
-  #define RTLD_LAZY   0
-  #define RTLD_NOW    0
+ #ifndef RTLD_LAZY
+    #define RTLD_LAZY 0
+  #endif
+  #ifndef RTLD_NOW
+    #define RTLD_NOW 0
+  #endif
 
   static inline void *nl_dlopen(const char *path, int flags) {
     (void)flags;

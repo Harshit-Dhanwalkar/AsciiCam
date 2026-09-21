@@ -42,6 +42,7 @@ struct winsize {
 volatile sig_atomic_t keep_running = 1;
 void handle_signal(int sig) {
   (void)sig;
+
   keep_running = 0;
 }
 
@@ -50,6 +51,7 @@ volatile sig_atomic_t term_resized = 0;
 volatile sig_atomic_t winch_count = 0;
 void handle_winch(int sig) {
   (void)sig;
+
   term_resized = 1;
   winch_count++;
 }
@@ -57,7 +59,8 @@ void handle_winch(int sig) {
 static struct termios orig_terminal;
 
 static int my_atoi(const char *s) {
-  int n = 0, neg = 0;
+  int n = 0;
+  int neg = 0;
   if (*s == '-') {
     neg = 1;
     s++;
@@ -298,10 +301,12 @@ static void load_config_file(const char *path, char **device, int *ascii_w,
 // termios
 void term_raw_mode(void) {
   tcgetattr(STDIN_FILENO, &orig_terminal); // save stdin state
+
   struct termios raw = orig_terminal;
   raw.c_lflag &= ~(ICANON | ECHO); // no line buffering or no echo
   raw.c_cc[VMIN] = 0;              // non-blocking read
   raw.c_cc[VTIME] = 0;
+
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
@@ -343,6 +348,7 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
   if (n > 0) {
     (void)write(STDOUT_FILENO, buf, (size_t)n);
   }
+
   if (color) {
     n = nl_snprintf(buf, sizeof(buf),
                     "\033[38;2;0;180;220m mode: %s (m/M)  edges: %s (x/X)  "
@@ -369,7 +375,9 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
     (void)write(STDOUT_FILENO, buf, (size_t)n);
   }
 
-  char exp_buf[16], con_buf[16], wb_buf[16];
+  char exp_buf[16];
+  char con_buf[16];
+  char wb_buf[16];
   if (hw_exposure >= 0) {
     nl_snprintf(exp_buf, sizeof(exp_buf), "%d", hw_exposure);
   } else {
@@ -410,6 +418,7 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
   if (count == 0) {
     const char *msg = color ? "\033[38;2;120;120;120m no plugins loaded \033[0m"
                             : " no plugins loaded";
+
     (void)write(STDOUT_FILENO, msg, strlen(msg));
 
     return;
@@ -437,6 +446,7 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
       n = nl_snprintf(buf, sizeof(buf), is_sel ? " *%s[%3d]  " : "  %s[%3d]  ",
                       name, param);
     }
+
     if (n > 0 && n < (int)sizeof(buf)) {
       (void)write(STDOUT_FILENO, buf, (size_t)n);
     }
@@ -630,6 +640,7 @@ int main(int argc, char *argv[]) {
       break;
     default:
       print_usage(argv[0]);
+
       return 1;
     }
 
@@ -659,8 +670,10 @@ int main(int argc, char *argv[]) {
   webcam_t cam = {.fd = -1, .buffer = MAP_FAILED};
   if (webcam_init(&cam, device, cap_w, cap_h) < 0) {
     perror("webcam_init");
+
     return 1;
   }
+
   fprintf(stderr,
           "Device: %s | capture %dx%d | ASCII %dx%d | %d fps | %d "
           "plugin(s) | mode: %s%s%s%s\n",
@@ -669,7 +682,9 @@ int main(int argc, char *argv[]) {
           opts.edges != EDGE_OFF ? " | edges" : "",
           opts.dither ? " | dither" : "");
 
-  int hw_exposure = -1, hw_contrast = -1, hw_wb = -1;
+  int hw_exposure = -1;
+  int hw_contrast = -1;
+  int hw_wb = -1;
   webcam_get_exposure(&cam, &hw_exposure);
   webcam_get_contrast(&cam, &hw_contrast);
   webcam_get_white_balance(&cam, &hw_wb);
@@ -692,11 +707,12 @@ int main(int argc, char *argv[]) {
   for (render_mode_t rm = 0; rm < RENDER_MODE_COUNT; rm++) {
     size_t s =
         ascii_out_size_for_mode(ascii_w * 2, ascii_h * 4, opts.color, rm);
-    if (s > out_size)
+    if (s > out_size) {
       out_size = s;
+    }
   }
-  char *out_buf = malloc(out_size);
 
+  char *out_buf = malloc(out_size);
   if (!out_buf) {
     perror("malloc out_buf");
     free(gray);
@@ -732,6 +748,7 @@ int main(int argc, char *argv[]) {
 
   // Initial screen setup
   (void)write(STDOUT_FILENO, "\033[2J\033[H\033[?25l", 13);
+
   term_raw_mode();
 
   struct timespec frame_start, last_frame_time;
@@ -955,6 +972,7 @@ int main(int argc, char *argv[]) {
 
     if (len > 0) {
       (void)write(STDOUT_FILENO, out_buf, (size_t)len);
+
       overlay_panel(ascii_h, current_fps, plugins, plugin_params, plugin_count,
                     selected, opts.color, &opts, &charsets, hw_exposure,
                     hw_contrast, hw_wb);
@@ -973,6 +991,7 @@ int main(int argc, char *argv[]) {
   // \033[2J = erase screen, \033[H = cursor home, \033[?25h = show cursor
   static const char CLEANUP[] = "\033[2J\033[H\033[0m\033[?25h";
   (void)write(STDOUT_FILENO, CLEANUP, sizeof(CLEANUP) - 1);
+
   fprintf(stderr, "Stopped.\n");
 
   free(gray);
