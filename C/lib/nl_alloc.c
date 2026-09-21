@@ -1,5 +1,5 @@
-#include "nl_io.h"
 #include "nl_alloc.h"
+#include "nl_io.h"
 
 #include <stdint.h>
 
@@ -33,8 +33,10 @@ static inline size_t align_up(size_t n) {
 }
 
 void *nl_malloc(size_t n) {
-  if (n == 0)
+  if (n == 0) {
     n = 1;
+  }
+
   n = align_up(n);
 
   // Large allocation: use mmap
@@ -42,27 +44,32 @@ void *nl_malloc(size_t n) {
     size_t total = sizeof(block_hdr_t) + n;
     void *p = nl_mmap(NULL, total, PROT_READ | PROT_WRITE,
                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (p == MAP_FAILED)
+    if (p == MAP_FAILED) {
       return NULL;
+    }
+
     block_hdr_t *h = (block_hdr_t *)p;
     h->size = n;
     h->free = 0;
     h->magic = HDR_MAGIC;
     h->mmap_alloc = 1;
+
     return (char *)p + sizeof(block_hdr_t);
   }
 
   // Else use arena
-  if (!_arena_init)
+  if (!_arena_init) {
     arena_boot();
+  }
 
   unsigned char *p = _arena;
   unsigned char *end = _arena + ARENA_SIZE;
 
   while (p + sizeof(block_hdr_t) <= end) {
     block_hdr_t *h = (block_hdr_t *)p;
-    if (h->magic != HDR_MAGIC)
+    if (h->magic != HDR_MAGIC) {
       break; // heap corruption
+    }
 
     if (h->free && h->size >= n) {
       size_t leftover = h->size - n;
@@ -74,39 +81,51 @@ void *nl_malloc(size_t n) {
         next->mmap_alloc = 0;
         h->size = n;
       }
+
       h->free = 0;
+
       return p + sizeof(block_hdr_t);
     }
+
     p += sizeof(block_hdr_t) + h->size;
   }
+
   return (void *)0; // OOM
 }
 
 void *nl_calloc(size_t nmemb, size_t size) {
-  if (nmemb != 0 && size > SIZE_MAX / nmemb)
+  if (nmemb != 0 && size > SIZE_MAX / nmemb) {
     return NULL;
+  }
 
   size_t total = nmemb * size;
   void *p = nl_malloc(total);
   if (p) {
     uint8_t *b = (uint8_t *)p;
-    for (size_t i = 0; i < total; i++)
+
+    for (size_t i = 0; i < total; i++) {
       b[i] = 0;
+    }
   }
+
   return p;
 }
 
 void nl_free(void *ptr) {
-  if (!ptr)
+  if (!ptr) {
     return;
+  }
+
   block_hdr_t *h = (block_hdr_t *)((unsigned char *)ptr - sizeof(block_hdr_t));
-  if (h->magic != HDR_MAGIC)
+  if (h->magic != HDR_MAGIC) {
     return; // bad pointer guard
+  }
 
   if (h->mmap_alloc) {
     // Free mmap'ed block
     size_t total = sizeof(block_hdr_t) + h->size;
     nl_munmap(h, total);
+
     return;
   }
 
@@ -130,11 +149,14 @@ void nl_free(void *ptr) {
   block_hdr_t *prev = NULL;
   while (p < target) {
     block_hdr_t *cur = (block_hdr_t *)p;
-    if (cur->magic != HDR_MAGIC)
+    if (cur->magic != HDR_MAGIC) {
       break; // heap corruption guard
+    }
+
     prev = cur;
     p += sizeof(block_hdr_t) + cur->size;
   }
+
   if (prev && prev->free && p == target) {
     prev->size += sizeof(block_hdr_t) + h->size;
     h->magic = 0; // h is now absorbed into prev

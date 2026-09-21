@@ -1,12 +1,12 @@
 #ifndef NL_IO_H
 #define NL_IO_H
 
-/* nl_io.h
- *  I/O syscall wrappers: write, read, open, close, mmap, munmap, ioctl, select,
+/*
+ * I/O syscall wrappers: write, read, open, close, mmap, munmap, ioctl, select,
  * inotify
  */
 
-#include <time.h>
+#include "nl_time.h"
 
 #ifdef __LINUX_NOLIBC__
 
@@ -175,10 +175,12 @@ static inline int nl_nanosleep(const struct timespec *req,
   return 0;
 }
 
+#ifndef __LINUX_NOLIBC__
 static inline void nl_usleep(unsigned long us) {
   struct timespec ts = {(long)(us / 1000000), (long)((us % 1000000) * 1000)};
   nl_nanosleep(&ts, (struct timespec *)0);
 }
+#endif
 
 static inline long nl_time(void) {
   long ret = __sc1(SYS_time, 0);
@@ -324,7 +326,12 @@ static inline int nl_ioctl(int fd, unsigned long req, void *arg) {
 
 static inline int nl_nanosleep(const struct timespec *req,
                                struct timespec *rem) {
-  return nanosleep(req, rem);
+  (void)rem;
+
+  DWORD ms = (DWORD)(req->tv_sec * 1000 + req->tv_nsec / 1000000);
+  Sleep(ms);
+
+  return 0;
 }
 
 // termios shim: MinGW ships no <termios.h>, so raw-mode toggling is

@@ -110,4 +110,4 @@ static inline long __sc6(long n, long a1, long a2, long a3, long a4, long a5,
 #include <stddef.h>
 #endif
 
-#endif
+#endif  /* NL_SYSCALL_H */
