@@ -3,7 +3,7 @@
 #include "plugins.h"
 
 #include "nl_inotify.h"
-#include <dlfcn.h>
+#include "nl_dlfcn.h"
 
 static int copy_file(const char *src, const char *dst) {
   int fd_src = open(src, O_RDONLY);
