@@ -283,29 +283,120 @@ static inline int nl_nanosleep(const struct timespec *req,
 
 #else /* Windows */
 
-// TODO: Windos Implementation
-// #include <fcntl.h>
-// #include <stdio.h>
-// #include <sys/select.h>
-// #include <unistd.h>
-//
-// #ifndef MAP_FAILED
-// #define MAP_FAILED ((void *)-1)
-// #endif
-//
-// static inline int nl_ioctl(int fd, unsigned long req, void *arg) {
-//     (void)fd;
-//     (void)req;
-//     (void)arg;
-//     return -1;
-// }
-//
-// static inline int nl_nanosleep(const struct timespec *req,
-//                                struct timespec *rem) {
-//     (void)req;
-//     (void)rem;
-//     return -1;
-// }
+include<fcntl.h>
+#include <io.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <windows.h>
+
+#ifndef MAP_FAILED
+#define MAP_FAILED ((void *)-1)
+#endif
+
+#ifndef TIOCGWINSZ
+#define TIOCGWINSZ 0x5413
+#endif
+
+    static inline int nl_ioctl(int fd, unsigned long req, void *arg) {
+  if (req == TIOCGWINSZ) {
+    struct {
+      unsigned short ws_row, ws_col, ws_xpixel, ws_ypixel;
+    } *ws = arg;
+
+    HANDLE h = (HANDLE)_get_osfhandle(fd);
+    CONSOLE_SCREEN_BUFFER_INFO info;
+    if (h == INVALID_HANDLE_VALUE || !GetConsoleScreenBufferInfo(h, &info)) {
+      return -1;
+    }
+
+    ws->ws_col = (unsigned short)(info.srWindow.Right - info.srWindow.Left + 1);
+    ws->ws_row = (unsigned short)(info.srWindow.Bottom - info.srWindow.Top + 1);
+    ws->ws_xpixel = 0;
+    ws->ws_ypixel = 0;
+
+    return 0;
+  }
+
+  (void)arg;
+
+  return -1;
+}
+
+static inline int nl_nanosleep(const struct timespec *req,
+                               struct timespec *rem) {
+  return nanosleep(req, rem);
+}
+
+// termios shim: MinGW ships no <termios.h>, so raw-mode toggling is
+// re-expressed in terms of the Win32 console mode API. Only the bits
+// main.c's term_raw_mode()/term_restore() touch (ICANON, ECHO, VMIN,
+// VTIME, TCSAFLUSH) are modeled -- this is not a general termios
+// replacement
+typedef unsigned long nl_tcflag_t;
+
+#define ICANON 0x0002
+#define ECHO 0x0008
+#define VMIN 0
+#define VTIME 1
+#define NL_TERMIOS_NCC 2
+
+#define TCSANOW 0
+#define TCSADRAIN 1
+#define TCSAFLUSH 2
+
+struct termios {
+  nl_tcflag_t c_lflag;
+  unsigned char c_cc[NL_TERMIOS_NCC];
+};
+
+static inline int nl_tcgetattr(int fd, struct termios *t) {
+  HANDLE h = (HANDLE)_get_osfhandle(fd);
+  DWORD mode;
+  if (h == INVALID_HANDLE_VALUE || !GetConsoleMode(h, &mode)) {
+    return -1;
+  }
+
+  t->c_lflag = 0;
+  if (mode & ENABLE_LINE_INPUT) {
+    t->c_lflag |= ICANON;
+  }
+  if (mode & ENABLE_ECHO_INPUT) {
+    t->c_lflag |= ECHO;
+  }
+
+  t->c_cc[VMIN] = 1;
+  t->c_cc[VTIME] = 0;
+
+  return 0;
+}
+
+static inline int nl_tcsetattr(int fd, int action, const struct termios *t) {
+  HANDLE h = (HANDLE)_get_osfhandle(fd);
+  DWORD mode;
+  if (h == INVALID_HANDLE_VALUE || !GetConsoleMode(h, &mode)) {
+    return -1;
+  }
+  if (t->c_lflag & ICANON) {
+    mode |= ENABLE_LINE_INPUT;
+  } else {
+    mode &= ~(DWORD)ENABLE_LINE_INPUT;
+  }
+
+  if (t->c_lflag & ECHO) {
+    mode |= ENABLE_ECHO_INPUT;
+  } else {
+    mode &= ~(DWORD)ENABLE_ECHO_INPUT;
+  }
+
+  if (action == TCSAFLUSH) {
+    FlushConsoleInputBuffer(h);
+  }
+
+  return SetConsoleMode(h, mode) ? 0 : -1;
+}
+
+#define tcgetattr(fd, t) nl_tcgetattr(fd, t)
+#define tcsetattr(fd, act, t) nl_tcsetattr(fd, act, t)
 
 #endif
 
