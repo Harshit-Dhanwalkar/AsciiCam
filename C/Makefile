@@ -113,8 +113,8 @@ endif
 CORE_SRCS := $(SRCDIR)/ascii.c \
              $(SRCDIR)/main.c  \
              $(SRCDIR)/plugins.c \
-             $(SRCDIR)/thread_sharing.c \
              $(SRCDIR)/timing.c
+             # $(SRCDIR)/thread_sharing.c
 
 ALL_C_SRCS := $(CORE_SRCS) $(PLAT_SRC) $(LIBSRCS)
 

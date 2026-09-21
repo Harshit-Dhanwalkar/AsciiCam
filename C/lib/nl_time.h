@@ -7,9 +7,12 @@ struct timespec {
   long tv_nsec;
 };
 
+#ifndef CLOCK_MONOTONIC
 #define CLOCK_MONOTONIC 1
+#endif
+#ifndef CLOCK_REALTIME
 #define CLOCK_REALTIME 0
-#define clockid_t int
+#endif
 
 #else
 #include <time.h>

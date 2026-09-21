@@ -1,7 +1,7 @@
 #ifndef TIMING_H
 #define TIMING_H
 
-#include <time.h>
+#include "nl_time.h"
 
 typedef struct {
   long samples[16]; // frame duration (ns) ring buffer

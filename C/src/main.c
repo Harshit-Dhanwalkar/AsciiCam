@@ -3,7 +3,7 @@
 #include "ascii.h"
 #include "capture.h"
 #include "plugins.h"
-#include "thread_sharing.h"
+// #include "thread_sharing.h"
 #include "timing.h"
 
 // Defaults

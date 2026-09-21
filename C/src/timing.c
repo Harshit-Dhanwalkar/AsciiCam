@@ -2,8 +2,6 @@
 
 #include "timing.h"
 
-#include <time.h>
-
 static long frame_duration_ns = 0; // nanoseconds per frame
 
 void timing_init(int fps) { frame_duration_ns = 1000000000L / fps; }

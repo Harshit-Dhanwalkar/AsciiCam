@@ -159,7 +159,7 @@ static inline int nl_select(int nfds, nl_fd_set *r, nl_fd_set *w, nl_fd_set *e,
 }
 
 // clock / sleep
-static inline int nl_clock_gettime(clockid_t id, struct timespec *ts) {
+static inline int nl_clock_gettime(int id, struct timespec *ts) {
   return (int)__sc2(SYS_clock_gettime, id, (long)ts);
 }
 
@@ -175,12 +175,10 @@ static inline int nl_nanosleep(const struct timespec *req,
   return 0;
 }
 
-#ifndef __LINUX_NOLIBC__
 static inline void nl_usleep(unsigned long us) {
   struct timespec ts = {(long)(us / 1000000), (long)((us % 1000000) * 1000)};
   nl_nanosleep(&ts, (struct timespec *)0);
 }
-#endif
 
 static inline long nl_time(void) {
   long ret = __sc1(SYS_time, 0);
@@ -264,15 +262,25 @@ static inline int nl_tcsetattr(int fd, int action, const struct termios *t) {
 
 #else /* system libc: macOS / Windows */
 
-#if defined(PLATFORM_MACOS)
+#if defined(PLATFORM_MACOS) || defined(PLATFORM_WINDOWS)
 
 #include <fcntl.h>
 #include <stdio.h>
+#include <unistd.h>
+
+static inline void nl_usleep(unsigned long us) {
+  struct timespec ts = {(long)(us / 1000000), (long)((us % 1000000) * 1000)};
+  nl_nanosleep(&ts, (struct timespec *)0);
+}
+
+#endif
+
+#if defined(PLATFORM_MACOS)
+
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/select.h>
 #include <termios.h>
-#include <unistd.h>
 
 static inline int nl_ioctl(int fd, unsigned long req, void *arg) {
   return ioctl(fd, req, arg);
@@ -285,10 +293,7 @@ static inline int nl_nanosleep(const struct timespec *req,
 
 #else /* Windows */
 
-#include <fcntl.h>
 #include <io.h>
-#include <stdio.h>
-#include <unistd.h>
 #include <windows.h>
 
 #ifndef MAP_FAILED
