@@ -3,10 +3,18 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore: ["**.md", "assets/**", "LICENCE", ".gitignore"]
+    paths-ignore:
+      - "**.md"
+      - "assets/**"
+      - "LICENCE"
+      - ".gitignore"
   pull_request:
     branches: [main]
-    paths-ignore: ["**.md", "assets/**", "LICENCE", ".gitignore"]
+    paths-ignore:
+      - "**.md"
+      - "assets/**"
+      - "LICENCE"
+      - ".gitignore"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,47 +29,38 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {
-              name: linux-x86_64,
-              runner: ubuntu-latest,
-              platform: linux,
-              cc: gcc,
-              allow_failure: false,
-            }
-          # WARN: macOS/Windows nolibc portability is still in progress 
-          # Setting `allow_failure: true`
-          - {
-              name: macos-arm64,
-              runner: macos-14,
-              platform: macos,
-              cc: clang,
-              allow_failure: true,
-            }
-          - {
-              name: macos-x86_64,
-              runner: macos-13,
-              platform: macos,
-              cc: clang,
-              allow_failure: true,
-            }
-          - {
-              name: windows-x86_64,
-              runner: windows-latest,
-              platform: windows,
-              cc: gcc,
-              allow_failure: true,
-            }
+          - name: linux-x86_64
+            runner: ubuntu-latest
+            platform: linux
+            cc: gcc
+            allow_failure: false
+          - name: macos-arm64
+            runner: macos-14
+            platform: macos
+            cc: clang
+            allow_failure: false
+          - name: macos-x86_64
+            runner: macos-13
+            platform: macos
+            cc: clang
+            allow_failure: false
+          - name: windows-x86_64
+            runner: windows-latest
+            platform: windows
+            cc: gcc
+            allow_failure: true # HACK: bypass fail since dlfcn.h port still in progress
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Install Linux deps
+      - name: Install Linux dependencies
         if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential linux-libc-dev libv4l-dev ccache
+          sudo apt-get install -y \
+            build-essential linux-libc-dev libv4l-dev ccache
 
-      - name: Install macOS deps
+      - name: Install macOS dependencies
         if: matrix.platform == 'macos'
         run: brew install ccache || true
 
@@ -70,16 +69,14 @@ jobs:
         uses: egor-tensin/setup-mingw@v2
         with:
           platform: x64
-          # WARN: setup-mingw's static-linking workaround
-          # (try to remove libpthread.dll.a from a path that no longer exists):
-          # https://github.com/egor-tensin/setup-mingw/issues/17
           version: "12.2.0"
 
       - name: Install make (Windows)
         if: matrix.platform == 'windows'
         run: choco install make -y
 
-      - uses: hendrikmuhs/ccache-action@v1.2
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ${{ matrix.name }}-ccache
           max-size: 500M
@@ -113,7 +110,7 @@ jobs:
         shell: bash
         run: ./build/webcam_ascii.exe --help | head -20
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: asciicam-${{ matrix.name }}
           path: |
@@ -122,3 +119,44 @@ jobs:
             C/build/*.dylib
             C/build/*.dll
           if-no-files-found: error
+
+  static-analysis:
+    name: Static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install analysis tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential linux-libc-dev libv4l-dev \
+            cppcheck clang-tidy
+          pip install compiledb
+
+      - name: Run cppcheck
+        working-directory: C
+        run: |
+          cppcheck --enable=warning,style,performance,portability \
+                   --error-exitcode=1 \
+                   --inline-suppr \
+                   -Iinclude -Ilib \
+                   -i build \
+                   src lib filters
+
+      - name: Generate compilation database
+        working-directory: C
+        run: |
+          make clean
+          compiledb -n make
+
+      - name: Run clang-tidy
+        working-directory: C
+        run: |
+          find "$PWD/src" "$PWD/lib" "$PWD/filters" -name '*.c' \
+              -not -path '*/build/*' \
+            | xargs clang-tidy -p . \
+                --warnings-as-errors='*' \
+                --checks='-*,clang-analyzer-*,bugprone-*,performance-*' \
+               || true
+        # TODO: Once clean, drop `true` and add a .clang-tidy config.
