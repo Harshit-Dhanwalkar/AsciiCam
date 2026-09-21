@@ -44,12 +44,14 @@ struct webcam_impl {
            fromConnection:(AVCaptureConnection *)connection {
 
   struct webcam_impl *im = self.impl;
-  if (!im || im->stopped)
+  if (!im || im->stopped) {
     return;
+  }
 
   CVPixelBufferRef pixbuf = CMSampleBufferGetImageBuffer(sampleBuffer);
-  if (!pixbuf)
+  if (!pixbuf) {
     return;
+  }
 
   CVPixelBufferLockBaseAddress(pixbuf, kCVPixelBufferLock_ReadOnly);
 
@@ -84,8 +86,14 @@ struct webcam_impl {
 
 int webcam_init(webcam_t *cam, const char *device, int width, int height) {
   struct webcam_impl *im = calloc(1, sizeof(struct webcam_impl));
-  if (!im)
+  if (!im) {
     return -1;
+  }
+
+  AVCaptureDevice *dev = nil;
+  AVCaptureDeviceFormat *best_fmt = nil;
+  NSError *err = nil;
+  FrameDelegate *delegate = nil;
 
   pthread_mutex_init(&im->lock, NULL);
   pthread_cond_init(&im->cond, NULL);
@@ -95,8 +103,9 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
   im->buf_h = height;
   for (int i = 0; i < FRAME_BUFS; i++) {
     im->gray_buf[i] = calloc((size_t)(width * height), 1);
-    if (!im->gray_buf[i])
+    if (!im->gray_buf[i]) {
       goto fail;
+    }
   }
 
   // Find the camera device
@@ -106,13 +115,16 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
     NSString *devName = [NSString stringWithUTF8String:device];
     NSArray<AVCaptureDevice *> *devices =
         [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
+
     for (AVCaptureDevice *d in devices) {
       if ([d.localizedName isEqualToString:devName]) {
         dev = d;
+
         break;
       }
     }
   }
+
   if (!dev) {
     // Fall back to system default
     if (@available(macOS 10.15, *)) {
@@ -122,21 +134,23 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
           ]
                                 mediaType:AVMediaTypeVideo
                                  position:AVCaptureDevicePositionUnspecified];
+
       dev = ds.devices.firstObject;
     } else {
       dev = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
     }
   }
+
   if (!dev) {
     goto fail;
   }
 
   // Configure format
-  AVCaptureDeviceFormat *best_fmt = nil;
   float best_diff = 1e9f;
   for (AVCaptureDeviceFormat *fmt in dev.formats) {
     CMFormatDescriptionRef desc = fmt.formatDescription;
     CMVideoDimensions dim = CMVideoFormatDescriptionGetDimensions(desc);
+
     float diff = (float)((dim.width - width) * (dim.width - width) +
                          (dim.height - height) * (dim.height - height));
     if (diff < best_diff) {
@@ -144,9 +158,11 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
       best_fmt = fmt;
     }
   }
+
   if (best_fmt) {
     CMVideoDimensions dim =
         CMVideoFormatDescriptionGetDimensions(best_fmt.formatDescription);
+
     cam->width = dim.width;
     cam->height = dim.height;
     im->buf_w = cam->width;
@@ -154,11 +170,13 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
     if (cam->width != width || cam->height != height) {
       for (int i = 0; i < FRAME_BUFS; i++) {
         free(im->gray_buf[i]);
+
         im->gray_buf[i] = calloc((size_t)(cam->width * cam->height), 1);
         if (!im->gray_buf[i])
           goto fail;
       }
     }
+
     if ([dev lockForConfiguration:nil]) {
       dev.activeFormat = best_fmt;
       [dev unlockForConfiguration];
@@ -170,15 +188,16 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
 
   im->session = [[AVCaptureSession alloc] init];
   [im->session beginConfiguration];
-  im->session.sessionPreset = AVCaptureSessionPresetInputPriority;
+  im->session.sessionPreset = AVCaptureSessionPresetHigh;
 
-  NSError *err = nil;
   im->input = [AVCaptureDeviceInput deviceInputWithDevice:dev error:&err];
-  if (!im->input || err)
+  if (!im->input || err) {
     goto fail_session;
+  }
 
-  if (![im->session canAddInput:im->input])
+  if (![im->session canAddInput:im->input]) {
     goto fail_session;
+  }
   [im->session addInput:im->input];
 
   im->output = [[AVCaptureVideoDataOutput alloc] init];
@@ -190,14 +209,15 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
 
   im->queue = dispatch_queue_create("asciicam.capture", DISPATCH_QUEUE_SERIAL);
 
-  FrameDelegate *delegate = [[FrameDelegate alloc] init];
+  delegate = [[FrameDelegate alloc] init];
   delegate.impl = im;
   im->delegate = delegate;
 
   [im->output setSampleBufferDelegate:delegate queue:im->queue];
 
-  if (![im->session canAddOutput:im->output])
+  if (![im->session canAddOutput:im->output]) {
     goto fail_session;
+  }
   [im->session addOutput:im->output];
 
   [im->session commitConfiguration];
@@ -206,16 +226,21 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
   cam->impl = im;
   cam->fd = -1;
   cam->buffer = NULL;
+
   return 0;
 
 fail_session:
   [im->session commitConfiguration];
 fail:
-  for (int i = 0; i < FRAME_BUFS; i++)
+  for (int i = 0; i < FRAME_BUFS; i++) {
     free(im->gray_buf[i]);
+  }
+
   pthread_mutex_destroy(&im->lock);
   pthread_cond_destroy(&im->cond);
+
   free(im);
+
   return -1;
 }
 
@@ -237,8 +262,10 @@ int webcam_wait_frame(webcam_t *cam, int timeout_ms) {
       return -1; // timeout
     }
   }
+
   int ok = im->has_frame;
   pthread_mutex_unlock(&im->lock);
+
   return ok ? 0 : -1;
 }
 
@@ -257,6 +284,7 @@ int webcam_capture_frame(webcam_t *cam, uint8_t *gray_buffer) {
 
   // Copy the luma buffer out
   memcpy(gray_buffer, im->gray_buf[ri], (size_t)(im->buf_w * im->buf_h));
+
   return 0;
 }
 
@@ -267,8 +295,9 @@ int webcam_requeue_buffer(webcam_t *cam) {
 
 void webcam_cleanup(webcam_t *cam) {
   struct webcam_impl *im = cam->impl;
-  if (!im)
+  if (!im) {
     return;
+  }
 
   pthread_mutex_lock(&im->lock);
   im->stopped = 1;
@@ -283,10 +312,12 @@ void webcam_cleanup(webcam_t *cam) {
     im->delegate = nil;
   }
 
-  for (int i = 0; i < FRAME_BUFS; i++)
+  for (int i = 0; i < FRAME_BUFS; i++) {
     free(im->gray_buf[i]);
+  }
   pthread_mutex_destroy(&im->lock);
   pthread_cond_destroy(&im->cond);
+
   free(im);
 
   cam->impl = NULL;
@@ -300,18 +331,20 @@ void webcam_cleanup(webcam_t *cam) {
 // (exposureMode/setExposureModeCustomWithDuration:ISO:, whiteBalanceMode/
 // setWhiteBalanceModeLocked:..., per-key-value-observed lockForConfiguration
 // dance), it needs its own implementation rather than
-// a thin wrapper 
+// a thin wrapper
 // HACK: "unsupported" for now so callers (main.c) don't.
 // TODO: implement via AVCaptureDevice exposure/white-balance APIs.
 int webcam_set_auto_exposure(webcam_t *cam, int enable) {
   (void)cam;
   (void)enable;
+
   return -1;
 }
 
 int webcam_set_auto_white_balance(webcam_t *cam, int enable) {
   (void)cam;
   (void)enable;
+
   return -1;
 }
 
@@ -319,6 +352,7 @@ int webcam_adjust_exposure(webcam_t *cam, int delta, int *out_value) {
   (void)cam;
   (void)delta;
   (void)out_value;
+
   return -1;
 }
 
@@ -326,6 +360,7 @@ int webcam_adjust_contrast(webcam_t *cam, int delta, int *out_value) {
   (void)cam;
   (void)delta;
   (void)out_value;
+
   return -1;
 }
 
@@ -333,24 +368,28 @@ int webcam_adjust_white_balance(webcam_t *cam, int delta, int *out_value) {
   (void)cam;
   (void)delta;
   (void)out_value;
+
   return -1;
 }
 
 int webcam_get_exposure(webcam_t *cam, int *value) {
   (void)cam;
   (void)value;
+
   return -1;
 }
 
 int webcam_get_contrast(webcam_t *cam, int *value) {
   (void)cam;
   (void)value;
+
   return -1;
 }
 
 int webcam_get_white_balance(webcam_t *cam, int *value) {
   (void)cam;
   (void)value;
+
   return -1;
 }
 
@@ -358,6 +397,7 @@ int webcam_get_exposure_range(webcam_t *cam, int *min, int *max) {
   (void)cam;
   (void)min;
   (void)max;
+
   return -1;
 }
 
@@ -365,6 +405,7 @@ int webcam_get_contrast_range(webcam_t *cam, int *min, int *max) {
   (void)cam;
   (void)min;
   (void)max;
+
   return -1;
 }
 
@@ -372,6 +413,7 @@ int webcam_get_white_balance_range(webcam_t *cam, int *min, int *max) {
   (void)cam;
   (void)min;
   (void)max;
+
   return -1;
 }
 
