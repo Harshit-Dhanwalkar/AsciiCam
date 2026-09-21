@@ -283,7 +283,7 @@ static inline int nl_nanosleep(const struct timespec *req,
 
 #else /* Windows */
 
-include<fcntl.h>
+#include <fcntl.h>
 #include <io.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -297,7 +297,7 @@ include<fcntl.h>
 #define TIOCGWINSZ 0x5413
 #endif
 
-    static inline int nl_ioctl(int fd, unsigned long req, void *arg) {
+static inline int nl_ioctl(int fd, unsigned long req, void *arg) {
   if (req == TIOCGWINSZ) {
     struct {
       unsigned short ws_row, ws_col, ws_xpixel, ws_ypixel;
@@ -330,8 +330,8 @@ static inline int nl_nanosleep(const struct timespec *req,
 // termios shim: MinGW ships no <termios.h>, so raw-mode toggling is
 // re-expressed in terms of the Win32 console mode API. Only the bits
 // main.c's term_raw_mode()/term_restore() touch (ICANON, ECHO, VMIN,
-// VTIME, TCSAFLUSH) are modeled -- this is not a general termios
-// replacement
+// VTIME, TCSAFLUSH) are modeled
+// WARN: this is not a general termios replacement
 typedef unsigned long nl_tcflag_t;
 
 #define ICANON 0x0002

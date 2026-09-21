@@ -2,13 +2,14 @@
 
 #include "plugins.h"
 
-#include <dlfcn.h>
 #include "nl_inotify.h"
+#include <dlfcn.h>
 
 static int copy_file(const char *src, const char *dst) {
   int fd_src = open(src, O_RDONLY);
   if (fd_src < 0) {
     perror("[plugin] open src");
+
     return -1;
   }
 
@@ -16,6 +17,7 @@ static int copy_file(const char *src, const char *dst) {
   if (fd_dst < 0) {
     perror("[plugin] open dst");
     close(fd_src);
+
     return -1;
   }
 
@@ -27,12 +29,14 @@ static int copy_file(const char *src, const char *dst) {
       close(fd_src);
       close(fd_dst);
       unlink(dst);
+
       return -1;
     }
   }
 
   close(fd_src);
   close(fd_dst);
+
   return 0;
 }
 
@@ -56,6 +60,7 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
   if (copy_file(path, pl->tmp_path) < 0) {
     fprintf(stderr, "[plugin] could not copy %s -> %s\n", path, pl->tmp_path);
     pl->tmp_path[0] = '\0';
+
     return -1;
   }
 
@@ -64,6 +69,7 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
     fprintf(stderr, "[plugin] dlopen: %s\n", dlerror());
     unlink(pl->tmp_path);
     pl->tmp_path[0] = '\0';
+
     return -1;
   }
 
@@ -74,12 +80,14 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
     pl->dl_handle = NULL;
     unlink(pl->tmp_path);
     pl->tmp_path[0] = '\0';
+
     return -1;
   }
 
   pl->plugin = get_plugin();
   snprintf(pl->status_msg, sizeof(pl->status_msg), "loaded: %s",
            pl->plugin->name);
+
   return 0;
 }
 
@@ -93,26 +101,30 @@ void plugin_watch_init(plugin_loader_t *pl, const char *path) {
   pl->inotify_fd = inotify_init1(IN_NONBLOCK);
   if (pl->inotify_fd < 0) {
     perror("[plugin] inotify_init1");
+
     return;
   }
 
   pl->inotify_wd =
       inotify_add_watch(pl->inotify_fd, dir, IN_CLOSE_WRITE | IN_MOVED_TO);
 
-  if (pl->inotify_wd < 0)
+  if (pl->inotify_wd < 0) {
     perror("[plugin] inotify_add_watch");
+  }
 }
 
 void plugin_check_reload(plugin_loader_t *pl) {
-  if (pl->inotify_fd < 0)
+  if (pl->inotify_fd < 0) {
     return;
+  }
 
   // Read all available events from the non-blocking queue
   char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
   // char buf[sizeof(struct inotify_event) + 256];
   ssize_t n = read(pl->inotify_fd, buf, sizeof(buf));
-  if (n <= 0)
+  if (n <= 0) {
     return; // No new filesystem modifications detected
+  }
 
   char path_copy[256];
   nl_strncpy_safe(path_copy, pl->path, sizeof(path_copy) - 1);
@@ -126,11 +138,13 @@ void plugin_check_reload(plugin_loader_t *pl) {
       relevant = 1;
       break;
     }
+
     p += sizeof(*ev) + ev->len;
   }
 
-  if (!relevant)
+  if (!relevant) {
     return;
+  }
 
   // TODO: Replace with inotify event coalescing for more deterministic reload.
   usleep(100000); // 0.1s delay for linker

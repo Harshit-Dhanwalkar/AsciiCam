@@ -25,13 +25,15 @@ void timing_sleep(struct timespec *start_time) {
 void fps_push(fps_counter_t *fc, long ns) {
   fc->samples[fc->head % 16] = ns;
   fc->head++;
-  if (fc->count < 16)
+  if (fc->count < 16) {
     fc->count++;
+  }
 }
 
 double fps_get(const fps_counter_t *fc) {
-  if (fc->count == 0)
+  if (fc->count == 0) {
     return 0;
+  }
 
   long sum = 0;
   for (int i = 0; i < fc->count; i++) {

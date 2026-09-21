@@ -20,6 +20,7 @@ void *capture_thread(void *arg) {
   if (webcam_init(&cam, "/dev/video0", sf->width, sf->height) < 0) {
     perror("webcam_init in capture thread");
     sf->stop = 1;
+
     return NULL;
   }
 
@@ -46,6 +47,7 @@ void *capture_thread(void *arg) {
   }
 
   webcam_cleanup(&cam);
+
   return NULL;
 }
 
@@ -63,6 +65,7 @@ void *render_thread(void *arg) {
 
   if (!out_buf) {
     perror("render_thread malloc");
+
     return NULL;
   }
 
@@ -71,8 +74,9 @@ void *render_thread(void *arg) {
     while (!sf->has_frame && !sf->stop) {
       pthread_cond_wait(&sf->cond, &sf->lock); // sleep
     }
-    if (sf->stop)
+    if (sf->stop) {
       break;
+    }
 
     int read_idx = sf->ready_idx;
     sf->has_frame = 0;

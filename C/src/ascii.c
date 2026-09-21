@@ -573,7 +573,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
   }
 
   // TEST:
-  // Pseudo-3D "pop out" parallax effect.
+  // Pseudo-3D "pop out" parallax effect
   if (depth_pop > 0) {
     uint8_t *warped_g = malloc((size_t)(safe_dst_w * safe_dst_h));
     uint8_t *warped_rgb =

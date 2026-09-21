@@ -109,7 +109,6 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
   }
 
   // Find the camera device
-  AVCaptureDevice *dev = nil;
   if (device) {
     // Match by localizedName
     NSString *devName = [NSString stringWithUTF8String:device];
@@ -172,8 +171,9 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
         free(im->gray_buf[i]);
 
         im->gray_buf[i] = calloc((size_t)(cam->width * cam->height), 1);
-        if (!im->gray_buf[i])
+        if (!im->gray_buf[i]) {
           goto fail;
+        }
       }
     }
 
@@ -326,14 +326,13 @@ void webcam_cleanup(webcam_t *cam) {
 }
 
 // Hardware controls
-// TODO: : not implemented on macOS yet.
+// TODO: not implemented on macOS yet
 // AVFoundation expose the equivalent knobs on AVCaptureDevice
 // (exposureMode/setExposureModeCustomWithDuration:ISO:, whiteBalanceMode/
 // setWhiteBalanceModeLocked:..., per-key-value-observed lockForConfiguration
 // dance), it needs its own implementation rather than
 // a thin wrapper
-// HACK: "unsupported" for now so callers (main.c) don't.
-// TODO: implement via AVCaptureDevice exposure/white-balance APIs.
+// implement via AVCaptureDevice exposure/white-balance APIs
 int webcam_set_auto_exposure(webcam_t *cam, int enable) {
   (void)cam;
   (void)enable;
