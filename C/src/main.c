@@ -368,8 +368,8 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
     (void)write(STDOUT_FILENO, buf, (size_t)n);
   }
 
-  // Hardware (V4L2) camera control row -- "n/a" fields when unsupported
-  // (macOS/Windows, or a driver that doesn't expose that control).
+  // Hardware (V4L2) camera control row - "n/a" fields when unsupported
+  // (macOS/Windows, or a driver that doesn't expose that control)
   n = nl_snprintf(buf, sizeof(buf), "\033[%d;1H\033[K", base_row + 2);
   if (n > 0) {
     (void)write(STDOUT_FILENO, buf, (size_t)n);

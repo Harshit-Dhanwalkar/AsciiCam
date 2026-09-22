@@ -97,7 +97,7 @@ else ifeq ($(PLATFORM),windows)
     CFLAGS   := $(filter-out -ffreestanding -fno-builtin,$(CFLAGS))
 
     LDFLAGS  := $(LDFLAGS_EXTRA) -lmfplat -lmf -lmfreadwrite -lmfuuid \
-                -lole32 -loleaut32 -luuid -lstrmiids
+                -lole32 -loleaut32 -luuid -lstrmiids -lwinpthread
 
     # TODO: Update nolibc for windows support instead of system system libc, currently :
     # No nolibc on Windows, uses system libc

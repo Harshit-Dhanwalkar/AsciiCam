@@ -262,19 +262,6 @@ static inline int nl_tcsetattr(int fd, int action, const struct termios *t) {
 
 #else /* system libc: macOS / Windows */
 
-#if defined(PLATFORM_MACOS) || defined(PLATFORM_WINDOWS)
-
-#include <fcntl.h>
-#include <stdio.h>
-#include <unistd.h>
-
-static inline void nl_usleep(unsigned long us) {
-  struct timespec ts = {(long)(us / 1000000), (long)((us % 1000000) * 1000)};
-  nl_nanosleep(&ts, (struct timespec *)0);
-}
-
-#endif
-
 #if defined(PLATFORM_MACOS)
 
 #include <sys/ioctl.h>
@@ -411,6 +398,12 @@ static inline int nl_tcsetattr(int fd, int action, const struct termios *t) {
 #define tcsetattr(fd, act, t) nl_tcsetattr(fd, act, t)
 
 #endif
+
+// Shared by both macOS and Windows
+static inline void nl_usleep(unsigned long us) {
+  struct timespec ts = {(long)(us / 1000000), (long)((us % 1000000) * 1000)};
+  nl_nanosleep(&ts, (struct timespec *)0);
+}
 
 #endif /* __LINUX_NOLIBC__ */
 

@@ -46,9 +46,9 @@ static IMFActivate *find_device(const char *device) {
     return NULL;
   }
 
-  if (FAILED(
-          attrs->lpVtbl->SetGUID(attrs, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
-                                 &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP))) {
+  if (FAILED(attrs->lpVtbl->SetGUID(
+          attrs, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
+          &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID))) {
     SAFE_RELEASE(attrs);
 
     return NULL;
