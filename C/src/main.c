@@ -40,10 +40,36 @@ struct winsize {
 
 // Signal handling
 volatile sig_atomic_t keep_running = 1;
-void handle_signal(int sig) {
-  (void)sig;
+// void handle_signal(int sig) {
+//   (void)sig;
+//
+//   keep_running = 0;
+// }
 
-  keep_running = 0;
+static volatile sig_atomic_t raw_mode_active = 0;
+static struct termios orig_terminal;
+
+static void emergency_terminal_restore(void) {
+  if (raw_mode_active) {
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_terminal);
+  }
+
+  static const char SHOW_CURSOR[] = "\033[?25h\033[0m\n";
+  (void)write(STDOUT_FILENO, SHOW_CURSOR, sizeof(SHOW_CURSOR) - 1);
+}
+
+void handle_signal(int sig) {
+  switch (sig) {
+  case SIGSEGV:
+  case SIGABRT:
+  case SIGQUIT:
+  case SIGHUP:
+    emergency_terminal_restore();
+    nl_exit(128 + sig);
+    break;
+  default:
+    keep_running = 0;
+  }
 }
 
 // SIGWINCH: terminal resized
@@ -55,8 +81,6 @@ void handle_winch(int sig) {
   term_resized = 1;
   winch_count++;
 }
-
-static struct termios orig_terminal;
 
 static int my_atoi(const char *s) {
   int n = 0;
@@ -308,9 +332,13 @@ void term_raw_mode(void) {
   raw.c_cc[VTIME] = 0;
 
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+  raw_mode_active = 1;
 }
 
-void term_restore(void) { tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_terminal); }
+void term_restore(void) {
+  tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_terminal);
+  raw_mode_active = 0;
+}
 
 static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
                           int *plugin_params, int count, int selected,
@@ -523,6 +551,10 @@ int main(int argc, char *argv[]) {
 
   nl_signal(SIGINT, handle_signal);
   nl_signal(SIGTERM, handle_signal);
+  nl_signal(SIGHUP, handle_signal);
+  nl_signal(SIGQUIT, handle_signal);
+  nl_signal(SIGABRT, handle_signal);
+  nl_signal(SIGSEGV, handle_signal);
   nl_signal(SIGWINCH, handle_winch);
 
   // Config

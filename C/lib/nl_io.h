@@ -177,6 +177,7 @@ static inline int nl_nanosleep(const struct timespec *req,
 
 static inline void nl_usleep(unsigned long us) {
   struct timespec ts = {(long)(us / 1000000), (long)((us % 1000000) * 1000)};
+
   nl_nanosleep(&ts, (struct timespec *)0);
 }
 
@@ -278,6 +279,8 @@ static inline int nl_nanosleep(const struct timespec *req,
   return nanosleep(req, rem);
 }
 
+static inline void nl_exit(int code) { _exit(code); }
+
 #else /* Windows */
 
 #include <io.h>
@@ -325,6 +328,8 @@ static inline int nl_nanosleep(const struct timespec *req,
 
   return 0;
 }
+
+static inline void nl_exit(int code) { _exit(code); }
 
 // termios shim: MinGW ships no <termios.h>, so raw-mode toggling is
 // re-expressed in terms of the Win32 console mode API. Only the bits
@@ -402,6 +407,7 @@ static inline int nl_tcsetattr(int fd, int action, const struct termios *t) {
 // Shared by both macOS and Windows
 static inline void nl_usleep(unsigned long us) {
   struct timespec ts = {(long)(us / 1000000), (long)((us % 1000000) * 1000)};
+
   nl_nanosleep(&ts, (struct timespec *)0);
 }
 

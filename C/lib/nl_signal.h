@@ -6,7 +6,11 @@
 
 #define SA_RESTORER 0x04000000
 #define SA_RESTART 0x10000000
+#define SIGHUP 1
 #define SIGINT 2
+#define SIGQUIT 3
+#define SIGABRT 6
+#define SIGSEGV 11
 #define SIGTERM 15
 #define SIGWINCH 28
 
@@ -36,6 +40,13 @@ static inline int nl_signal(int sig, void (*handler)(int)) {
       // rt_sigaction. The struct nl_sigaction / SA_RESTORER trick above is
       // x86-64 Linux ABI-specific
 #include <signal.h>
+
+#ifndef SIGHUP
+#define SIGHUP 1
+#endif
+#ifndef SIGQUIT
+#define SIGQUIT 3
+#endif
 
 static inline int nl_signal(int sig, void (*handler)(int)) {
   return (signal(sig, handler) == SIG_ERR) ? -1 : 0;
