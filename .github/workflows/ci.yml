@@ -98,6 +98,22 @@ jobs:
           make clean
           make -j4 CC="${{ matrix.cc }}" all
 
+      - name: Check for leaked glibc symbols (Linux nolibc build)
+        if: matrix.platform == 'linux'
+        working-directory: C
+        shell: bash
+        run: |
+          ALLOWED='^(dlopen|dlsym|dlclose|dlerror)$'
+          LEAKED=$(nm -D --undefined-only build/webcam_ascii \
+                     | awk '{print $2}' | sed 's/@.*//' | sort -u \
+                     | grep -Ev "$ALLOWED" || true)
+          if [ -n "$LEAKED" ]; then
+            echo "Leaked glibc symbol(s) in nolibc Linux build (expected only dlopen/dlsym/dlclose/dlerror):"
+            echo "$LEAKED"
+            exit 1
+          fi
+          echo "OK: only expected dl* symbols are dynamically undefined."
+
       - name: Smoke test --help (Unix)
         if: matrix.platform != 'windows'
         working-directory: C

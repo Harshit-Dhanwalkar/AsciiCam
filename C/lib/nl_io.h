@@ -265,6 +265,8 @@ static inline int nl_tcsetattr(int fd, int action, const struct termios *t) {
 
 #if defined(PLATFORM_MACOS)
 
+#include <fcntl.h>
+#include <stdio.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/select.h>
@@ -283,7 +285,10 @@ static inline void nl_exit(int code) { _exit(code); }
 
 #else /* Windows */
 
+#include <fcntl.h>
 #include <io.h>
+#include <stdio.h>
+#include <unistd.h>
 #include <windows.h>
 
 #ifndef MAP_FAILED
