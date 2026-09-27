@@ -42,11 +42,14 @@ extern int errno;
 #define SYS_close 3
 #define SYS_mmap 9
 #define SYS_munmap 11
+#define SYS_clone 56
+#define SYS_exit 60
 #define SYS_rt_sigaction 13
 #define SYS_ioctl 16
 #define SYS_select 23
 #define SYS_nanosleep 35
 #define SYS_unlink 87
+#define SYS_futex 202
 #define SYS_clock_gettime 228
 #define SYS_exit_group 231
 #define SYS_time 201
