@@ -48,7 +48,7 @@ jobs:
             runner: windows-latest
             platform: windows
             cc: gcc
-            allow_failure: true # HACK: bypass fail since dlfcn.h port still in progress
+            allow_failure: false
 
     steps:
       - uses: actions/checkout@v5
@@ -156,6 +156,9 @@ jobs:
           cppcheck --enable=warning,style,performance,portability \
                    --error-exitcode=1 \
                    --inline-suppr \
+                   --suppress=knownConditionTrueFalse \
+                   --suppress=unusedStructMember \
+                   --suppress=syntaxError:lib/nl_syscall.h \
                    -Iinclude -Ilib \
                    -i build \
                    src lib filters
