@@ -19,6 +19,7 @@ static inline int nl_fmt_fps(char *buf, size_t sz, double fps) {
         whole++;
         frac = 0;
     }
+
     return nl_snprintf(buf, sz, "%d.%d", whole, frac);
 }
 
@@ -42,6 +43,7 @@ static inline int nl_fmt_fps(char *buf, size_t sz, double fps) {
         whole++;
         frac = 0;
     }
+
     return snprintf(buf, sz, "%d.%d", whole, frac);
 }
 

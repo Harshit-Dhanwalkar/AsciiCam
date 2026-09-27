@@ -39,5 +39,5 @@ double fps_get(const fps_counter_t *fc) {
     sum += fc->samples[i];
   }
 
-  return 1e9 * fc->count / sum;
+  return 1e9 * (double)fc->count / (double)sum;
 }

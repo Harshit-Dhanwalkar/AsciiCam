@@ -40,7 +40,9 @@ ifeq ($(PLATFORM),linux)
     CFLAGS   := $(CFLAGS_COMMON) $(CFLAGS_EXTRA) -DPLATFORM_LINUX -D__LINUX_NOLIBC__
     CFLAGS   += -msse4.1
     LDFLAGS  := $(LDFLAGS_EXTRA) -nostdlib -nostdinc \
-                -Wl,--no-as-needed -Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2 \
+                -Wl,--no-as-needed \
+                -Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2 \
+                -B/usr/bin/ \
                 -L/usr/lib/x86_64-linux-gnu
     # LDFLAGS  += -Wl,-rpath-link=/usr/lib/x86_64-linux-gnu
     LDFLAGS  += -ldl -lpthread -lc # FIX: lc flag pulls standard libc,but removing them will -lpthread and -ldl will fail to link because they themselves depend on libc
@@ -129,7 +131,7 @@ TARGET := $(BUILDDIR)/webcam_ascii
 PLUGIN_SRCS    := $(wildcard $(FILTERDIR)/*.c)
 PLUGIN_TARGETS := $(patsubst $(FILTERDIR)/%.c, $(BUILDDIR)/%.$(SO_EXT), $(PLUGIN_SRCS))
 
-.PHONY: all clean plugins info run
+.PHONY: all run plugins clean sanitize info 
 
 all: $(TARGET) plugins
 
@@ -172,6 +174,63 @@ $(BUILDDIR):
 
 clean:
 	rm -rf $(BUILDDIR)
+
+# make sanitize  (Linux x86_64 only)
+# Builds with AddressSanitizer + UndefinedBehaviorSanitizer
+ifeq ($(PLATFORM),linux)
+ASAN_OBJDIR  := $(BUILDDIR)/obj_asan
+ASAN_TARGET  := $(BUILDDIR)/webcam_ascii_asan
+
+ASAN_CFLAGS  := $(CFLAGS_COMMON) \
+                -DPLATFORM_LINUX -D__LINUX_NOLIBC__ -msse4.1 \
+                -DNL_SANITIZE_BUILD \
+                -O1 -g -fno-omit-frame-pointer \
+                -fsanitize=address,undefined \
+                -fno-sanitize=vptr
+
+ASAN_LDFLAGS := -nostdlib -nostdinc \
+                -Wl,--no-as-needed \
+                -Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2 \
+                -L/usr/lib/x86_64-linux-gnu \
+                -msse4.1 \
+                -fsanitize=address,undefined \
+                -fno-sanitize=vptr \
+                -lasan -lubsan \
+                -ldl -lc
+
+ASAN_SRCS    := $(CORE_SRCS) \
+                $(SRCDIR)/capture_linux.c \
+                $(LIBDIR)/nl_alloc.c  \
+                $(LIBDIR)/nl_errno.c  \
+                $(LIBDIR)/nl_getopt.c \
+                $(LIBDIR)/nl_printf.c \
+                $(LIBDIR)/nl_start.c
+
+ASAN_OBJECTS := $(patsubst $(SRCDIR)/%.c, $(ASAN_OBJDIR)/%.o,     $(filter $(SRCDIR)/%.c, $(ASAN_SRCS)))
+ASAN_OBJECTS += $(patsubst $(LIBDIR)/%.c, $(ASAN_OBJDIR)/lib_%.o, $(filter $(LIBDIR)/%.c, $(ASAN_SRCS)))
+
+$(ASAN_OBJDIR):
+	mkdir -p $(ASAN_OBJDIR)
+
+$(ASAN_OBJDIR)/%.o: $(SRCDIR)/%.c | $(ASAN_OBJDIR)
+	$(CC) $(ASAN_CFLAGS) -c $< -o $@
+
+$(ASAN_OBJDIR)/lib_%.o: $(LIBDIR)/%.c | $(ASAN_OBJDIR)
+	$(CC) $(ASAN_CFLAGS) -c $< -o $@
+
+$(ASAN_TARGET): $(ASAN_OBJECTS) | $(BUILDDIR)
+	# $(LD) $(ASAN_OBJECTS) -o $@ $(ASAN_LDFLAGS)
+	PATH=/usr/bin:/bin $(LD) $(ASAN_OBJECTS) -o $@ $(ASAN_LDFLAGS)
+	@echo "  LD [sanitize] $@"
+
+sanitize: $(ASAN_TARGET)
+	@echo "Sanitize build: $(ASAN_TARGET)"
+	@echo "Run: ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./$(ASAN_TARGET) --help"
+
+.PHONY: sanitize
+endif
+
+
 
 info:
 	@echo "Platform : $(PLATFORM)"

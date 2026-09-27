@@ -1,7 +1,7 @@
 #include "nl_errno.h"
 #include "nl_syscall.h"
 
-#include <stddef.h>
+#include <stddef.h>   /* size_t for _ewrite, _slen */
 
 int errno = 0;
 
@@ -9,8 +9,10 @@ static void _ewrite(const char *s, size_t n) { __sc3(1, 2, (long)s, (long)n); }
 
 static size_t _slen(const char *s) {
   const char *p = s;
-  while (*p)
+  while (*p) {
     p++;
+  }
+
   return (size_t)(p - s);
 }
 
@@ -27,9 +29,11 @@ static const struct {
 
 const char *nl_strerror(int e) {
   for (int i = 0; _errtab[i].msg; i++) {
-    if (_errtab[i].code == e)
+    if (_errtab[i].code == e) {
       return _errtab[i].msg;
+    }
   }
+
   return "Unknown error";
 }
 
@@ -39,6 +43,7 @@ void nl_perror(const char *msg) {
     _ewrite(msg, _slen(msg));
     _ewrite(": ", 2);
   }
+
   _ewrite(estr, _slen(estr));
   _ewrite("\n", 1);
 }

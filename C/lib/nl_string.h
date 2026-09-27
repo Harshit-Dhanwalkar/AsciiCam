@@ -6,8 +6,10 @@
 
 static inline size_t nl_strlen(const char *s) {
   const char *p = s;
-  while (*p)
+  while (*p) {
     p++;
+  }
+
   return (size_t)(p - s);
 }
 
@@ -21,13 +23,16 @@ static inline void *nl_memcpy(void *dst, const void *src, size_t n) {
   for (size_t i = 0; i < n; i++) {
     d[i] = s[i];
   }
+
   return dst;
 }
 
 static inline void *nl_memset(void *dst, int c, size_t n) {
   uint8_t *d = (uint8_t *)dst;
-  while (n--)
+  while (n--) {
     *d++ = (uint8_t)c;
+  }
+
   return dst;
 }
 
@@ -36,36 +41,48 @@ static inline int nl_strcmp(const char *a, const char *b) {
     a++;
     b++;
   }
+
   return (unsigned char)*a - (unsigned char)*b;
 }
 
 static inline char *nl_strncpy_safe(char *dst, const char *src, size_t n) {
-  if (n == 0)
+  if (n == 0) {
     return dst;
+  }
+
   size_t i;
-  for (i = 0; i < n - 1 && src[i]; i++)
+  for (i = 0; i < n - 1 && src[i]; i++) {
     dst[i] = src[i];
+  }
+
   dst[i] = '\0';
+
   return dst;
 }
 
 static inline char *nl_basename(char *path) {
   char *p = path, *last = path;
   while (*p) {
-    if (*p == '/')
+    if (*p == '/') {
       last = p + 1;
+    }
+
     p++;
   }
+
   return last;
 }
 
 static inline char *nl_dirname(char *path) {
   char *last = (char *)0, *p = path;
   while (*p) {
-    if (*p == '/')
+    if (*p == '/') {
       last = p;
+    }
+
     p++;
   }
+
   if (!last) {
     path[0] = '.';
     path[1] = '\0';
@@ -74,6 +91,7 @@ static inline char *nl_dirname(char *path) {
   } else {
     *last = '\0';
   }
+
   return path;
 }
 
@@ -83,8 +101,11 @@ static inline int nl_atoi(const char *s) {
     neg = 1;
     s++;
   }
-  while (*s >= '0' && *s <= '9')
+
+  while (*s >= '0' && *s <= '9') {
     n = n * 10 + (*s++ - '0');
+  }
+
   return neg ? -n : n;
 }
 

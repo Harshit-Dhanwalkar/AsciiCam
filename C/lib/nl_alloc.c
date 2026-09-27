@@ -8,12 +8,12 @@
 /*
  * ASan coverage note for this allocator
  *
- * nl_alloc manages 1 contiguous 2 MB static arena (_arena[]). ASan sees  whole
- * array as a single allocation, it cannot automatically detect reads or writes
- * that cross an internal sub-block boundary (i.e. one nl_malloc'd region
+ * nl_alloc manages 1 contiguous 2 MB static arena (arena_buf[]). ASan sees
+ * whole array as a single allocation, it cannot automatically detect reads or
+ * writes that cross an internal sub-block boundary (i.e. one nl_malloc'd region
  * reading into next)
  *
- * What does work under `make sanitize`:
+ * NOTE: What does work under `make sanitize`:
  *   - Stack OOB and UB regressions anywhere in codebase (UBSan)
  *   - Full redzone protection on mmap-backed large allocations (> 1 MB),
  *   - because those are individual mmap() calls that ASan tracks normally
@@ -40,7 +40,7 @@
  * regressions in rendering path
  */
 
-#define ARENA_SIZE (2 * 1024 * 1024)
+#define ARENA_SIZE ((size_t)(2 * 1024 * 1024))
 #define ALIGN 16
 #define HDR_MAGIC 0xDEAD
 #define MMAP_THRESHOLD (ARENA_SIZE / 2) // 1 MB
@@ -53,16 +53,16 @@ typedef struct block_hdr {
   unsigned char _pad[1];    // 1
 } block_hdr_t;
 
-static unsigned char _arena[ARENA_SIZE] __attribute__((aligned(ALIGN)));
-static int _arena_init = 0;
+static unsigned char arena_buf[ARENA_SIZE] __attribute__((aligned(ALIGN)));
+static int arena_init = 0;
 
 static void arena_boot(void) {
-  block_hdr_t *h = (block_hdr_t *)_arena;
+  block_hdr_t *h = (block_hdr_t *)arena_buf;
   h->size = ARENA_SIZE - sizeof(block_hdr_t);
   h->free = 1;
   h->magic = HDR_MAGIC;
   h->mmap_alloc = 0;
-  _arena_init = 1;
+  arena_init = 1;
 }
 
 static inline size_t align_up(size_t n) {
@@ -81,6 +81,7 @@ void *nl_malloc(size_t n) {
     size_t total = sizeof(block_hdr_t) + n;
     void *p = nl_mmap(NULL, total, PROT_READ | PROT_WRITE,
                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
     if (p == MAP_FAILED) {
       return NULL;
     }
@@ -95,12 +96,12 @@ void *nl_malloc(size_t n) {
   }
 
   // Else use arena
-  if (!_arena_init) {
+  if (!arena_init) {
     arena_boot();
   }
 
-  unsigned char *p = _arena;
-  const unsigned char *end = _arena + ARENA_SIZE;
+  unsigned char *p = arena_buf;
+  const unsigned char *end = arena_buf + ARENA_SIZE;
 
   while (p + sizeof(block_hdr_t) <= end) {
     block_hdr_t *h = (block_hdr_t *)p;
@@ -171,7 +172,7 @@ void nl_free(void *ptr) {
 
   // Coalesce forward
   unsigned char *next_p = (unsigned char *)ptr + h->size;
-  const unsigned char *end = _arena + ARENA_SIZE;
+  const unsigned char *end = arena_buf + ARENA_SIZE;
   if (next_p + sizeof(block_hdr_t) <= end) {
     block_hdr_t *next = (block_hdr_t *)next_p;
     if (next->magic == HDR_MAGIC && next->free) {
@@ -181,7 +182,7 @@ void nl_free(void *ptr) {
   }
 
   // Coalesce backward
-  unsigned char *p = _arena;
+  unsigned char *p = arena_buf;
   const unsigned char *target = (unsigned char *)h;
   block_hdr_t *prev = NULL;
   while (p < target) {

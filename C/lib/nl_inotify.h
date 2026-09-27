@@ -2,10 +2,11 @@
 #define NL_INOTIFY_H
 
 /*
- * inotify is Linux-only. On macOS/Windows this shim makes
- * inotify_init1() always fail (-1), which is the "unavailable" path
- * charset_registry_init()/plugin_watch_init() handle: the fd stays -1, and
- * charset_registry_check_reload()/plugin_check_reload() bail out immediately.
+ * inotify is Linux-only. On macOS/Windows this shim makes inotify_init1()
+ * always fail (-1), which is the "unavailable" path
+ * charset_registry_init()/plugin_watch_init() handle: fd stays -1 and
+ * charset_registry_check_reload()/plugin_check_reload() bail out immediately
+ *
  * Net effect: hot-reload of charsets/plugins is disabled on non-Linux platforms
  */
 
