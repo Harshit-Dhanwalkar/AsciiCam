@@ -40,9 +40,10 @@ jobs:
             cc: clang
             allow_failure: false
           - name: macos-x86_64
-            runner: macos-13
+            runner: macos-14
             platform: macos
             cc: clang
+            extra-make-args: TARGET_ARCH=x86_64
             allow_failure: false
           - name: windows-x86_64
             runner: windows-latest
@@ -88,7 +89,7 @@ jobs:
         run: |
           JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
           make clean
-          make -j"$JOBS" CC="${{ matrix.cc }}" all
+          make -j"$JOBS" CC="${{ matrix.cc }}" ${{ matrix.extra-make-args }} all
 
       - name: Build (Windows / Git Bash)
         if: matrix.platform == 'windows'
@@ -96,7 +97,7 @@ jobs:
         shell: bash
         run: |
           make clean
-          make -j4 CC="${{ matrix.cc }}" all
+          make -j4 CC="${{ matrix.cc }}" ${{ matrix.extra-make-args }} all
 
       - name: Check for leaked glibc symbols (Linux nolibc build)
         if: matrix.platform == 'linux'
@@ -135,6 +136,36 @@ jobs:
             C/build/*.dylib
             C/build/*.dll
           if-no-files-found: error
+
+  sanitize:
+    name: Sanitize (linux-x86_64)
+    runs-on: ubuntu-latest
+    # NOTE: Only Linux nolibc build supports -DNL_SANITIZE_BUILD / make sanitize
+    #       macOS uses system libc + clang (different sanitiser flags,)
+    # TODO: Windows uses MinGW and has no libasan package
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential linux-libc-dev libv4l-dev \
+            libasan8 libubsan1
+
+      - name: Build with ASan+UBSan
+        working-directory: C
+        run: make sanitize
+
+      - name: Smoke test (--help)
+        working-directory: C
+        env:
+          # detect_leaks=1  : report memory leaks on exit
+          # abort_on_error=1: exit non-zero on first error
+          # print_stats=1   : print ASan internal stats on exit
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1:print_stats=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ./build/webcam_ascii_asan --help | head -20
 
   static-analysis:
     name: Static analysis
