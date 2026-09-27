@@ -8,6 +8,9 @@
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 
+# ARM64 macOS
+TARGET_ARCH ?= $(UNAME_M)
+
 ifeq ($(UNAME_S),Linux)
     PLATFORM := linux
     CC       := gcc
@@ -64,17 +67,16 @@ ifeq ($(PLATFORM),linux)
 else ifeq ($(PLATFORM),macos)
     # macOS: system libc + AVFoundation, supports ARM64 + x86_64
     CFLAGS   := $(CFLAGS_COMMON) $(CFLAGS_EXTRA) -DPLATFORM_MACOS
-    OBJCFLAGS:= $(CFLAGS) -x objective-c \
-                -fobjc-arc \
-                -fmodules
 
-    ifeq ($(UNAME_M),arm64)
+    ifeq ($(TARGET_ARCH),arm64)
         CFLAGS   += -arch arm64
         LDFLAGS  := $(LDFLAGS_EXTRA) -arch arm64
     else
         CFLAGS   += -arch x86_64 -msse4.1
         LDFLAGS  := $(LDFLAGS_EXTRA) -arch x86_64
     endif
+
+    OBJCFLAGS := $(CFLAGS) -x objective-c -fobjc-arc -fmodules
 
     LDFLAGS  += -framework AVFoundation \
                 -framework CoreMedia \
@@ -131,7 +133,7 @@ TARGET := $(BUILDDIR)/webcam_ascii
 PLUGIN_SRCS    := $(wildcard $(FILTERDIR)/*.c)
 PLUGIN_TARGETS := $(patsubst $(FILTERDIR)/%.c, $(BUILDDIR)/%.$(SO_EXT), $(PLUGIN_SRCS))
 
-.PHONY: all run plugins clean sanitize info 
+.PHONY: all run plugins clean sanitize sanitize-run info
 
 all: $(TARGET) plugins
 
@@ -227,10 +229,13 @@ sanitize: $(ASAN_TARGET)
 	@echo "Sanitize build: $(ASAN_TARGET)"
 	@echo "Run: ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=print_stacktrace=1 ./$(ASAN_TARGET) --help"
 
-.PHONY: sanitize
+sanitize-run: $(ASAN_TARGET)
+	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 \
+	UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=0 \
+	  ./$(ASAN_TARGET) $(ARGS)
+
+.PHONY: sanitize sanitize-run
 endif
-
-
 
 info:
 	@echo "Platform : $(PLATFORM)"
