@@ -67,6 +67,7 @@ typedef struct {
   int color;               /* ANSI color output (truecolor or 256) */
   color_mode_t color_mode; /* which color output when `color` is set;
 +                             defaults to COLOR_TRUECOLOR (0)       */
+  int gamma;               /* percent, 100 = linear, range 10..400 */
   edge_mode_t edges;       /* edge detection mode                   */
   int dither;              /* Floyd-Steinberg dithering             */
   int threshold_val;       /* Binarization limit                    */
