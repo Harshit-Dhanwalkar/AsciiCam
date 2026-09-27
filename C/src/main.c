@@ -120,6 +120,8 @@ static void print_usage(const char *prog) {
       "Image adjustments:\n"
       "  -b <val>      brightness offset        -128..128  (default: 0)\n"
       "  -c <val>      contrast in percent      >0; 100=none (default: 100)\n"
+      "  -g <val>      gamma percent          10..400; 100=none (default: "
+      "100)\n"
       "  -i            invert mapping                                  \n"
       "  -E <mode>     edge mode                off|sobel|sobel-dir|laplacian\n"
       "  -C            ANSI truecolor output                           \n"
@@ -137,6 +139,7 @@ static void print_usage(const char *prog) {
       "  x / X         cycle edge detection mode forward / backward    \n"
       "  n / N         cycle loaded charset forward / backward         \n"
       "  p / o         increase / decrease depth-pop strength          \n"
+      "  g / G         decrease / increase gamma                        \n"
       "  e / E         hw exposure down / up        (V4L2, Linux only) \n"
       "  w / W         hw white-balance down / up   (V4L2, Linux only) \n"
       "  c / C         hw contrast down / up        (V4L2, Linux only) \n"
@@ -292,6 +295,14 @@ static void load_config_file(const char *path, char **device, int *ascii_w,
           opts->depth_pop = my_atoi(val);
         } else if (nl_strcmp(key, "depth_invert") == 0) {
           opts->depth_invert = my_atoi(val) != 0;
+        } else if (nl_strcmp(key, "gamma") == 0) {
+          opts->gamma = my_atoi(val);
+          if (opts->gamma < 10) {
+            opts->gamma = 10;
+          }
+          if (opts->gamma > 400) {
+            opts->gamma = 400;
+          }
         } else if (nl_strcmp(key, "render_mode") == 0) {
           opts->render_mode = parse_render_mode(val);
         } else if (nl_strcmp(key, "edge_mode") == 0) {
@@ -378,18 +389,21 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
   }
 
   if (color) {
-    n = nl_snprintf(buf, sizeof(buf),
-                    "\033[38;2;0;180;220m mode: %s (m/M)  edges: %s (x/X)  "
-                    "charset: %s (n/N)  depth-pop: %d%s (+/-, v)\033[0m\033[K",
-                    render_mode_name(opts->render_mode),
-                    edge_mode_name(opts->edges), cset_name, opts->depth_pop,
-                    opts->depth_invert ? " [inv]" : "");
+    n = nl_snprintf(
+        buf, sizeof(buf),
+        "\033[38;2;0;180;220m mode: %s (m/M)  edges: %s (x/X)  "
+        "charset: %s (n/N)  depth-pop: %d%s (+/-, v)  gamma: %d (g/G)"
+        "\033[0m\033[K",
+        render_mode_name(opts->render_mode), edge_mode_name(opts->edges),
+        cset_name, opts->depth_pop, opts->depth_invert ? " [inv]" : "",
+        opts->gamma);
   } else {
-    n = nl_snprintf(buf, sizeof(buf),
-                    " mode: %s  edges: %s  charset: %s  depth-pop: %d%s\033[K",
-                    render_mode_name(opts->render_mode),
-                    edge_mode_name(opts->edges), cset_name, opts->depth_pop,
-                    opts->depth_invert ? " [inv]" : "");
+    n = nl_snprintf(
+        buf, sizeof(buf),
+        " mode: %s  edges: %s  charset: %s  depth-pop: %d%s  gamma: %d\033[K",
+        render_mode_name(opts->render_mode), edge_mode_name(opts->edges),
+        cset_name, opts->depth_pop, opts->depth_invert ? " [inv]" : "",
+        opts->gamma);
   }
 
   if (n > 0 && n < (int)sizeof(buf)) {
@@ -545,6 +559,7 @@ int main(int argc, char *argv[]) {
   for (int i = 1; i < argc; i++) {
     if (nl_strcmp(argv[i], "--help") == 0) {
       print_usage(argv[0]);
+
       return 0;
     }
   }
@@ -571,6 +586,7 @@ int main(int argc, char *argv[]) {
       .contrast = 100,
       .invert = 0,
       .color = 0,
+      .gamma = 100,
       .edges = EDGE_OFF,
       .dither = 0,
       .threshold_val = 35,
@@ -591,7 +607,7 @@ int main(int argc, char *argv[]) {
 
   // CLI parsing
   int opt;
-  while ((opt = nl_getopt(argc, argv, "d:W:H:w:h:f:b:c:iCD2s:p:m:E:k:P:")) !=
+  while ((opt = nl_getopt(argc, argv, "d:W:H:w:h:f:b:c:g:iCD2s:p:m:E:k:P:")) !=
          -1)
     switch (opt) {
     case 'd':
@@ -640,6 +656,15 @@ int main(int argc, char *argv[]) {
     case '2':
       opts.color = 1;
       opts.color_mode = COLOR_256;
+      break;
+    case 'g':
+      opts.gamma = my_atoi(optarg);
+      if (opts.gamma < 10) {
+        opts.gamma = 10;
+      }
+      if (opts.gamma > 400) {
+        opts.gamma = 400;
+      }
       break;
     case 'E':
       opts.edges = parse_edge_mode(optarg);
@@ -708,11 +733,11 @@ int main(int argc, char *argv[]) {
 
   fprintf(stderr,
           "Device: %s | capture %dx%d | ASCII %dx%d | %d fps | %d "
-          "plugin(s) | mode: %s%s%s%s\n",
+          "plugin(s) | mode: %s%s%s%s | gamma: %d\n",
           device, cam.width, cam.height, ascii_w, ascii_h, fps, plugin_count,
           render_mode_name(opts.render_mode), opts.color ? " | color" : "",
           opts.edges != EDGE_OFF ? " | edges" : "",
-          opts.dither ? " | dither" : "");
+          opts.dither ? " | dither" : "", opts.gamma);
 
   int hw_exposure = -1;
   int hw_contrast = -1;
@@ -907,6 +932,12 @@ int main(int argc, char *argv[]) {
               (charsets.active - 1 + charsets.count) % charsets.count;
           opts.charset = charset_registry_active_ramp(&charsets);
         }
+        break;
+      case 'g':
+        opts.gamma = (opts.gamma - 10 < 10) ? 10 : opts.gamma - 10;
+        break;
+      case 'G':
+        opts.gamma = (opts.gamma + 10 > 400) ? 400 : opts.gamma + 10;
         break;
       case '+':
         opts.depth_pop = (opts.depth_pop + 5 > 100) ? 100 : opts.depth_pop + 5;

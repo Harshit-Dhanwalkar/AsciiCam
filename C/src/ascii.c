@@ -493,9 +493,18 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
   int contrast = opts ? opts->contrast : 100;
   int invert = opts ? opts->invert : 0;
   int do_color = opts && opts->color && rgb;
+  int gamma = opts ? opts->gamma : 100;
+  if (gamma < 10) {
+    gamma = 10;
+  }
+  if (gamma > 400) {
+    gamma = 400;
+  }
+
   edge_mode_t edge_mode = opts ? opts->edges : EDGE_OFF;
   int do_dither = opts ? opts->dither : 0;
   int thresh_limit = opts ? opts->threshold_val : 35;
+
   const char *ramp = (opts && opts->charset && opts->charset[0])
                          ? opts->charset
                          : ASCII_CHARS_DEFAULT;
@@ -503,6 +512,57 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
   if (ramp_len < 1) {
     ramp = ASCII_CHARS_DEFAULT;
     ramp_len = (int)nl_strlen(ramp);
+  }
+
+  uint8_t gamma_lut[256];
+  if (gamma != 100) {
+    // Discrete exponent set
+    static const int kGammaSet[] = {25, 50, 75, 100, 150, 200, 300, 400};
+
+    int best = 100, best_diff = 1000;
+    for (size_t i = 0; i < sizeof(kGammaSet) / sizeof(kGammaSet[0]); i++) {
+      int d = gamma - kGammaSet[i];
+      if (d < 0) {
+        d = -d;
+      }
+      if (d < best_diff) {
+        best_diff = d;
+        best = kGammaSet[i];
+      }
+    }
+
+    for (int i = 0; i < 256; i++) {
+      double x = i / 255.0;
+      double y;
+      switch (best) {
+      case 25:
+        y = my_sqrt(my_sqrt(x));
+        break;
+      case 50:
+        y = my_sqrt(x);
+        break;
+      case 75:
+        y = my_sqrt(x) * my_sqrt(my_sqrt(x));
+        break;
+      case 150:
+        y = x * my_sqrt(x);
+        break;
+      case 200:
+        y = x * x;
+        break;
+      case 300:
+        y = x * x * x;
+        break;
+      case 400:
+        y = x * x * x * x;
+        break;
+      default:
+        y = x;
+        break;
+      }
+
+      gamma_lut[i] = clamp_u8((int)(y * 255.0 + 0.5));
+    }
   }
 
   int depth_pop = opts ? opts->depth_pop : 0;
@@ -535,7 +595,10 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
         xe = xs + 1;
       }
 
-      long tg = 0, tr = 0, tgv = 0, tb = 0;
+      long tg = 0;
+      long tr = 0;
+      long tgv = 0;
+      long tb = 0;
       int count = 0;
       for (int sy = ys; sy < ye && sy < src_h; sy++) {
         for (int sx = xs; sx < xe && sx < src_w; sx++) {
@@ -559,8 +622,14 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
       if (contrast != 100) {
         gv = 128 + (gv - 128) * contrast / 100;
       }
+
       gv += brightness;
-      subpixel_g[y * safe_dst_w + x] = clamp_u8(gv);
+      int gv_c = clamp_u8(gv);
+      if (gamma != 100) {
+        gv_c = gamma_lut[gv_c];
+      }
+
+      subpixel_g[y * safe_dst_w + x] = gv_c;
 
       if (do_color) {
         uint8_t *op = subpixel_rgb + (y * safe_dst_w + x) * 3;
