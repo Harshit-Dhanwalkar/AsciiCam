@@ -12,7 +12,7 @@ typedef struct {
 // Initialize framerate control
 void timing_init(int fps);
 
-void timing_sleep(struct timespec *start_time);
+void timing_sleep(const struct timespec *start_time);
 
 void fps_push(fps_counter_t *fc, long elapsed_ns);
 

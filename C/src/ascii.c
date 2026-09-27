@@ -667,8 +667,9 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
   if (do_dither) {
     int16_t *err = calloc((size_t)(safe_dst_w * safe_dst_h), sizeof(int16_t));
     if (err) {
-      for (int i = 0; i < safe_dst_w * safe_dst_h; i++)
+      for (int i = 0; i < safe_dst_w * safe_dst_h; i++) {
         err[i] = (int16_t)subpixel_g[i];
+      }
 
       for (int y = 0; y < safe_dst_h; y++) {
         for (int x = 0; x < safe_dst_w; x++) {
@@ -717,8 +718,6 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
       for (int tx = 0; tx < term_w; tx++) {
         int top_idx = (ty * 2) * safe_dst_w + tx;
         int bot_idx = (ty * 2 + 1) * safe_dst_w + tx;
-        uint8_t top_l = subpixel_g[top_idx];
-        uint8_t bot_l = subpixel_g[bot_idx];
 
         if (do_color) {
           const uint8_t *tp = subpixel_rgb + top_idx * 3;
@@ -741,7 +740,10 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
             out_idx += written;
           }
         } else {
+          uint8_t top_l = subpixel_g[top_idx];
+          uint8_t bot_l = subpixel_g[bot_idx];
           int active = (top_l > thresh_limit) || (bot_l > thresh_limit);
+
           if (invert) {
             active = !active;
           }

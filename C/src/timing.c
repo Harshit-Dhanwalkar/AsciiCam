@@ -6,7 +6,7 @@ static long frame_duration_ns = 0; // nanoseconds per frame
 
 void timing_init(int fps) { frame_duration_ns = 1000000000L / fps; }
 
-void timing_sleep(struct timespec *start_time) {
+void timing_sleep(const struct timespec *start_time) {
   struct timespec end_time;
   clock_gettime(CLOCK_MONOTONIC, &end_time);
 
@@ -15,6 +15,7 @@ void timing_sleep(struct timespec *start_time) {
   long sleep_ns = frame_duration_ns - elapsed_ns;
   if (sleep_ns > 0) {
     struct timespec ts = {sleep_ns / 1000000000L, sleep_ns % 1000000000L};
+
     while (nl_nanosleep(&ts, &ts) == -1 && errno == EINTR)
       ;
   }

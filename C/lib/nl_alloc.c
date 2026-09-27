@@ -1,7 +1,44 @@
 #include "nl_alloc.h"
 #include "nl_io.h"
+#include "nl_syscall.h"
 
+#include <stddef.h>
 #include <stdint.h>
+
+/*
+ * ASan coverage note for this allocator
+ *
+ * nl_alloc manages 1 contiguous 2 MB static arena (_arena[]). ASan sees  whole
+ * array as a single allocation, it cannot automatically detect reads or writes
+ * that cross an internal sub-block boundary (i.e. one nl_malloc'd region
+ * reading into next)
+ *
+ * What does work under `make sanitize`:
+ *   - Stack OOB and UB regressions anywhere in codebase (UBSan)
+ *   - Full redzone protection on mmap-backed large allocations (> 1 MB),
+ *   - because those are individual mmap() calls that ASan tracks normally
+ *   - UAF/OOB on any malloc()'d heap buffer used by grayscale_to_ascii
+ *     (subpixel_g, subpixel_rgb, err[], dir_buf[], etc.) - they all go through
+ *     nl_malloc, which for small sizes uses arena; ASan will catch writes past
+ *     pointer end because those land in next block's header, which will have an
+ *     unexpected magic value
+ *
+ * To get per-block redzone checking inside arena in future, poison
+ * each free block's header region via ASAN_POISON_MEMORY_REGION on free and
+ * unpoison on allocation:
+ *
+ *   #ifdef __SANITIZE_ADDRESS__
+ *   #include <sanitizer/asan_interface.h>
+ *   #define ARENA_POISON(p, n)   ASAN_POISON_MEMORY_REGION(p, n)
+ *   #define ARENA_UNPOISON(p, n) ASAN_UNPOISON_MEMORY_REGION(p, n)
+ *   #else
+ *   #define ARENA_POISON(p, n)   ((void)0)
+ *   #define ARENA_UNPOISON(p, n) ((void)0)
+ *   #endif
+ *
+ * TODO: Implement above; current build is sufficient for catching stack/UB/heap
+ * regressions in rendering path
+ */
 
 #define ARENA_SIZE (2 * 1024 * 1024)
 #define ALIGN 16
@@ -63,7 +100,7 @@ void *nl_malloc(size_t n) {
   }
 
   unsigned char *p = _arena;
-  unsigned char *end = _arena + ARENA_SIZE;
+  const unsigned char *end = _arena + ARENA_SIZE;
 
   while (p + sizeof(block_hdr_t) <= end) {
     block_hdr_t *h = (block_hdr_t *)p;
@@ -134,7 +171,7 @@ void nl_free(void *ptr) {
 
   // Coalesce forward
   unsigned char *next_p = (unsigned char *)ptr + h->size;
-  unsigned char *end = _arena + ARENA_SIZE;
+  const unsigned char *end = _arena + ARENA_SIZE;
   if (next_p + sizeof(block_hdr_t) <= end) {
     block_hdr_t *next = (block_hdr_t *)next_p;
     if (next->magic == HDR_MAGIC && next->free) {
@@ -145,7 +182,7 @@ void nl_free(void *ptr) {
 
   // Coalesce backward
   unsigned char *p = _arena;
-  unsigned char *target = (unsigned char *)h;
+  const unsigned char *target = (unsigned char *)h;
   block_hdr_t *prev = NULL;
   while (p < target) {
     block_hdr_t *cur = (block_hdr_t *)p;

@@ -257,7 +257,7 @@ static void load_config_file(const char *path, char **device, int *ascii_w,
       } else {
         *eq = '\0';
         char *key = l;
-        char *val = _cfg_skip_ws(eq + 1);
+        const char *val = _cfg_skip_ws(eq + 1);
         _cfg_trim(key); // strip whitespace left between key and '='
 
         if (nl_strcmp(key, "device") == 0) {
@@ -341,7 +341,7 @@ void term_restore(void) {
 }
 
 static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
-                          int *plugin_params, int count, int selected,
+                          const int *plugin_params, int count, int selected,
                           int color, const ascii_opts_t *opts,
                           const charset_registry_t *charsets, int hw_exposure,
                           int hw_contrast, int hw_wb) {
@@ -481,8 +481,8 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
   }
 }
 
-// Returns >0 if the ASCII dimensions changed, 0 otherwise.
-// Reallocates *out_buf and updates *out_size.
+// Returns >0 if the ASCII dimensions changed, 0 otherwise
+// Reallocates *out_buf and updates *out_size
 int handle_term_resize(int *ascii_w, int *ascii_h, char **out_buf,
                        size_t *out_size, int color) {
   // Query terminal size via ioctl(TIOCGWINSZ)
@@ -818,17 +818,18 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    {
-      static sig_atomic_t last = 0;
-      if (winch_count != last) {
-        last = winch_count;
-        char b[64];
-        int n = nl_snprintf(b, sizeof(b), "[winch #%d]\n", (int)winch_count);
-        if (n > 0) {
-          write(2, b, (size_t)n);
-        }
-      }
-    }
+    // DEBUG:
+    // {
+    //   static sig_atomic_t last = 0;
+    //   if (winch_count != last) {
+    //     last = winch_count;
+    //     char b[64];
+    //     int n = nl_snprintf(b, sizeof(b), "[winch #%d]\n", (int)winch_count);
+    //     if (n > 0) {
+    //       write(2, b, (size_t)n);
+    //     }
+    //   }
+    // }
 
     // Keypress handling
     char ch;

@@ -2,8 +2,8 @@
 
 #include "plugins.h"
 
-#include "nl_inotify.h"
 #include "nl_dlfcn.h"
+#include "nl_inotify.h"
 
 static int copy_file(const char *src, const char *dst) {
   int fd_src = open(src, O_RDONLY);
@@ -146,7 +146,7 @@ void plugin_check_reload(plugin_loader_t *pl) {
     return;
   }
 
-  // TODO: Replace with inotify event coalescing for more deterministic reload.
+  // TODO: Replace with inotify event coalescing for more deterministic reload
   usleep(100000); // 0.1s delay for linker
 
   if (plugin_load(pl, pl->path) == 0) {

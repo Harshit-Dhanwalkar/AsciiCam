@@ -15,38 +15,47 @@ int nl_getopt(int argc, char *const argv[], const char *opts) {
   nl_optarg = (char *)0;
 
   if (nl_optind < argc &&
-      (argv[nl_optind][0] != '-' || argv[nl_optind][1] == '\0'))
+      (argv[nl_optind][0] != '-' || argv[nl_optind][1] == '\0')) {
     return -1;
+  }
 
-  if (nl_optind >= argc)
+  if (nl_optind >= argc) {
     return -1;
+  }
 
   const char *arg = argv[nl_optind];
   if (arg[0] == '-' && arg[1] == '-') {
     nl_optind++;
+
     return -1;
   }
 
-  if (_optpos == 0)
+  if (_optpos == 0) {
     _optpos = 1;
+  }
+
   char c = arg[_optpos++];
 
+  // o += (*o != ':') ? 1 : 1;
   const char *o = opts;
-  while (*o) {
-    if (*o == c)
+  for (; *o; o++) {
+    if (*o == c) {
       break;
-    o += (*o != ':') ? 1 : 1;
+    }
   }
+
   if (!*o) {
     if (nl_opterr) {
       char msg[] = "Unknown option: -?\n";
       msg[17] = c;
       _ewrite(msg, 19);
     }
+
     if (arg[_optpos] == '\0') {
       nl_optind++;
       _optpos = 0;
     }
+
     return '?';
   }
 
@@ -56,13 +65,18 @@ int nl_getopt(int argc, char *const argv[], const char *opts) {
     } else {
       nl_optind++;
       if (nl_optind >= argc) {
-        if (nl_opterr)
+        if (nl_opterr) {
           _ewrite("Missing argument\n", 17);
+        }
+
         _optpos = 0;
+
         return '?';
       }
+
       nl_optarg = argv[nl_optind];
     }
+
     nl_optind++;
     _optpos = 0;
   } else {
