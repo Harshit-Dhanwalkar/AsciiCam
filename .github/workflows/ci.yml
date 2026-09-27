@@ -52,7 +52,7 @@ jobs:
             allow_failure: false
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install Linux dependencies
         if: matrix.platform == 'linux'
@@ -144,7 +144,7 @@ jobs:
     #       macOS uses system libc + clang (different sanitiser flags,)
     # TODO: Windows uses MinGW and has no libasan package
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: |
@@ -171,7 +171,7 @@ jobs:
     name: Static analysis
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install analysis tools
         run: |
