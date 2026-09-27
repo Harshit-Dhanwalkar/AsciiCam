@@ -66,7 +66,9 @@ void handle_signal(int sig) {
   case SIGHUP:
     emergency_terminal_restore();
     nl_exit(128 + sig);
+
     break;
+
   default:
     keep_running = 0;
   }
@@ -191,6 +193,7 @@ static void _cfg_trim(char *s) {
   for (char *p = s; *p; p++) {
     if (*p == '\n' || *p == '\r') {
       *p = '\0';
+
       break;
     }
   }
@@ -612,50 +615,67 @@ int main(int argc, char *argv[]) {
     switch (opt) {
     case 'd':
       device = optarg;
+
       break;
     case 'W':
       ascii_w = my_atoi(optarg);
-      if (ascii_w <= 0)
+      if (ascii_w <= 0) {
         ascii_w = DEFAULT_ASCII_WIDTH;
+      }
+
       break;
     case 'H':
       ascii_h = my_atoi(optarg);
-      if (ascii_h <= 0)
+      if (ascii_h <= 0) {
         ascii_h = DEFAULT_ASCII_HEIGHT;
+      }
+
       break;
     case 'w':
       cap_w = my_atoi(optarg);
-      if (cap_w <= 0)
+      if (cap_w <= 0) {
         cap_w = DEFAULT_CAPTURE_WIDTH;
+      }
+
       break;
     case 'h':
       cap_h = my_atoi(optarg);
-      if (cap_h <= 0)
+      if (cap_h <= 0) {
         cap_h = DEFAULT_CAPTURE_HEIGHT;
+      }
+
       break;
     case 'f':
       fps = my_atoi(optarg);
-      if (fps <= 0)
+      if (fps <= 0) {
         fps = DEFAULT_FPS;
+      }
+
       break;
     case 'b':
       opts.brightness = my_atoi(optarg);
+
       break;
     case 'c':
       opts.contrast = my_atoi(optarg);
-      if (opts.contrast <= 0)
+      if (opts.contrast <= 0) {
         opts.contrast = 100;
+      }
+
       break;
     case 'i':
       opts.invert = 1;
+
       break;
     case 'C':
       opts.color = 1;
       opts.color_mode = COLOR_TRUECOLOR;
+
       break;
     case '2':
       opts.color = 1;
       opts.color_mode = COLOR_256;
+
       break;
     case 'g':
       opts.gamma = my_atoi(optarg);
@@ -665,36 +685,48 @@ int main(int argc, char *argv[]) {
       if (opts.gamma > 400) {
         opts.gamma = 400;
       }
+
       break;
     case 'E':
       opts.edges = parse_edge_mode(optarg);
+
       break;
     case 'm':
       opts.render_mode = parse_render_mode(optarg);
+
       break;
     case 'k':
       charset_dir = optarg;
+
       break;
     case 'P':
       opts.depth_pop = my_atoi(optarg);
-      if (opts.depth_pop < 0)
+      if (opts.depth_pop < 0) {
         opts.depth_pop = 0;
-      if (opts.depth_pop > 100)
+      }
+      if (opts.depth_pop > 100) {
         opts.depth_pop = 100;
+      }
+
       break;
     case 'D':
       opts.dither = 1;
+
       break;
     case 's':
       opts.charset = optarg;
+
       break;
     case 'p':
-      if (plugin_path_count < MAX_PLUGINS)
+      if (plugin_path_count < MAX_PLUGINS) {
         plugin_paths[plugin_path_count++] = optarg;
-      else
+      } else {
         fprintf(stderr, "Warning: max %d plugins, ignoring %s\n", MAX_PLUGINS,
                 optarg);
+      }
+
       break;
+
     default:
       print_usage(argv[0]);
 
@@ -865,12 +897,16 @@ int main(int argc, char *argv[]) {
           if (read(STDIN_FILENO, &seq[1], 1) == 1) {
             switch (seq[1]) {
             case 'A': // up arrow key, previous plugin
-              if (plugin_count > 0)
+              if (plugin_count > 0) {
                 selected = (selected - 1 + plugin_count) % plugin_count;
+              }
+
               break;
             case 'B': // down arrow key, next plugin
-              if (plugin_count > 0)
+              if (plugin_count > 0) {
                 selected = (selected + 1) % plugin_count;
+              }
+
               break;
             }
           }
@@ -887,44 +923,59 @@ int main(int argc, char *argv[]) {
         keep_running = 0;
         break;
       case ']':
-        if (pp && *pp < 255)
+        if (pp && *pp < 255) {
           (*pp)++;
+        }
+
         break;
       case '[':
-        if (pp && *pp > 0)
+        if (pp && *pp > 0) {
           (*pp)--;
+        }
+
         break;
       case '}':
-        if (pp)
+        if (pp) {
           *pp = (*pp + 10 > 255) ? 255 : *pp + 10;
+        }
+
         break;
       case '{':
-        if (pp)
+        if (pp) {
           *pp = (*pp - 10 < 0) ? 0 : *pp - 10;
+        }
+
         break;
       case 'r':
       case 'R':
-        if (pp)
+        if (pp) {
           *pp = 128;
+        }
+
         break;
       case 'm':
         opts.render_mode = (opts.render_mode + 1) % RENDER_MODE_COUNT;
+
         break;
       case 'M':
         opts.render_mode =
             (opts.render_mode - 1 + RENDER_MODE_COUNT) % RENDER_MODE_COUNT;
+
         break;
       case 'x':
         opts.edges = (opts.edges + 1) % EDGE_MODE_COUNT;
+
         break;
       case 'X':
         opts.edges = (opts.edges - 1 + EDGE_MODE_COUNT) % EDGE_MODE_COUNT;
+
         break;
       case 'n':
         if (charsets.count > 0) {
           charsets.active = (charsets.active + 1) % charsets.count;
           opts.charset = charset_registry_active_ramp(&charsets);
         }
+
         break;
       case 'N':
         if (charsets.count > 0) {
@@ -932,39 +983,51 @@ int main(int argc, char *argv[]) {
               (charsets.active - 1 + charsets.count) % charsets.count;
           opts.charset = charset_registry_active_ramp(&charsets);
         }
+
         break;
       case 'g':
         opts.gamma = (opts.gamma - 10 < 10) ? 10 : opts.gamma - 10;
+
         break;
       case 'G':
         opts.gamma = (opts.gamma + 10 > 400) ? 400 : opts.gamma + 10;
+
         break;
       case '+':
         opts.depth_pop = (opts.depth_pop + 5 > 100) ? 100 : opts.depth_pop + 5;
+
         break;
       case '-':
         opts.depth_pop = (opts.depth_pop - 5 < 0) ? 0 : opts.depth_pop - 5;
+
         break;
       case 'v':
         opts.depth_invert = !opts.depth_invert;
+
         break;
       case 'e':
         webcam_adjust_exposure(&cam, -10, &hw_exposure);
+
         break;
       case 'E':
         webcam_adjust_exposure(&cam, 10, &hw_exposure);
+
         break;
       case 'w':
         webcam_adjust_white_balance(&cam, -100, &hw_wb);
+
         break;
       case 'W':
         webcam_adjust_white_balance(&cam, 100, &hw_wb);
+
         break;
       case 'c':
         webcam_adjust_contrast(&cam, -5, &hw_contrast);
+
         break;
       case 'C':
         webcam_adjust_contrast(&cam, 5, &hw_contrast);
+
         break;
       }
     }
@@ -989,6 +1052,7 @@ int main(int argc, char *argv[]) {
 
     if (webcam_capture_frame(&cam, gray) < 0) {
       perror("capture_frame");
+
       break;
     }
 
@@ -1016,15 +1080,18 @@ int main(int argc, char *argv[]) {
     case RENDER_BRAILLE:
       subpixel_w = ascii_w * 2;
       subpixel_h = ascii_h * 4;
+
       break;
     case RENDER_HALF_BLOCK:
       subpixel_w = ascii_w * 1;
       subpixel_h = ascii_h * 2;
+
       break;
     default:
       // RENDER_BLOCKS, RENDER_ASCII_RAMP, RENDER_DOTS are 1x1 per cell
       subpixel_w = ascii_w * 2;
       subpixel_h = ascii_h * 4;
+
       break;
     }
 
@@ -1044,6 +1111,7 @@ int main(int argc, char *argv[]) {
 
     if (webcam_requeue_buffer(&cam) < 0) {
       perror("requeue_buffer");
+
       break;
     }
 
