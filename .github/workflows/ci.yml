@@ -83,7 +83,7 @@ jobs:
 
       - name: Install MinGW
         if: matrix.platform == 'windows' && steps.cache-mingw.outputs.cache-hit != 'true'
-        uses: egor-tensin/setup-mingw@v2
+        uses: egor-tensin/setup-mingw@v3
         with:
           platform: x64
           version: "12.2.0"
