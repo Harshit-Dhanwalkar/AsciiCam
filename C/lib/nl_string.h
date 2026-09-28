@@ -118,4 +118,4 @@ static inline int nl_atoi(const char *s) {
 
 #endif
 
-#endif
+#endif /* NL_STRING_H */
