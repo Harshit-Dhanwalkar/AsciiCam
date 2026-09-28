@@ -576,8 +576,8 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
       do_color ? malloc((size_t)(safe_dst_w * safe_dst_h * 3)) : NULL;
 
   if (!subpixel_g || (do_color && !subpixel_rgb)) {
-    free(subpixel_g);
-    free(subpixel_rgb);
+    nl_free(subpixel_g);
+    nl_free(subpixel_rgb);
 
     return -1;
   }
@@ -700,8 +700,8 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
       }
     }
 
-    free(warped_g);
-    free(warped_rgb);
+    nl_free(warped_g);
+    nl_free(warped_rgb);
   }
 
   // Edge detection dispatch
@@ -712,23 +712,28 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
       switch (edge_mode) {
       case EDGE_SOBEL:
         sobel(subpixel_g, eb, safe_dst_w, safe_dst_h);
+
         break;
       case EDGE_SOBEL_DIR:
         dir_buf = calloc((size_t)(safe_dst_w * safe_dst_h), 1);
-        if (dir_buf)
+        if (dir_buf) {
           sobel_dir(subpixel_g, eb, dir_buf, safe_dst_w, safe_dst_h);
-        else
+        } else {
           sobel(subpixel_g, eb, safe_dst_w, safe_dst_h);
+        }
+
         break;
       case EDGE_LAPLACIAN:
         laplacian(subpixel_g, eb, safe_dst_w, safe_dst_h);
+
         break;
+
       default:
         break;
       }
 
       nl_memcpy(subpixel_g, eb, (size_t)(safe_dst_w * safe_dst_h));
-      free(eb);
+      nl_free(eb);
     }
   }
 
@@ -769,7 +774,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
         subpixel_g[i] = (v < 0) ? 0 : (v > 255) ? 255 : (uint8_t)v;
       }
 
-      free(err);
+      nl_free(err);
     }
   }
 
@@ -777,6 +782,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
   static const char HOME[] = "\033[H";
   if (out_size > sizeof(HOME)) {
     nl_memcpy(out, HOME, sizeof(HOME) - 1);
+
     out_idx = sizeof(HOME) - 1;
   }
 
@@ -795,14 +801,14 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
           if (color_mode == COLOR_256) {
             int fg = rgb_to_ansi256(tp[0], tp[1], tp[2]);
             int bg = rgb_to_ansi256(bp[0], bp[1], bp[2]);
-            written = snprintf(out + out_idx, out_size - (size_t)out_idx,
-                               "\033[38;5;%dm\033[48;5;%dm%s", fg, bg,
-                               HALF_BLOCK_UTF8);
+            written = nl_snprintf(out + out_idx, out_size - (size_t)out_idx,
+                                  "\033[38;5;%dm\033[48;5;%dm%s", fg, bg,
+                                  HALF_BLOCK_UTF8);
           } else {
             written =
-                snprintf(out + out_idx, out_size - (size_t)out_idx,
-                         "\033[38;2;%d;%d;%dm\033[48;2;%d;%d;%dm%s", tp[0],
-                         tp[1], tp[2], bp[0], bp[1], bp[2], HALF_BLOCK_UTF8);
+                nl_snprintf(out + out_idx, out_size - (size_t)out_idx,
+                            "\033[38;2;%d;%d;%dm\033[48;2;%d;%d;%dm%s", tp[0],
+                            tp[1], tp[2], bp[0], bp[1], bp[2], HALF_BLOCK_UTF8);
           }
 
           if (written > 0 && (size_t)(out_idx + written) < out_size) {
@@ -825,7 +831,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
 
       if (do_color) {
         int written =
-            snprintf(out + out_idx, out_size - (size_t)out_idx, "\033[0m\n");
+            nl_snprintf(out + out_idx, out_size - (size_t)out_idx, "\033[0m\n");
         if (written > 0 && (size_t)(out_idx + written) < out_size) {
           out_idx += written;
         }
@@ -836,9 +842,9 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
     }
 
     out[(size_t)out_idx < out_size ? (size_t)out_idx : out_size - 1] = '\0';
-    free(subpixel_g);
-    free(subpixel_rgb);
-    free(dir_buf);
+    nl_free(subpixel_g);
+    nl_free(subpixel_rgb);
+    nl_free(dir_buf);
 
     return out_idx;
   }
@@ -984,7 +990,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
 
     if (do_color) {
       int written =
-          snprintf(out + out_idx, out_size - (size_t)out_idx, "\033[0m\n");
+          nl_snprintf(out + out_idx, out_size - (size_t)out_idx, "\033[0m\n");
       if (written > 0 && (size_t)(out_idx + written) < out_size) {
         out_idx += written;
       }
@@ -997,9 +1003,9 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
 
   out[(size_t)out_idx < out_size ? (size_t)out_idx : out_size - 1] = '\0';
 
-  free(subpixel_g);
-  free(subpixel_rgb);
-  free(dir_buf);
+  nl_free(subpixel_g);
+  nl_free(subpixel_rgb);
+  nl_free(dir_buf);
 
   return out_idx;
 }
@@ -1018,12 +1024,12 @@ void overlay_fps_box(int dst_w, double fps, int color_enabled) {
 
   int n;
   if (color_enabled) {
-    n = snprintf(
+    n = nl_snprintf(
         buf, sizeof(buf),
         "\033[1;%dH\033[38;2;0;255;0m\033[48;2;30;30;30m[ FPS: %s ]\033[0m",
         col, fpsbuf);
   } else {
-    n = snprintf(buf, sizeof(buf), "\033[1;%dH[ FPS: %s ]", col, fpsbuf);
+    n = nl_snprintf(buf, sizeof(buf), "\033[1;%dH[ FPS: %s ]", col, fpsbuf);
   }
 
   if (n > 0 && n < (int)sizeof(buf)) {
