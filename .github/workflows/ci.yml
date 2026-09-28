@@ -61,20 +61,52 @@ jobs:
           sudo apt-get install -y \
             build-essential linux-libc-dev libv4l-dev ccache
 
+      - name: Cache Homebrew downloads
+        if: matrix.platform == 'macos'
+        uses: actions/cache@v5
+        with:
+          path: ~/Library/Caches/Homebrew/downloads
+          key: brew-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
+          restore-keys: brew-${{ runner.os }}-
+
       - name: Install macOS dependencies
         if: matrix.platform == 'macos'
         run: brew install ccache || true
 
-      - name: Install MinGW
+      - name: Cache MinGW
+        id: cache-mingw
         if: matrix.platform == 'windows'
+        uses: actions/cache@v5
+        with:
+          path: C:\ProgramData\chocolatey\lib\mingw
+          key: mingw-${{ runner.os }}-12.2.0
+
+      - name: Install MinGW
+        if: matrix.platform == 'windows' && steps.cache-mingw.outputs.cache-hit != 'true'
         uses: egor-tensin/setup-mingw@v2
         with:
           platform: x64
           version: "12.2.0"
 
-      - name: Install make (Windows)
+      - name: Add cached MinGW to PATH
+        if: matrix.platform == 'windows' && steps.cache-mingw.outputs.cache-hit == 'true'
+        shell: pwsh
+        run: |
+          $mingw = 'C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin'
+          if (-not (Test-Path $mingw)) {
+            Write-Error "Cache hit but MinGW bin dir missing: $mingw"
+            exit 1
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $mingw
+          Write-Host "MinGW restored from cache: $mingw"
+
+      # - name: Install make (Windows)
+      #   if: matrix.platform == 'windows'
+      #   run: choco install make -y
+      - name: Verify make (Windows)
         if: matrix.platform == 'windows'
-        run: choco install make -y
+        shell: bash
+        run: which make && make --version | head -1
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
