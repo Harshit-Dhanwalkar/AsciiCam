@@ -48,12 +48,14 @@ ifeq ($(PLATFORM),linux)
                 -B/usr/bin/ \
                 -L/usr/lib/x86_64-linux-gnu
     # LDFLAGS  += -Wl,-rpath-link=/usr/lib/x86_64-linux-gnu
-    LDFLAGS  += -ldl -lpthread -lc # FIX: lc flag pulls standard libc,but removing them will -lpthread and -ldl will fail to link because they themselves depend on libc
+    # LDFLAGS  += -ldl -lpthread -lc # FIX: lc flag pulls standard libc,but removing them will -lpthread and -ldl will fail to link because they themselves depend on libc
+    LDFLAGS  += -ldl -lpthread
     # TODO: custom threading library using clone() + futex to eliminate -lpthread (pthread functions) dependency
     # TODO: implement an ELF loader (or statically link plugins) to eliminate -ldl (dlopen/dlsym/dlclose are part of libdl.so also glibc) dependency
     LDFLAGS  += -msse4.1
 
     LIBSRCS  := $(LIBDIR)/nl_alloc.c \
+                $(LIBDIR)/nl_dlfcn.c \
                 $(LIBDIR)/nl_errno.c \
                 $(LIBDIR)/nl_getopt.c \
                 $(LIBDIR)/nl_printf.c \
