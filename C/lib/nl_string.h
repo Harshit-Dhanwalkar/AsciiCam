@@ -14,10 +14,6 @@ static inline size_t nl_strlen(const char *s) {
 }
 
 static inline void *nl_memcpy(void *dst, const void *src, size_t n) {
-  // uint8_t *d = (uint8_t *)dst;
-  // const uint8_t *s = (const uint8_t *)src;
-  // while (n--)
-  //   *d++ = *s++;
   unsigned char *d = (unsigned char *)dst;
   const unsigned char *s = (const unsigned char *)src;
   for (size_t i = 0; i < n; i++) {
@@ -109,6 +105,8 @@ static inline int nl_atoi(const char *s) {
   return neg ? -n : n;
 }
 
+#ifdef __LINUX_NOLIBC__
+
 #define strlen(s) nl_strlen(s)
 #define memcpy(d, s, n) nl_memcpy(d, s, n)
 #define memset(d, c, n) nl_memset(d, c, n)
@@ -117,5 +115,7 @@ static inline int nl_atoi(const char *s) {
 #define basename(p) nl_basename(p)
 #define dirname(p) nl_dirname(p)
 // #define atoi(s) nl_atoi(s)
+
+#endif
 
 #endif

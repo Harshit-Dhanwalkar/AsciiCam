@@ -266,6 +266,7 @@ static inline int nl_tcsetattr(int fd, int action, const struct termios *t) {
 #if defined(PLATFORM_MACOS)
 
 #include <fcntl.h>
+#include <libgen.h>
 #include <stdio.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
