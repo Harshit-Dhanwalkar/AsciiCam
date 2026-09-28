@@ -202,13 +202,7 @@ ASAN_LDFLAGS := -nostdlib -nostdinc \
                 -lasan -lubsan \
                 -ldl -lc
 
-ASAN_SRCS    := $(CORE_SRCS) \
-                $(SRCDIR)/capture_linux.c \
-                $(LIBDIR)/nl_alloc.c  \
-                $(LIBDIR)/nl_errno.c  \
-                $(LIBDIR)/nl_getopt.c \
-                $(LIBDIR)/nl_printf.c \
-                $(LIBDIR)/nl_start.c
+ASAN_SRCS := $(CORE_SRCS) $(PLAT_SRC) $(LIBSRCS)
 
 ASAN_OBJECTS := $(patsubst $(SRCDIR)/%.c, $(ASAN_OBJDIR)/%.o,     $(filter $(SRCDIR)/%.c, $(ASAN_SRCS)))
 ASAN_OBJECTS += $(patsubst $(LIBDIR)/%.c, $(ASAN_OBJDIR)/lib_%.o, $(filter $(LIBDIR)/%.c, $(ASAN_SRCS)))
