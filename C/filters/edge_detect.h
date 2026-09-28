@@ -1,9 +1,7 @@
 #ifndef EDGE_DETECT_H
 #define EDGE_DETECT_H
 
-#include <limits.h>
-#include <stdint.h>
-#include <stdlib.h>
+#include "nolibc.h"
 
 void do_edge_boost(uint8_t *gray, int w, int h, void *ctx);
 

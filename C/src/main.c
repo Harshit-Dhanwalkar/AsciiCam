@@ -464,7 +464,7 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
     const char *msg = color ? "\033[38;2;120;120;120m no plugins loaded \033[0m"
                             : " no plugins loaded";
 
-    (void)write(STDOUT_FILENO, msg, strlen(msg));
+    (void)write(STDOUT_FILENO, msg, nl_strlen(msg));
 
     return;
   }
@@ -543,12 +543,12 @@ int handle_term_resize(int *ascii_w, int *ascii_h, char **out_buf,
     write(2, dbg, (size_t)dn);
   }
 
-  char *nb = malloc(need);
+  char *nb = nl_malloc(need);
   if (!nb) {
     return 0; // keep old buffer, dimensions updated
   }
 
-  free(*out_buf);
+  nl_free(*out_buf);
   *out_buf = nb;
   *out_size = need;
 
@@ -741,7 +741,7 @@ int main(int argc, char *argv[]) {
   int plugin_count = 0;
 
   for (int i = 0; i < plugin_path_count; i++) {
-    memset(&plugins[i], 0, sizeof(plugin_loader_t));
+    nl_memset(&plugins[i], 0, sizeof(plugin_loader_t));
     plugins[i].inotify_fd = -1;
     plugin_params[i] = 128; // default
 
@@ -758,7 +758,7 @@ int main(int argc, char *argv[]) {
   // Open webcam
   webcam_t cam = {.fd = -1, .buffer = MAP_FAILED};
   if (webcam_init(&cam, device, cap_w, cap_h) < 0) {
-    perror("webcam_init");
+    nl_perror("webcam_init");
 
     return 1;
   }
@@ -780,12 +780,12 @@ int main(int argc, char *argv[]) {
 
   // Pixel buffers allocation
   int cam_pixels = cam.width * cam.height;
-  uint8_t *gray = malloc(cam_pixels);
+  uint8_t *gray = nl_malloc(cam_pixels);
   uint8_t *rgb = opts.color ? malloc(cam_pixels * 3) : NULL;
 
   if (!gray || (opts.color && !rgb)) {
-    perror("malloc pixel buffers");
-    free(gray);
+    nl_perror("malloc pixel buffers");
+    nl_free(gray);
     webcam_cleanup(&cam);
 
     return 1;
@@ -803,9 +803,9 @@ int main(int argc, char *argv[]) {
 
   char *out_buf = malloc(out_size);
   if (!out_buf) {
-    perror("malloc out_buf");
-    free(gray);
-    free(rgb);
+    nl_perror("malloc out_buf");
+    nl_free(gray);
+    nl_free(rgb);
     webcam_cleanup(&cam);
 
     return 1;
@@ -921,6 +921,7 @@ int main(int argc, char *argv[]) {
       case 'q':
       case 'Q':
         keep_running = 0;
+
         break;
       case ']':
         if (pp && *pp < 255) {
@@ -1051,7 +1052,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (webcam_capture_frame(&cam, gray) < 0) {
-      perror("capture_frame");
+      nl_perror("capture_frame");
 
       break;
     }
@@ -1067,7 +1068,7 @@ int main(int argc, char *argv[]) {
     // NOTE: cam.buffer is the V4L2 mmap region (Linux only)
     // On macOS, capture_macos.c delivers luma only; cam.buffer is NULL
     // TODO: Add color support for macOS
-    // Color mode is therefore a Linux-only feature for now.
+    // Color mode is therefore a Linux-only feature for now
     if (opts.color && rgb && cam.buffer && cam.buffer != MAP_FAILED) {
       yuyv_to_rgb((const uint8_t *)cam.buffer, rgb, cam.width, cam.height);
     }
@@ -1110,7 +1111,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (webcam_requeue_buffer(&cam) < 0) {
-      perror("requeue_buffer");
+      nl_perror("requeue_buffer");
 
       break;
     }
@@ -1126,9 +1127,9 @@ int main(int argc, char *argv[]) {
 
   fprintf(stderr, "Stopped.\n");
 
-  free(gray);
-  free(rgb);
-  free(out_buf);
+  nl_free(gray);
+  nl_free(rgb);
+  nl_free(out_buf);
   for (int i = 0; i < plugin_count; i++) {
     plugin_cleanup(&plugins[i]);
   }

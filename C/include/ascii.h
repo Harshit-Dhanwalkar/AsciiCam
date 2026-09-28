@@ -1,8 +1,8 @@
 #ifndef ASCII_H
 #define ASCII_H
 
-#include <stddef.h>
-#include <stdint.h>
+#include "nolibc.h"
+
 
 #define ASCII_CHARS_DEFAULT " .:-=+*#%@"
 #define MAX_CHARSETS 16
@@ -42,7 +42,7 @@ typedef struct {
   char ramp[CHARSET_RAMP_LEN];
 } charset_entry_t;
 
-// Registry of loaded charsets, hot-reloadable from directory of .txt files.
+// Registry of loaded charsets, hot-reloadable from directory of .txt files
 typedef struct {
   charset_entry_t sets[MAX_CHARSETS];
   int count;

@@ -272,6 +272,7 @@ static inline int nl_tcsetattr(int fd, int action, const struct termios *t) {
 #include <sys/mman.h>
 #include <sys/select.h>
 #include <termios.h>
+#include <unistd.h>
 
 static inline int nl_ioctl(int fd, unsigned long req, void *arg) {
   return ioctl(fd, req, arg);

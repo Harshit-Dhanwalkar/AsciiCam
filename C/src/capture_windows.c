@@ -1,9 +1,11 @@
 #ifdef PLATFORM_WINDOWS
+
+#include "nolibc.h"
+
 #include "capture.h"
 #include "platform.h"
 
-#include <stdlib.h>
-#include <string.h>
+#include <windows.h>
 
 #include <mfapi.h>
 #include <mferror.h>
@@ -248,7 +250,7 @@ fail:
     CoUninitialize();
   }
 
-  free(im);
+  nl_free(im);
 
   return -1;
 }
@@ -332,7 +334,7 @@ void webcam_cleanup(webcam_t *cam) {
     CoUninitialize();
   }
 
-  free(im);
+  nl_free(im);
 
   cam->impl = NULL;
   cam->fd = -1;

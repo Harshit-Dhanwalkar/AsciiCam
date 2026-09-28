@@ -1,5 +1,6 @@
+#include "nolibc.h"
+
 #include "plugins.h"
-#include <stdint.h>
 
 void do_invert(uint8_t *gray, int w, int h, void *ctx) {
   int strength = ctx ? *(int *)ctx : 255;

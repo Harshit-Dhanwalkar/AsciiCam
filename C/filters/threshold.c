@@ -1,5 +1,6 @@
+#include "nolibc.h"
+
 #include "plugins.h"
-#include <stdint.h>
 
 #define DEFAULT_THRESH 35
 
@@ -8,8 +9,9 @@ void thresh_process(uint8_t *gray, int w, int h, void *ctx) {
   int thresh =
       ctx ? *(int *)ctx : DEFAULT_THRESH; // reads &plugin_param from main
   int total_pixels = w * h;
-  for (int i = 0; i < total_pixels; i++)
+  for (int i = 0; i < total_pixels; i++) {
     gray[i] = (gray[i] > thresh) ? 255 : 0;
+  }
 }
 
 #ifndef TESTING
