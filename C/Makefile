@@ -49,9 +49,8 @@ ifeq ($(PLATFORM),linux)
                 -L/usr/lib/x86_64-linux-gnu
     # LDFLAGS  += -Wl,-rpath-link=/usr/lib/x86_64-linux-gnu
     # LDFLAGS  += -ldl -lpthread -lc # FIX: lc flag pulls standard libc,but removing them will -lpthread and -ldl will fail to link because they themselves depend on libc
-    LDFLAGS  += -ldl -lpthread
+    LDFLAGS  += -lpthread
     # TODO: custom threading library using clone() + futex to eliminate -lpthread (pthread functions) dependency
-    # TODO: implement an ELF loader (or statically link plugins) to eliminate -ldl (dlopen/dlsym/dlclose are part of libdl.so also glibc) dependency
     LDFLAGS  += -msse4.1
 
     LIBSRCS  := $(LIBDIR)/nl_alloc.c \
@@ -200,7 +199,7 @@ ASAN_LDFLAGS := -nostdlib -nostdinc \
                 -fsanitize=address,undefined \
                 -fno-sanitize=vptr \
                 -lasan -lubsan \
-                -ldl -lc
+                -lc
 
 ASAN_SRCS := $(CORE_SRCS) $(PLAT_SRC) $(LIBSRCS)
 
