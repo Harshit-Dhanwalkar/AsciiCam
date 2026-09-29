@@ -12,6 +12,7 @@
 #define DEFAULT_CAPTURE_WIDTH 640
 #define DEFAULT_CAPTURE_HEIGHT 480
 #define DEFAULT_FPS 20
+#define DEFAULT_BINARIZATION_THRESOLD 35
 #define MAX_PLUGINS 8
 
 #define DEFAULT_CHARSET_DIR "./charsets"
@@ -130,6 +131,7 @@ static void print_usage(const char *prog) {
       "  -2            ANSI-256 color output (fallback for terminals   \n"
       "                without truecolor support, implies color on)    \n"
       "  -D            Floyd-Steinberg dithering                       \n"
+      "  -t <0..255>   binarization threshold   (default: %d)          \n"
       "  -P <0-100>    depth-pop 3D parallax strength (0=off)          \n"
       "\n"
       "Config file:\n"
@@ -141,6 +143,7 @@ static void print_usage(const char *prog) {
       "  x / X         cycle edge detection mode forward / backward    \n"
       "  n / N         cycle loaded charset forward / backward         \n"
       "  p / o         increase / decrease depth-pop strength          \n"
+      "  t / T         threshold down / up       5-step increments     \n"
       "  g / G         decrease / increase gamma                        \n"
       "  e / E         hw exposure down / up        (V4L2, Linux only) \n"
       "  w / W         hw white-balance down / up   (V4L2, Linux only) \n"
@@ -148,7 +151,8 @@ static void print_usage(const char *prog) {
       "  up/down       select plugin    [ ] +-1   { } +-10   r reset   \n"
       "  q             quit                                            \n",
       prog, DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT, DEFAULT_FPS,
-      DEFAULT_ASCII_WIDTH, DEFAULT_ASCII_HEIGHT, ASCII_CHARS_DEFAULT);
+      DEFAULT_ASCII_WIDTH, DEFAULT_ASCII_HEIGHT, ASCII_CHARS_DEFAULT,
+      DEFAULT_BINARIZATION_THRESOLD);
 }
 
 static render_mode_t parse_render_mode(const char *s) {
@@ -392,21 +396,20 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
   }
 
   if (color) {
-    n = nl_snprintf(
-        buf, sizeof(buf),
-        "\033[38;2;0;180;220m mode: %s (m/M)  edges: %s (x/X)  "
-        "charset: %s (n/N)  depth-pop: %d%s (+/-, v)  gamma: %d (g/G)"
-        "\033[0m\033[K",
-        render_mode_name(opts->render_mode), edge_mode_name(opts->edges),
-        cset_name, opts->depth_pop, opts->depth_invert ? " [inv]" : "",
-        opts->gamma);
+    n = nl_snprintf(buf, sizeof(buf),
+                    "\033[38;2;0;180;220m mode: %s (m/M)  edges: %s (x/X)  "
+                    "charset: %s (n/N)  depth-pop: %d%s (+/-, v)  gamma: %d "
+                    "(g/G)  thresh: %d (t/T)\033[0m\033[K",
+                    render_mode_name(opts->render_mode),
+                    edge_mode_name(opts->edges), cset_name, opts->depth_pop,
+                    opts->depth_invert ? " [inv]" : "", opts->threshold_val);
   } else {
-    n = nl_snprintf(
-        buf, sizeof(buf),
-        " mode: %s  edges: %s  charset: %s  depth-pop: %d%s  gamma: %d\033[K",
-        render_mode_name(opts->render_mode), edge_mode_name(opts->edges),
-        cset_name, opts->depth_pop, opts->depth_invert ? " [inv]" : "",
-        opts->gamma);
+    n = nl_snprintf(buf, sizeof(buf),
+                    " mode: %s  edges: %s  charset: %s  depth-pop: %d%s  "
+                    "gamma: %d  thresh: %d (t/T) \033[K",
+                    render_mode_name(opts->render_mode),
+                    edge_mode_name(opts->edges), cset_name, opts->depth_pop,
+                    opts->depth_invert ? " [inv]" : "", opts->threshold_val);
   }
 
   if (n > 0 && n < (int)sizeof(buf)) {
@@ -610,11 +613,21 @@ int main(int argc, char *argv[]) {
 
   // CLI parsing
   int opt;
-  while ((opt = nl_getopt(argc, argv, "d:W:H:w:h:f:b:c:g:iCD2s:p:m:E:k:P:")) !=
-         -1)
+  while ((opt = nl_getopt(argc, argv,
+                          "d:W:H:w:h:f:b:c:g:iCD2t:s:p:m:E:k:P:")) != -1)
     switch (opt) {
     case 'd':
       device = optarg;
+
+      break;
+    case 't':
+      opts.threshold_val = nl_atoi(optarg);
+      if (opts.threshold_val < 0) {
+        opts.threshold_val = 0;
+      }
+      if (opts.threshold_val > 255) {
+        opts.threshold_val = 255;
+      }
 
       break;
     case 'W':
@@ -1004,6 +1017,16 @@ int main(int argc, char *argv[]) {
         break;
       case 'v':
         opts.depth_invert = !opts.depth_invert;
+
+        break;
+      case 't':
+        opts.threshold_val =
+            (opts.threshold_val - 5 < 0) ? 0 : opts.threshold_val - 5;
+
+        break;
+      case 'T':
+        opts.threshold_val =
+            (opts.threshold_val + 5 > 255) ? 255 : opts.threshold_val + 5;
 
         break;
       case 'e':
