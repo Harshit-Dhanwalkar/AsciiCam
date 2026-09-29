@@ -16,8 +16,15 @@
 #define ARCH_X86_64 1
 #elif defined(__aarch64__) || defined(_M_ARM64)
 #define ARCH_ARM64 1
+#elif defined(__i386__) || defined(_M_IX86)
+#define ARCH_X86_32 1
+#elif defined(__arm__) || defined(_M_ARM)
+#define ARCH_ARM32 1
+#elif defined(__riscv) && (__riscv_xlen == 64)
+#define ARCH_RISCV64 1
 #else
-#error "Supported architectures: x86-64, ARM64"
+#define ARCH_UNKNOWN 1
+#error "Unsupported architecture (only x86_64 and ARM64 are supported)"
 #endif
 
 /* Endianness (compiler-provided on GCC/Clang, fallback below) */
