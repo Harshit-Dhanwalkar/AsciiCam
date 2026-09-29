@@ -83,7 +83,7 @@ jobs:
 
       - name: Install MinGW
         if: matrix.platform == 'windows' && steps.cache-mingw.outputs.cache-hit != 'true'
-        uses: egor-tensin/setup-mingw@v2
+        uses: egor-tensin/setup-mingw@v3
         with:
           platform: x64
           version: "12.2.0"
@@ -222,6 +222,8 @@ jobs:
                    --suppress=knownConditionTrueFalse \
                    --suppress=unusedStructMember \
                    --suppress=syntaxError:lib/nl_syscall.h \
+                   -D__linux__ -D__x86_64__ -D__GNUC__ \
+                   -D__LINUX_NOLIBC__ -DPLATFORM_LINUX -DARCH_X86_64 \
                    -Iinclude -Ilib \
                    -i build \
                    src lib filters

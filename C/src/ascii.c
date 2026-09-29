@@ -82,7 +82,9 @@ static inline double my_sqrt(double x) {
 
 // YUYV to grayscale
 #if defined(ARCH_X86_64)
+
 #include <immintrin.h>
+
 void yuyv_to_gray_simd(const uint8_t *yuyv, uint8_t *gray, int width,
                        int height) {
   int total = width * height;
@@ -102,7 +104,9 @@ void yuyv_to_gray_simd(const uint8_t *yuyv, uint8_t *gray, int width,
 }
 
 #elif defined(ARCH_ARM64)
+
 #include <arm_neon.h>
+
 void yuyv_to_gray_simd(const uint8_t *yuyv, uint8_t *gray, int width,
                        int height) {
   int total = width * height;
@@ -121,6 +125,7 @@ void yuyv_to_gray_simd(const uint8_t *yuyv, uint8_t *gray, int width,
 }
 
 #else
+
 // fallback
 void yuyv_to_gray_simd(const uint8_t *yuyv, uint8_t *gray, int width,
                        int height) {
@@ -707,7 +712,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
   // Edge detection dispatch
   uint8_t *dir_buf = NULL;
   if (edge_mode != EDGE_OFF) {
-    uint8_t *eb = calloc((size_t)(safe_dst_w * safe_dst_h), 1);
+    uint8_t *eb = nl_calloc((size_t)(safe_dst_w * safe_dst_h), 1);
     if (eb) {
       switch (edge_mode) {
       case EDGE_SOBEL:
@@ -715,7 +720,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
 
         break;
       case EDGE_SOBEL_DIR:
-        dir_buf = calloc((size_t)(safe_dst_w * safe_dst_h), 1);
+        dir_buf = nl_calloc((size_t)(safe_dst_w * safe_dst_h), 1);
         if (dir_buf) {
           sobel_dir(subpixel_g, eb, dir_buf, safe_dst_w, safe_dst_h);
         } else {
@@ -739,7 +744,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
 
   // Floyd-Steinberg dithering on the subpixel grayscale buffer
   if (do_dither) {
-    int16_t *err = calloc((size_t)(safe_dst_w * safe_dst_h), sizeof(int16_t));
+    int16_t *err = nl_calloc((size_t)(safe_dst_w * safe_dst_h), sizeof(int16_t));
     if (err) {
       for (int i = 0; i < safe_dst_w * safe_dst_h; i++) {
         err[i] = (int16_t)subpixel_g[i];

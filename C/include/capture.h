@@ -31,7 +31,7 @@ int webcam_requeue_buffer(webcam_t *cam);
 // Stop streaming and clean up resources
 void webcam_cleanup(webcam_t *cam);
 
-// Hardware camera controls.
+// Hardware camera controls
 int webcam_set_auto_exposure(webcam_t *cam, int enable);
 int webcam_set_auto_white_balance(webcam_t *cam, int enable);
 

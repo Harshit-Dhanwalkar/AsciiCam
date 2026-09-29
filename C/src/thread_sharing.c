@@ -97,8 +97,6 @@ void *render_thread(void *arg) {
   nl_mutex_unlock(&sf->lock);
 
   nl_free(out_buf);
-  // local_rgb is NULL in this path (see comment above); free is a no-op but
-  // safe
   nl_free(local_rgb);
 
   return NULL;

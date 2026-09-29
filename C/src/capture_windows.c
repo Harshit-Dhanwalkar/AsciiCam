@@ -100,6 +100,7 @@ static IMFActivate *find_device(const char *device) {
   for (UINT32 i = 0; i < count; i++) {
     SAFE_RELEASE(devices[i]);
   }
+
   CoTaskMemFree(devices);
   SAFE_RELEASE(attrs);
 
@@ -189,6 +190,7 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
   if (FAILED(MFStartup(MF_VERSION, MFSTARTUP_LITE))) {
     goto fail;
   }
+
   im->mf_started = 1;
 
   IMFActivate *activate = find_device(device);

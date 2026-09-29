@@ -8,14 +8,14 @@
 static int copy_file(const char *src, const char *dst) {
   int fd_src = open(src, O_RDONLY);
   if (fd_src < 0) {
-    perror("[plugin] open src");
+    nl_perror("[plugin] open src");
 
     return -1;
   }
 
   int fd_dst = open(dst, O_WRONLY | O_CREAT | O_TRUNC, 0755);
   if (fd_dst < 0) {
-    perror("[plugin] open dst");
+    nl_perror("[plugin] open dst");
     close(fd_src);
 
     return -1;
@@ -25,7 +25,7 @@ static int copy_file(const char *src, const char *dst) {
   ssize_t n;
   while ((n = read(fd_src, buf, sizeof(buf))) > 0) {
     if (write(fd_dst, buf, (size_t)n) != n) {
-      perror("[plugin] write");
+      nl_perror("[plugin] write");
       close(fd_src);
       close(fd_dst);
       unlink(dst);
@@ -54,7 +54,7 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
     pl->tmp_path[0] = '\0';
   }
 
-  snprintf(pl->tmp_path, sizeof(pl->tmp_path), "%s.%ld.tmp", path,
+  nl_snprintf(pl->tmp_path, sizeof(pl->tmp_path), "%s.%ld.tmp", path,
            (long)time(NULL));
 
   if (copy_file(path, pl->tmp_path) < 0) {
@@ -76,6 +76,7 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
   filter_plugin_t *(*get_plugin)(void) = dlsym(pl->dl_handle, "plugin_get");
   if (!get_plugin) {
     fprintf(stderr, "[plugin] dlsym plugin_get: %s\n", dlerror());
+
     dlclose(pl->dl_handle);
     pl->dl_handle = NULL;
     unlink(pl->tmp_path);
@@ -85,7 +86,7 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
   }
 
   pl->plugin = get_plugin();
-  snprintf(pl->status_msg, sizeof(pl->status_msg), "loaded: %s",
+  nl_snprintf(pl->status_msg, sizeof(pl->status_msg), "loaded: %s",
            pl->plugin->name);
 
   return 0;
@@ -100,7 +101,7 @@ void plugin_watch_init(plugin_loader_t *pl, const char *path) {
 
   pl->inotify_fd = inotify_init1(IN_NONBLOCK);
   if (pl->inotify_fd < 0) {
-    perror("[plugin] inotify_init1");
+    nl_perror("[plugin] inotify_init1");
 
     return;
   }
@@ -109,7 +110,7 @@ void plugin_watch_init(plugin_loader_t *pl, const char *path) {
       inotify_add_watch(pl->inotify_fd, dir, IN_CLOSE_WRITE | IN_MOVED_TO);
 
   if (pl->inotify_wd < 0) {
-    perror("[plugin] inotify_add_watch");
+    nl_perror("[plugin] inotify_add_watch");
   }
 }
 
@@ -134,8 +135,9 @@ void plugin_check_reload(plugin_loader_t *pl) {
   const char *p = buf;
   while (p < buf + n) {
     const struct inotify_event *ev = (const struct inotify_event *)p;
-    if (ev->len > 0 && strcmp(ev->name, soname) == 0) {
+    if (ev->len > 0 && nl_strcmp(ev->name, soname) == 0) {
       relevant = 1;
+
       break;
     }
 
@@ -150,10 +152,10 @@ void plugin_check_reload(plugin_loader_t *pl) {
   usleep(100000); // 0.1s delay for linker
 
   if (plugin_load(pl, pl->path) == 0) {
-    snprintf(pl->status_msg, sizeof(pl->status_msg), "hot-swapped -> %s",
+    nl_snprintf(pl->status_msg, sizeof(pl->status_msg), "hot-swapped -> %s",
              pl->plugin->name);
   } else {
-    snprintf(pl->status_msg, sizeof(pl->status_msg),
+    nl_snprintf(pl->status_msg, sizeof(pl->status_msg),
              "hot-swap FAILED - old filter retained");
   }
 }

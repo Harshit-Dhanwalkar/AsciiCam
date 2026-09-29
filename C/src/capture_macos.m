@@ -55,7 +55,7 @@ struct webcam_impl {
 
   CVPixelBufferLockBaseAddress(pixbuf, kCVPixelBufferLock_ReadOnly);
 
-  // Request NV12 (YUV 4:2:0 biplanar).
+  // Request NV12 (YUV 4:2:0 biplanar)
   // Plane 0 is pure luma (Y)
   size_t width = CVPixelBufferGetWidth(pixbuf);
   size_t height = CVPixelBufferGetHeight(pixbuf);
@@ -198,6 +198,7 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
   if (![im->session canAddInput:im->input]) {
     goto fail_session;
   }
+
   [im->session addInput:im->input];
 
   im->output = [[AVCaptureVideoDataOutput alloc] init];
@@ -205,6 +206,7 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
     (NSString *)kCVPixelBufferPixelFormatTypeKey :
         @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)
   };
+
   im->output.alwaysDiscardsLateVideoFrames = YES;
 
   im->queue = dispatch_queue_create("asciicam.capture", DISPATCH_QUEUE_SERIAL);
@@ -218,6 +220,7 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
   if (![im->session canAddOutput:im->output]) {
     goto fail_session;
   }
+
   [im->session addOutput:im->output];
 
   [im->session commitConfiguration];
@@ -248,6 +251,7 @@ int webcam_wait_frame(webcam_t *cam, int timeout_ms) {
   struct webcam_impl *im = cam->impl;
   struct timespec ts;
   clock_gettime(CLOCK_REALTIME, &ts);
+
   ts.tv_sec += timeout_ms / 1000;
   ts.tv_nsec += (timeout_ms % 1000) * 1000000L;
   if (ts.tv_nsec >= 1000000000L) {
@@ -259,6 +263,7 @@ int webcam_wait_frame(webcam_t *cam, int timeout_ms) {
   while (!im->has_frame && !im->stopped) {
     if (pthread_cond_timedwait(&im->cond, &im->lock, &ts) != 0) {
       pthread_mutex_unlock(&im->lock);
+
       return -1; // timeout
     }
   }
@@ -275,6 +280,7 @@ int webcam_capture_frame(webcam_t *cam, uint8_t *gray_buffer) {
   pthread_mutex_lock(&im->lock);
   if (!im->has_frame) {
     pthread_mutex_unlock(&im->lock);
+
     return -1;
   }
 
@@ -315,6 +321,7 @@ void webcam_cleanup(webcam_t *cam) {
   for (int i = 0; i < FRAME_BUFS; i++) {
     free(im->gray_buf[i]);
   }
+
   pthread_mutex_destroy(&im->lock);
   pthread_cond_destroy(&im->cond);
 
@@ -330,8 +337,7 @@ void webcam_cleanup(webcam_t *cam) {
 // AVFoundation expose the equivalent knobs on AVCaptureDevice
 // (exposureMode/setExposureModeCustomWithDuration:ISO:, whiteBalanceMode/
 // setWhiteBalanceModeLocked:..., per-key-value-observed lockForConfiguration
-// dance), it needs its own implementation rather than
-// a thin wrapper
+// dance), it needs its own implementation rather than a thin wrapper
 // implement via AVCaptureDevice exposure/white-balance APIs
 int webcam_set_auto_exposure(webcam_t *cam, int enable) {
   (void)cam;
