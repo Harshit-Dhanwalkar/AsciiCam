@@ -42,6 +42,10 @@ ifeq ($(PLATFORM),linux)
     # Linux: nolibc, V4L2, SSE4.1
     CFLAGS   := $(CFLAGS_COMMON) $(CFLAGS_EXTRA) -DPLATFORM_LINUX -D__LINUX_NOLIBC__
     CFLAGS   += -msse4.1
+    # No system headers at all: only compiler's own freestanding/intrinsics directory 
+    # (immintrin.h etc.) stays on include path
+    NOSTDINC := -nostdinc -isystem $(shell $(CC) -print-file-name=include)
+    CFLAGS   += $(NOSTDINC)
     LDFLAGS  := $(LDFLAGS_EXTRA) -nostdlib -nostdinc \
                 -Wl,--no-as-needed \
                 -Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2 \
@@ -187,6 +191,7 @@ ASAN_TARGET  := $(BUILDDIR)/webcam_ascii_asan
 ASAN_CFLAGS  := $(CFLAGS_COMMON) \
                 -DPLATFORM_LINUX -D__LINUX_NOLIBC__ -msse4.1 \
                 -DNL_SANITIZE_BUILD \
+                $(NOSTDINC) \
                 -O1 -g -fno-omit-frame-pointer \
                 -fsanitize=address,undefined \
                 -fno-sanitize=vptr
