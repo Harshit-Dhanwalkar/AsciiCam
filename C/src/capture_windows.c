@@ -345,21 +345,21 @@ void webcam_cleanup(webcam_t *cam) {
 
 // Hardware controls: not implemented on Windows yet
 // TODO: implement via IAMCameraControl / IAMVideoProcAmp
-int webcam_set_auto_exposure(webcam_t *cam, int enable) {
+int webcam_set_auto_exposure(const webcam_t *cam, int enable) {
   (void)cam;
   (void)enable;
 
   return -1;
 }
 
-int webcam_set_auto_white_balance(webcam_t *cam, int enable) {
+int webcam_set_auto_white_balance(const webcam_t *cam, int enable) {
   (void)cam;
   (void)enable;
 
   return -1;
 }
 
-int webcam_adjust_exposure(webcam_t *cam, int delta, int *out_value) {
+int webcam_adjust_exposure(const webcam_t *cam, int delta, int *out_value) {
   (void)cam;
   (void)delta;
   (void)out_value;
@@ -367,7 +367,7 @@ int webcam_adjust_exposure(webcam_t *cam, int delta, int *out_value) {
   return -1;
 }
 
-int webcam_adjust_contrast(webcam_t *cam, int delta, int *out_value) {
+int webcam_adjust_contrast(const webcam_t *cam, int delta, int *out_value) {
   (void)cam;
   (void)delta;
   (void)out_value;
@@ -375,7 +375,7 @@ int webcam_adjust_contrast(webcam_t *cam, int delta, int *out_value) {
   return -1;
 }
 
-int webcam_adjust_white_balance(webcam_t *cam, int delta, int *out_value) {
+int webcam_adjust_white_balance(const webcam_t *cam, int delta, int *out_value) {
   (void)cam;
   (void)delta;
   (void)out_value;

@@ -96,7 +96,7 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
   return 0;
 }
 
-int webcam_wait_frame(webcam_t *cam, int timeout_ms) {
+int webcam_wait_frame(const webcam_t *cam, int timeout_ms) {
   nl_fd_set fds;
   struct nl_timeval tv;
   NL_FD_ZERO(&fds);
@@ -190,7 +190,7 @@ static int v4l2_clamp(int v, int lo, int hi) {
 }
 
 // cppcheck-suppress constParameterPointer
-int webcam_set_auto_exposure(webcam_t *cam, int enable) {
+int webcam_set_auto_exposure(const webcam_t *cam, int enable) {
   if (!cam || cam->fd < 0) {
     return -1;
   }
@@ -206,7 +206,7 @@ int webcam_set_auto_exposure(webcam_t *cam, int enable) {
 }
 
 // cppcheck-suppress constParameterPointer
-int webcam_set_auto_white_balance(webcam_t *cam, int enable) {
+int webcam_set_auto_white_balance(const webcam_t *cam, int enable) {
   if (!cam || cam->fd < 0) {
     return -1;
   }
@@ -263,7 +263,7 @@ int webcam_get_white_balance_range(const webcam_t *cam, int *min, int *max) {
                           max);
 }
 
-int webcam_adjust_exposure(webcam_t *cam, int delta, int *out_value) {
+int webcam_adjust_exposure(const webcam_t *cam, int delta, int *out_value) {
   if (!cam || cam->fd < 0) {
     return -1;
   }
@@ -296,7 +296,7 @@ int webcam_adjust_exposure(webcam_t *cam, int delta, int *out_value) {
 }
 
 // cppcheck-suppress constParameterPointer
-int webcam_adjust_contrast(webcam_t *cam, int delta, int *out_value) {
+int webcam_adjust_contrast(const webcam_t *cam, int delta, int *out_value) {
   if (!cam || cam->fd < 0) {
     return -1;
   }
@@ -323,7 +323,7 @@ int webcam_adjust_contrast(webcam_t *cam, int delta, int *out_value) {
   return 0;
 }
 
-int webcam_adjust_white_balance(webcam_t *cam, int delta, int *out_value) {
+int webcam_adjust_white_balance(const webcam_t *cam, int delta, int *out_value) {
   if (!cam || cam->fd < 0) {
     return -1;
   }

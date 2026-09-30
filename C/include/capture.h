@@ -20,7 +20,7 @@ typedef struct {
 int webcam_init(webcam_t *cam, const char *device, int width, int height);
 
 // Wait for frame to be ready
-int webcam_wait_frame(webcam_t *cam, int timeout_ms);
+int webcam_wait_frame(const webcam_t *cam, int timeout_ms);
 
 // Capture frame, dequeue buffer, fill grayscale output buffer
 int webcam_capture_frame(webcam_t *cam, uint8_t *gray_buffer);
@@ -32,12 +32,12 @@ int webcam_requeue_buffer(webcam_t *cam);
 void webcam_cleanup(webcam_t *cam);
 
 // Hardware camera controls
-int webcam_set_auto_exposure(webcam_t *cam, int enable);
-int webcam_set_auto_white_balance(webcam_t *cam, int enable);
+int webcam_set_auto_exposure(const webcam_t *cam, int enable);
+int webcam_set_auto_white_balance(const webcam_t *cam, int enable);
 
-int webcam_adjust_exposure(webcam_t *cam, int delta, int *out_value);
-int webcam_adjust_contrast(webcam_t *cam, int delta, int *out_value);
-int webcam_adjust_white_balance(webcam_t *cam, int delta, int *out_value);
+int webcam_adjust_exposure(const webcam_t *cam, int delta, int *out_value);
+int webcam_adjust_contrast(const webcam_t *cam, int delta, int *out_value);
+int webcam_adjust_white_balance(const webcam_t *cam, int delta, int *out_value);
 
 int webcam_get_exposure(const webcam_t *cam, int *value);
 int webcam_get_contrast(const webcam_t *cam, int *value);
