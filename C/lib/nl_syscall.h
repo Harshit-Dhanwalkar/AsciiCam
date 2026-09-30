@@ -1,14 +1,9 @@
 #ifndef NL_SYSCALL_H
 #define NL_SYSCALL_H
 
+#include "nl_types.h"
+
 #ifdef __LINUX_NOLIBC__
-
-#include <stdarg.h>
-#include <stddef.h>
-#include <stdint.h>
-
-typedef long ssize_t;
-typedef int sig_atomic_t;
 
 // errno
 extern int errno;
@@ -31,10 +26,10 @@ extern int errno;
 
 // mmap constants
 #define MAP_FAILED ((void *)-1)
-#define PROT_NONE  0
-#define PROT_READ  1
+#define PROT_NONE 0
+#define PROT_READ 1
 #define PROT_WRITE 2
-#define PROT_EXEC  4
+#define PROT_EXEC 4
 #define MAP_SHARED 1
 
 // Syscall numbers (x86-64 Linux)
@@ -113,7 +108,7 @@ static inline long __sc6(long n, long a1, long a2, long a3, long a4, long a5,
 
 #else // macOS / Windows: these are Linux x86-64-only raw syscalls;
       // non-Linux platforms use system libc instead
-#include <stddef.h>
+
 #endif
 
-#endif  /* NL_SYSCALL_H */
+#endif /* NL_SYSCALL_H */

@@ -1,8 +1,6 @@
 // cppcheck-suppress-file variableScope
 #include "nolibc.h"
-
-#include <stdarg.h>
-#include <stddef.h>
+#include "nl_types.h"
 
 static int _uint_to_dec(char *out, size_t avail, unsigned long long v) {
   char tmp[24];
@@ -55,8 +53,9 @@ int nl_vsnprintf(char *buf, size_t size, const char *fmt, va_list ap) {
 #define PUT(c)                                                                 \
   do {                                                                         \
     char _ch = (c);                                                            \
-    if (pos + 1 < size)                                                        \
+    if (pos + 1 < size) {                                                      \
       buf[pos++] = _ch;                                                        \
+    }                                                                          \
   } while (0)
 
   while (*fmt) {

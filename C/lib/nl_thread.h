@@ -9,8 +9,7 @@
  */
 
 #include "nl_syscall.h" /* SYS_*, PROT_READ/WRITE, MAP_FAILED, __sc* */
-#include <stddef.h>
-#include <stdint.h>
+#include "nl_types.h"
 
 #ifdef __LINUX_NOLIBC__
 
@@ -46,7 +45,7 @@ static inline void _nl_futex_wake(volatile int *addr, int n) {
 
 /* Mutex
  *
- * Two-state: 0 = unlocked, 1 = locked.
+ * Two-state: 0 = unlocked, 1 = locked
  *
  * Lock  : atomic-exchange to 1; if old value was already 1, sleep via
  *         futex_wait until another thread unlocks
@@ -77,7 +76,7 @@ static inline void nl_mutex_unlock(nl_mutex_t *m) {
  *
  * Sequence-counter design (standard Linux condvar trick):
  *
- *  - cond_wait     : snapshots seq, drops mutex, calls futex_wait(addr, snap).
+ *  - cond_wait     : snapshots seq, drops mutex, calls futex_wait(addr, snap)
  *                    If a signal already bumped seq between snapshot and
  *                    syscall, futex sees *addr != val and returns EAGAIN
  *                    immediately - no wakeup is ever lost regardless of
@@ -128,7 +127,7 @@ static inline void nl_cond_wait(nl_cond_t *c, nl_mutex_t *m) {
  *  list PARENT_SETTID        : kernel writes child TID into *parent_tidptr
  *                              before clone() returns to parent
  *  CHILD_CLEARTID            : on thread exit: kernel zeroes *child_tidptr and
- *                              does futex_wake(child_tidptr, 1) - this  is how
+ *                              does futex_wake(child_tidptr, 1) - this is how
  *                              nl_thread_join() wakes up
  */
 #define _NL_CLONE_VM 0x00000100u
@@ -168,7 +167,7 @@ typedef struct {
  * executing from very next instruction, each with their own RSP: parent keeps
  * its original stack frame; child starts with RSP = stack_top. If this were
  * emitted as a real (non-inline) function, child would execute that function's
- * epilogue ("ret") on its fresh, zero-filled stack and jump to address 0.
+ * epilogue ("ret") on its fresh, zero-filled stack and jump to address 0
  * always_inline guarantees one inline "syscall" instruction with no surrounding
  * frame at any optimisation level
  *
@@ -193,7 +192,7 @@ static __attribute__((always_inline)) long _nl_clone(unsigned long flags,
 }
 
 /*
- * nl_thread_create - spawn fn(arg) on a freshly mmap'd stack.
+ * nl_thread_create - spawn fn(arg) on a freshly mmap'd stack
  *
  * clone(2) with CLONE_VM makes child start at same PC as parent sharing entire
  * address space

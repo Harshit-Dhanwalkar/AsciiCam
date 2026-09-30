@@ -1,7 +1,7 @@
 #ifndef PLUGINS_H
 #define PLUGINS_H
 
-#include <stdint.h>
+#include "nl_types.h"
 
 typedef struct {
   void (*process)(uint8_t *gray, int w, int h, void *ctx);

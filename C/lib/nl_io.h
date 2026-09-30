@@ -12,7 +12,7 @@
 
 #include "nl_printf.h"
 #include "nl_syscall.h"
-#include <termios.h>
+#include "nl_termios.h"
 
 #ifndef MAP_FAILED
 #define MAP_FAILED ((void *)-1)

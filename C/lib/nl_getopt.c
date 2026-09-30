@@ -1,7 +1,6 @@
 #include "nl_getopt.h"
 #include "nl_syscall.h"
-
-#include <stddef.h>
+#include "nl_types.h"
 
 int nl_optind = 1;
 int nl_opterr = 1;

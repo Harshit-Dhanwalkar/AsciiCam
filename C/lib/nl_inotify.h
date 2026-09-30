@@ -10,10 +10,27 @@
  * Net effect: hot-reload of charsets/plugins is disabled on non-Linux platforms
  */
 
+#include "nl_types.h"
 #include "platform.h"
 
 #ifdef PLATFORM_LINUX
-#include <sys/inotify.h>
+
+/* Linux kernel inotify ABI */
+#define IN_NONBLOCK 04000 /* == O_NONBLOCK */
+#define IN_CLOEXEC 02000000
+#define IN_CLOSE_WRITE 0x00000008
+#define IN_MOVED_TO 0x00000080
+#define IN_CREATE 0x00000100
+#define IN_DELETE 0x00000200
+
+struct inotify_event {
+  int wd;
+  uint32_t mask;
+  uint32_t cookie;
+  uint32_t len;
+  char name[]; /* flexible: sizeof(struct inotify_event) == 16 */
+};
+
 #else
 
 #define IN_NONBLOCK 0

@@ -17,6 +17,7 @@
 #include "nl_signal.h"
 #include "nl_string.h"
 #include "nl_syscall.h"
+#include "nl_termios.h"
 #include "nl_time.h"
 // IWYU pragma: end_exports
 

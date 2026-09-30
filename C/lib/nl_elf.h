@@ -8,7 +8,7 @@
  * relocations for x86-64
  */
 
-#include <stdint.h>
+#include "nl_types.h"
 
 /* Scalar typedefs */
 typedef uint64_t Elf64_Addr;

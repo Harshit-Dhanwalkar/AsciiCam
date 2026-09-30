@@ -1,8 +1,7 @@
 #ifndef CAPTURE_H
 #define CAPTURE_H
 
-#include <stddef.h>
-#include <stdint.h>
+#include "nl_types.h"
 
 typedef struct webcam_impl webcam_impl_t;
 

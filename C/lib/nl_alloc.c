@@ -1,9 +1,7 @@
 #include "nl_alloc.h"
 #include "nl_io.h"
 #include "nl_syscall.h"
-
-#include <stddef.h>
-#include <stdint.h>
+#include "nl_types.h"
 
 /*
  * ASan coverage note for this allocator

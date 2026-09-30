@@ -1,11 +1,10 @@
-#include "nolibc.h"
 #include "nl_thread.h"
+#include "nl_types.h"
+#include "nolibc.h"
 
 #include "ascii.h"
 #include "capture.h"
 #include "thread_sharing.h"
-
-#include <stdint.h>
 
 // Producer thread for capturing frames
 void *capture_thread(void *arg) {

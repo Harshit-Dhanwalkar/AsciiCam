@@ -2,7 +2,8 @@
 #define NL_ALLOC_H
 
 #ifdef __LINUX_NOLIBC__
-#include <stddef.h>
+
+#include "nl_types.h"
 
 void *nl_malloc(size_t n);
 void *nl_calloc(size_t nmemb, size_t size);

@@ -3,7 +3,7 @@
 
 #include "ascii.h"
 #include "nl_thread.h"
-#include <stdint.h>
+#include "nl_types.h"
 
 typedef struct {
   uint8_t *buf[2];      // Double buffer, one slot per thread

@@ -2,12 +2,13 @@
 
 #include "nolibc.h"
 
+#include "nl_types.h"
+
 #include "ascii.h"
 #include "capture.h"
 #include "platform.h"
 
 #include <linux/videodev2.h>
-#include <stdint.h>
 
 typedef struct webcam_impl webcam_impl_t;
 
