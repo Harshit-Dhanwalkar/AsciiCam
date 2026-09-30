@@ -105,15 +105,22 @@ static inline int nl_atoi(const char *s) {
   return neg ? -n : n;
 }
 
-#ifdef __LINUX_NOLIBC__
+#if defined(__LINUX_NOLIBC__)
 
 #define strlen(s) nl_strlen(s)
 #define memcpy(d, s, n) nl_memcpy(d, s, n)
 #define memset(d, c, n) nl_memset(d, c, n)
 #define strcmp(a, b) nl_strcmp(a, b)
 #define strncpy(d, s, n) nl_strncpy_safe(d, s, n)
+
+#endif
+
+#if defined(__LINUX_NOLIBC__) || defined(PLATFORM_WINDOWS)
+
 #define basename(p) nl_basename(p)
 #define dirname(p) nl_dirname(p)
+/* FIX: atoi is not redirected: it conflicts with glibc's declaration on
+ * system-libc builds and call sites can call nl_atoi directly */
 // #define atoi(s) nl_atoi(s)
 
 #endif
