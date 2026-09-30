@@ -383,28 +383,28 @@ int webcam_adjust_white_balance(webcam_t *cam, int delta, int *out_value) {
   return -1;
 }
 
-int webcam_get_exposure(webcam_t *cam, int *value) {
+int webcam_get_exposure(const webcam_t *cam, int *value) {
   (void)cam;
   (void)value;
 
   return -1;
 }
 
-int webcam_get_contrast(webcam_t *cam, int *value) {
+int webcam_get_contrast(const webcam_t *cam, int *value) {
   (void)cam;
   (void)value;
 
   return -1;
 }
 
-int webcam_get_white_balance(webcam_t *cam, int *value) {
+int webcam_get_white_balance(const webcam_t *cam, int *value) {
   (void)cam;
   (void)value;
 
   return -1;
 }
 
-int webcam_get_exposure_range(webcam_t *cam, int *min, int *max) {
+int webcam_get_exposure_range(const webcam_t *cam, int *min, int *max) {
   (void)cam;
   (void)min;
   (void)max;
@@ -412,7 +412,7 @@ int webcam_get_exposure_range(webcam_t *cam, int *min, int *max) {
   return -1;
 }
 
-int webcam_get_contrast_range(webcam_t *cam, int *min, int *max) {
+int webcam_get_contrast_range(const webcam_t *cam, int *min, int *max) {
   (void)cam;
   (void)min;
   (void)max;
@@ -420,7 +420,7 @@ int webcam_get_contrast_range(webcam_t *cam, int *min, int *max) {
   return -1;
 }
 
-int webcam_get_white_balance_range(webcam_t *cam, int *min, int *max) {
+int webcam_get_white_balance_range(const webcam_t *cam, int *min, int *max) {
   (void)cam;
   (void)min;
   (void)max;
