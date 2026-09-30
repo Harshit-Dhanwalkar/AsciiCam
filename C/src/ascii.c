@@ -6,11 +6,11 @@
 
 #include "nolibc.h"
 
+#include "nl_inotify.h"
+#include "nl_types.h"
+
 #include "ascii.h"
 #include "platform.h"
-
-#include "nl_inotify.h"
-#include <stdint.h>
 
 // Helpers
 static inline uint8_t clamp_u8(int v) {
@@ -83,12 +83,19 @@ static inline double my_sqrt(double x) {
 // YUYV to grayscale
 #if defined(ARCH_X86_64)
 
+#ifdef __LINUX_NOLIBC__
+
+#define _MM_MALLOC_H_INCLUDED
+
+#endif
+
 #include <immintrin.h>
 
 void yuyv_to_gray_simd(const uint8_t *yuyv, uint8_t *gray, int width,
                        int height) {
   int total = width * height;
   __m128i mask = _mm_set1_epi16(0x00FF);
+
   int i = 0;
   for (; i + 16 <= total; i += 16) {
     __m128i lo = _mm_loadu_si128((__m128i *)(yuyv + i * 2));
@@ -744,7 +751,8 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
 
   // Floyd-Steinberg dithering on the subpixel grayscale buffer
   if (do_dither) {
-    int16_t *err = nl_calloc((size_t)(safe_dst_w * safe_dst_h), sizeof(int16_t));
+    int16_t *err =
+        nl_calloc((size_t)(safe_dst_w * safe_dst_h), sizeof(int16_t));
     if (err) {
       for (int i = 0; i < safe_dst_w * safe_dst_h; i++) {
         err[i] = (int16_t)subpixel_g[i];

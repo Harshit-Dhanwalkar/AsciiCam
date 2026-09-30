@@ -1,8 +1,13 @@
 #include "nolibc.h"
 
+#include "nl_types.h"
 #include "plugins.h"
-#include <stdint.h>
+
+#ifndef __LINUX_NOLIBC__
+
 #include <stdlib.h>
+
+#endif
 
 static inline int clamp(int v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
 

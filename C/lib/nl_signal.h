@@ -3,6 +3,7 @@
 
 #ifdef __LINUX_NOLIBC__
 #include "nl_syscall.h"
+#include "nl_types.h"
 
 #define SA_RESTORER 0x04000000
 #define SA_RESTART 0x10000000

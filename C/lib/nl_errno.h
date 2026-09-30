@@ -3,7 +3,7 @@
 
 #ifdef __LINUX_NOLIBC__
 
-#include <stddef.h>
+#include "nl_types.h"
 
 extern int errno;
 

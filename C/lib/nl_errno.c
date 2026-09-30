@@ -1,7 +1,6 @@
 #include "nl_errno.h"
 #include "nl_syscall.h"
-
-#include <stddef.h>   /* size_t for _ewrite, _slen */
+#include "nl_types.h"
 
 int errno = 0;
 

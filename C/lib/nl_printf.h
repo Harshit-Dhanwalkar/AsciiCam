@@ -1,8 +1,7 @@
 #ifndef NL_PRINTF_H
 #define NL_PRINTF_H
 
-#include <stdarg.h>
-#include <stddef.h>
+#include "nl_types.h"
 
 #ifdef __LINUX_NOLIBC__
 
