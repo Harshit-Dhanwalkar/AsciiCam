@@ -9,9 +9,9 @@ overflow in dimension-based allocations.
 #include <limits.h>
 #include <stdio.h>
 
-#include "C/filters/edge_detect.h"
-#include "C/filters/invert.h"
-#include "C/filters/threshold.h"
+#include "../filters/edge_detect.h"
+#include "../filters/invert.h"
+#include "../filters/threshold.h"
 
 typedef uint8_t* (*filter_test_func)(uint8_t*, int, int);
 
