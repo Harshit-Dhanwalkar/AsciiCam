@@ -3,12 +3,11 @@
 #include "nolibc.h"
 
 #include "nl_types.h"
+#include "nl_v4l2.h"
 
 #include "ascii.h"
 #include "capture.h"
 #include "platform.h"
-
-#include <linux/videodev2.h>
 
 typedef struct webcam_impl webcam_impl_t;
 
@@ -324,7 +323,8 @@ int webcam_adjust_contrast(const webcam_t *cam, int delta, int *out_value) {
   return 0;
 }
 
-int webcam_adjust_white_balance(const webcam_t *cam, int delta, int *out_value) {
+int webcam_adjust_white_balance(const webcam_t *cam, int delta,
+                                int *out_value) {
   if (!cam || cam->fd < 0) {
     return -1;
   }
