@@ -257,7 +257,7 @@ fail:
   return -1;
 }
 
-int webcam_wait_frame(webcam_t *cam, int timeout_ms) {
+int webcam_wait_frame(const webcam_t *cam, int timeout_ms) {
   struct webcam_impl *im = cam->impl;
   (void)timeout_ms;
 
