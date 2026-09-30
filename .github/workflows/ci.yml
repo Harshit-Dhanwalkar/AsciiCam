@@ -222,6 +222,8 @@ jobs:
                    --suppress=knownConditionTrueFalse \
                    --suppress=unusedStructMember \
                    --suppress=syntaxError:lib/nl_syscall.h \
+                   -D__linux__ -D__x86_64__ -D__GNUC__ \
+                   -D__LINUX_NOLIBC__ -DPLATFORM_LINUX -DARCH_X86_64 \
                    -Iinclude -Ilib \
                    -i build \
                    src lib filters

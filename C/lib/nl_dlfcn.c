@@ -309,8 +309,8 @@ void *nl_dlopen(const char *path, int flags) {
   /* 9. parse dynamic section */
   Elf64_Sym *dynsym = (Elf64_Sym *)0;
   char *dynstr = (char *)0;
-  Elf64_Rela *rela = (Elf64_Rela *)0;
-  Elf64_Rela *jmprel = (Elf64_Rela *)0;
+  const Elf64_Rela *rela = (const Elf64_Rela *)0;
+  const Elf64_Rela *jmprel = (const Elf64_Rela *)0;
   size_t relasz = 0;
   size_t pltrelsz = 0;
   uint32_t *syshash = (uint32_t *)0; /* sysv .hash for sym count */
@@ -326,7 +326,7 @@ void *nl_dlopen(const char *path, int flags) {
 
       break;
     case DT_RELA:
-      rela = (Elf64_Rela *)(bias + (long)d->d_un.d_ptr);
+      rela = (const Elf64_Rela *)(bias + (long)d->d_un.d_ptr);
 
       break;
     case DT_RELASZ:
@@ -334,7 +334,7 @@ void *nl_dlopen(const char *path, int flags) {
 
       break;
     case DT_JMPREL:
-      jmprel = (Elf64_Rela *)(bias + (long)d->d_un.d_ptr);
+      jmprel = (const Elf64_Rela *)(bias + (long)d->d_un.d_ptr);
 
       break;
     case DT_PLTRELSZ:

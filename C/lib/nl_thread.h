@@ -214,7 +214,7 @@ static inline int nl_thread_create(nl_thread_t *t, void *(*fn)(void *),
   /* mmap an anonymous stack. Passes top of region to clone (grows down) */
   long mret = __sc6(SYS_mmap, 0, (long)t->stack_size, PROT_READ | PROT_WRITE,
                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  if (mret < 0) {
+  if (mret <= 0) {
     return -1;
   }
 
