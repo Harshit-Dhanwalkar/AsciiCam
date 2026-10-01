@@ -66,8 +66,9 @@ static const struct {
 } convs[] = {{"%d", K_INT},    {"%5d", K_INT}, {"%-5d", K_INT}, {"%05d", K_INT},
              {"%c", K_INT},    {"%3c", K_INT}, {"%u", K_UINT},  {"%x", K_UINT},
              {"%12u", K_UINT}, {"%ld", K_LL},  {"%lu", K_LL},   {"%s", K_STR},
-             {"%8s", K_STR},   {"%%", K_NONE}, {"%z", K_NONE},  {"%lx", K_NONE},
-             {"%99d", K_INT}};
+             {"%8s", K_STR},   {"%%", K_NONE}, {"%q", K_NONE},  {"%lx", K_LL},
+             {"%zu", K_LL},    {"%zd", K_LL},  {"%llu", K_LL},  {"%zx", K_LL},
+             {"%5ld", K_LL},   {"%99d", K_INT}};
 static const char *const lits[] = {"",  "abc",          " ",         "=",
                                    "[", "\xe2\x96\x88", "0123456789"};
 
@@ -144,7 +145,8 @@ static void fuzz_printf_one(void) {
  * bytes after terminator are 'Z'; they must never show up in output. */
 static void fuzz_printf_trailing_percent(void) {
   g_target = "printf-trailing-%";
-  static const char *const tails[] = {"%", "%5", "%-", "%0", "%l", "%12"};
+  static const char *const tails[] = {"%",  "%5",  "%-", "%0",
+                                      "%l", "%12", "%z", "%ll"};
   for (unsigned t = 0; t < sizeof(tails) / sizeof(tails[0]); t++) {
     char fmtbuf[16];
     size_t tl = nl_strlen(tails[t]);

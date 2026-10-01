@@ -89,21 +89,31 @@ int nl_vsnprintf(char *buf, size_t size, const char *fmt, va_list ap) {
       width = width * 10 + (*fmt++ - '0');
     }
 
+    // Length modifiers: l, ll, z all mean "64-bit argument" (LP64: long == long
+    // long == size_t)
+    int is_long = 0;
+    while (*fmt == 'l' || *fmt == 'z') {
+      is_long = 1;
+      fmt++;
+    }
+
     if (*fmt == '\0') {
       break;
     }
 
     switch (*fmt++) {
     case 'd': {
-      long long v = (long long)va_arg(ap, int);
+      long long v =
+          is_long ? va_arg(ap, long long) : (long long)va_arg(ap, int);
       char tmp[24];
       int n = 0;
+      unsigned long long mag = (unsigned long long)v;
       if (v < 0) {
         PUT('-');
-        v = -v;
+        mag = 0ULL - mag;
       }
 
-      n = _uint_to_dec(tmp, sizeof(tmp), (unsigned long long)v);
+      n = _uint_to_dec(tmp, sizeof(tmp), mag);
       for (int i = n; i < width && pos + 1 < size; i++) {
         PUT(' ');
       }
@@ -114,7 +124,9 @@ int nl_vsnprintf(char *buf, size_t size, const char *fmt, va_list ap) {
       break;
     }
     case 'u': {
-      unsigned long long v = (unsigned long long)va_arg(ap, unsigned int);
+      unsigned long long v = is_long
+                                 ? va_arg(ap, unsigned long long)
+                                 : (unsigned long long)va_arg(ap, unsigned int);
       char tmp[24];
       int n = _uint_to_dec(tmp, sizeof(tmp), v);
       for (int i = n; i < width && pos + 1 < size; i++) {
@@ -127,7 +139,9 @@ int nl_vsnprintf(char *buf, size_t size, const char *fmt, va_list ap) {
       break;
     }
     case 'x': {
-      unsigned long long v = (unsigned long long)va_arg(ap, unsigned int);
+      unsigned long long v = is_long
+                                 ? va_arg(ap, unsigned long long)
+                                 : (unsigned long long)va_arg(ap, unsigned int);
       char tmp[20];
       int n = _uint_to_hex(tmp, sizeof(tmp), v);
       for (int i = 0; i < n && pos + 1 < size; i++) {
@@ -164,33 +178,33 @@ int nl_vsnprintf(char *buf, size_t size, const char *fmt, va_list ap) {
       PUT('%');
 
       break;
-    case 'l':
-      if (*fmt == 'd') {
-        fmt++;
-        long long v = va_arg(ap, long long);
-        char tmp[24];
-        int n = 0;
-        if (v < 0) {
-          PUT('-');
-          v = -v;
-        }
-
-        n = _uint_to_dec(tmp, sizeof(tmp), (unsigned long long)v);
-        for (int i = 0; i < n && pos + 1 < size; i++) {
-          PUT(tmp[i]);
-        }
-      } else if (*fmt == 'u') {
-        fmt++;
-        unsigned long long v = va_arg(ap, unsigned long long);
-        char tmp[24];
-
-        int n = _uint_to_dec(tmp, sizeof(tmp), v);
-        for (int i = 0; i < n && pos + 1 < size; i++) {
-          PUT(tmp[i]);
-        }
-      }
-
-      break;
+    // case 'l':
+    //   if (*fmt == 'd') {
+    //     fmt++;
+    //     long long v = va_arg(ap, long long);
+    //     char tmp[24];
+    //     int n = 0;
+    //     if (v < 0) {
+    //       PUT('-');
+    //       v = -v;
+    //     }
+    //
+    //     n = _uint_to_dec(tmp, sizeof(tmp), (unsigned long long)v);
+    //     for (int i = 0; i < n && pos + 1 < size; i++) {
+    //       PUT(tmp[i]);
+    //     }
+    //   } else if (*fmt == 'u') {
+    //     fmt++;
+    //     unsigned long long v = va_arg(ap, unsigned long long);
+    //     char tmp[24];
+    //
+    //     int n = _uint_to_dec(tmp, sizeof(tmp), v);
+    //     for (int i = 0; i < n && pos + 1 < size; i++) {
+    //       PUT(tmp[i]);
+    //     }
+    //   }
+    //
+    //   break;
     default:
       PUT('?');
 

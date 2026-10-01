@@ -135,6 +135,24 @@ static void test_long(void) {
          18446744073709551615ULL); // ULLONG_MAX
 }
 
+static void test_length_modifiers(void) {
+  FMT_EQ("0", "%zu", (size_t)0);
+  FMT_EQ("2097152", "%zu", (size_t)2097152);
+  FMT_EQ("18446744073709551615", "%zu", (size_t)18446744073709551615ULL);
+  FMT_EQ("-5", "%zd", (long long)-5);
+  FMT_EQ("18446744073709551615", "%llu", 18446744073709551615ULL);
+  FMT_EQ("-9223372036854775807", "%lld", -9223372036854775807LL);
+  // LLONG_MIN: negating it is UB for a signed value
+  FMT_EQ("-9223372036854775808", "%ld", (-9223372036854775807LL - 1));
+  FMT_EQ("ffffffffffffffff", "%lx", 18446744073709551615ULL);
+  FMT_EQ("deadbeef00", "%lx", 0xdeadbeef00ULL);
+  FMT_EQ("100000000", "%zx", (size_t)0x100000000ULL);
+  FMT_EQ("   42", "%5ld", 42LL);
+  // plain int arguments are still read as int
+  FMT_EQ("-1", "%d", -1);
+  FMT_EQ("4294967295", "%u", 4294967295u);
+}
+
 static void test_truncation(void) {
   // Return value = chars written (not C99 would have written)
   FMT_RET(1, 0, "%d", 42);         // size=1: only null terminator fits
@@ -172,6 +190,7 @@ int main(int argc, char *argv[]) {
   test_percent_s();
   test_percent_c();
   test_long();
+  test_length_modifiers();
   test_truncation();
   test_combined();
 
