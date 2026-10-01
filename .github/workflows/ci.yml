@@ -169,6 +169,9 @@ jobs:
           gcc $FLAGS tests/test_nl_alloc.c  $LIBS -o /tmp/t_alloc  && /tmp/t_alloc
           gcc $FLAGS tests/test_nl_printf.c $LIBS -o /tmp/t_printf && /tmp/t_printf
           gcc $FLAGS tests/test_nl_dlfcn.c lib/nl_dlfcn.c $LIBS -o /tmp/t_dlfcn && /tmp/t_dlfcn build
+          # randomized stress test (fixed seeds => reproducible failures)
+          gcc $FLAGS tests/fuzz_nolibc.c lib/nl_getopt.c $LIBS -o /tmp/t_fuzz
+          for seed in 1 2 3; do /tmp/t_fuzz 100000 "$seed"; done
 
       - name: Smoke test --help (Unix)
         if: matrix.platform != 'windows'
