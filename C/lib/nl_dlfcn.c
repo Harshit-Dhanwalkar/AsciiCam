@@ -54,10 +54,14 @@ const char *nl_dlerror(void) {
 static const struct {
   const char *name;
   void *addr;
-} _nl_sym_tab[] = {{"malloc", (void *)nl_malloc}, {"calloc", (void *)nl_calloc},
-                   {"free", (void *)nl_free},     {"memcpy", (void *)nl_memcpy},
-                   {"memset", (void *)nl_memset}, {"strlen", (void *)nl_strlen},
-                   {(const char *)0, (void *)0}};
+} _nl_sym_tab[] = {
+    {"malloc", (void *)nl_malloc},    {"calloc", (void *)nl_calloc},
+    {"free", (void *)nl_free},        {"memcpy", (void *)nl_memcpy},
+    {"memset", (void *)nl_memset},    {"strlen", (void *)nl_strlen},
+    {"nl_malloc", (void *)nl_malloc}, {"nl_calloc", (void *)nl_calloc},
+    {"nl_free", (void *)nl_free},     {"nl_memcpy", (void *)nl_memcpy},
+    {"nl_memset", (void *)nl_memset}, {"nl_strlen", (void *)nl_strlen},
+    {(const char *)0, (void *)0}};
 
 // Internal helpers
 // pread64 via raw syscall

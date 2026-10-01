@@ -52,9 +52,7 @@ ifeq ($(PLATFORM),linux)
                 -B/usr/bin/ \
                 -L/usr/lib/x86_64-linux-gnu
     # LDFLAGS  += -Wl,-rpath-link=/usr/lib/x86_64-linux-gnu
-    # LDFLAGS  += -ldl -lpthread -lc # FIX: lc flag pulls standard libc,but removing them will -lpthread and -ldl will fail to link because they themselves depend on libc
-    LDFLAGS  += -lpthread
-    # TODO: custom threading library using clone() + futex to eliminate -lpthread (pthread functions) dependency
+    LDFLAGS  += -static
     LDFLAGS  += -msse4.1
 
     LIBSRCS  := $(LIBDIR)/nl_alloc.c \
@@ -68,7 +66,7 @@ ifeq ($(PLATFORM),linux)
 
     # Plugin shared objects
     SO_EXT   := so
-    SO_FLAGS := -fPIC -shared
+    SO_FLAGS := -fPIC -shared -Wl,--hash-style=both
 else ifeq ($(PLATFORM),macos)
     # macOS: system libc + AVFoundation, supports ARM64 + x86_64
     CFLAGS   := $(CFLAGS_COMMON) $(CFLAGS_EXTRA) -DPLATFORM_MACOS
