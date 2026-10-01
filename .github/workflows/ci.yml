@@ -63,7 +63,7 @@ jobs:
 
       - name: Cache Homebrew downloads
         if: matrix.platform == 'macos'
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/Library/Caches/Homebrew/downloads
           key: brew-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
@@ -76,7 +76,7 @@ jobs:
       - name: Cache MinGW
         id: cache-mingw
         if: matrix.platform == 'windows'
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: C:\ProgramData\chocolatey\lib\mingw
           key: mingw-${{ runner.os }}-12.2.0
