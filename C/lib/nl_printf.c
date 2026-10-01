@@ -1,6 +1,6 @@
 // cppcheck-suppress-file variableScope
-#include "nolibc.h"
 #include "nl_types.h"
+#include "nolibc.h"
 
 static int _uint_to_dec(char *out, size_t avail, unsigned long long v) {
   char tmp[24];
@@ -87,6 +87,10 @@ int nl_vsnprintf(char *buf, size_t size, const char *fmt, va_list ap) {
     int width = 0;
     while (*fmt >= '0' && *fmt <= '9') {
       width = width * 10 + (*fmt++ - '0');
+    }
+
+    if (*fmt == '\0') {
+      break;
     }
 
     switch (*fmt++) {

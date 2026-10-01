@@ -68,6 +68,10 @@ static inline size_t align_up(size_t n) {
 }
 
 void *nl_malloc(size_t n) {
+  if (n > SIZE_MAX - ALIGN - sizeof(block_hdr_t)) {
+    return NULL;
+  }
+
   if (n == 0) {
     n = 1;
   }
