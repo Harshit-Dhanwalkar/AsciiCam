@@ -131,6 +131,21 @@ jobs:
           make clean
           make -j4 CC="${{ matrix.cc }}" ${{ matrix.extra-make-args }} all
 
+      - name: Thread tests (Linux nolibc)
+        if: matrix.platform == 'linux'
+        working-directory: C
+        shell: bash
+        run: |
+          set -euo pipefail
+          FLAGS="-D__LINUX_NOLIBC__ -DPLATFORM_LINUX -nostdinc -isystem $(gcc -print-file-name=include) -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -static -Iinclude -Ilib"
+          LIBS="lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
+          # the clone() child path once depended on register allocation and
+          # only worked at -Os, so run the suite at several -O levels
+          for O in -O0 -O2 -O3 -Os; do
+            gcc $O $FLAGS tests/test_nl_thread.c $LIBS -o /tmp/t_thread
+            /tmp/t_thread
+          done
+
       - name: Verify zero libc dependency (Linux nolibc build)
         if: matrix.platform == 'linux'
         working-directory: C

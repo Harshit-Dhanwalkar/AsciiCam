@@ -39,6 +39,7 @@ extern int errno;
 #define SYS_close 3
 #define SYS_mmap 9
 #define SYS_munmap 11
+#define SYS_mprotect 10
 #define SYS_clone 56
 #define SYS_exit 60
 #define SYS_rt_sigaction 13

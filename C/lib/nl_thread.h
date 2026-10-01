@@ -144,8 +144,9 @@ static inline void nl_cond_wait(nl_cond_t *c, nl_mutex_t *m) {
    _NL_CLONE_THREAD | _NL_CLONE_SYSVSEM | _NL_CLONE_PARENT_SETTID |            \
    _NL_CLONE_CHILD_CLEARTID)
 
-// Default per-thread stack size (2 MiB)
+// Default per-thread stack size (2 MiB) and guard region at its low end
 #define NL_THREAD_STACK_SIZE (2u * 1024u * 1024u)
+#define NL_THREAD_GUARD_SIZE 4096u
 
 typedef struct {
   void *(*fn)(void *); /* thread entry point                    */
@@ -161,45 +162,63 @@ typedef struct {
 } nl_thread_t;
 
 /*
- * _nl_clone - always_inline wrapper for clone(2) syscall
+ * _nl_clone_run - clone(2) with child's whole life in one asm block
  *
- * Must be always_inline. After clone(2) both parent and child continue
- * executing from very next instruction, each with their own RSP: parent keeps
- * its original stack frame; child starts with RSP = stack_top. If this were
- * emitted as a real (non-inline) function, child would execute that function's
- * epilogue ("ret") on its fresh, zero-filled stack and jump to address 0
- * always_inline guarantees one inline "syscall" instruction with no surrounding
- * frame at any optimisation level
+ * After clone(2) parent and child both resume at next instruction, but child's
+ * RSP is new stack_top: every compiler-generated stack slot or frame-relative
+ * access in C code that follows reads NEW, zero-filled stack, not parent's
+ * frame. Whether child's `t`, `fn` and `arg` survive then depends on register
+ * allocation - it happened to work at -Os and crashed at -O0..-O3. So nothing
+ * in C may run in child before fn: fn and arg are pushed on new stack, and
+ * child pops them and calls fn from inside asm, then issues SYS_exit (not
+ * exit_group: only this thread ends; CHILD_CLEARTID then zeroes and futex-wakes
+ * tid for join)
  *
  * clone(2) x86-64 register mapping:
- *   rdi = flags   rsi = new_stack   rdx = parent_tidptr
- *   r10 = child_tidptr              r8  = tls (0, unused)
+ *  rdi=flags
+ *  rsi=new_stack
+ *  rdx=parent_tidptr
+ *  r10=child_tidptr
+ *   r8=tls (unused)
+ *
+ * Returns child TID in the parent, 0 in the child
  */
-static __attribute__((always_inline)) long _nl_clone(unsigned long flags,
-                                                     void *stack_top,
-                                                     volatile int *parent_tid,
-                                                     volatile int *child_tid) {
+static inline long _nl_clone_run(unsigned long flags, void *stack_top,
+                                 volatile int *parent_tid,
+                                 volatile int *child_tid, void *(*fn)(void *),
+                                 void *arg) {
+  void **sp = (void **)stack_top;
+  *--sp = arg;        /* popped second -> rdi */
+  *--sp = (void *)fn; /* popped first  -> rax */
+  /* stack_top is 16-byte aligned, so after both pops RSP is aligned again and
+   * `call` sees the ABI-required alignment */
   long r;
   register long _r10 __asm__("r10") = (long)child_tid;
-  register long _r8 __asm__("r8") = 0L; /* tls unused */
-  __asm__ volatile("syscall"
+  register long _r8 __asm__("r8") = 0L;
+  __asm__ volatile("syscall\n\t"
+                   "test %%rax, %%rax\n\t"
+                   "jnz 1f\n\t"
+                   /* child: fresh stack, only pushed fn/arg are valid */
+                   "xor %%ebp, %%ebp\n\t"
+                   "pop %%rax\n\t"
+                   "pop %%rdi\n\t"
+                   "call *%%rax\n\t"
+                   "mov %[sysexit], %%eax\n\t"
+                   "xor %%edi, %%edi\n\t"
+                   "syscall\n\t"
+                   "ud2\n\t"
+                   "1:\n\t"
                    : "=a"(r)
-                   : "0"((long)SYS_clone), "D"((long)flags), "S"(stack_top),
-                     "d"(parent_tid), "r"(_r10), "r"(_r8)
-                   : "rcx", "r11", "memory");
+                   : "0"((long)SYS_clone), "D"((long)flags), "S"((void *)sp),
+                     "d"(parent_tid), "r"(_r10),
+                     "r"(_r8), [sysexit] "i"(SYS_exit)
+                   : "rcx", "r11", "memory", "cc");
 
   return r;
 }
 
 /*
- * nl_thread_create - spawn fn(arg) on a freshly mmap'd stack
- *
- * clone(2) with CLONE_VM makes child start at same PC as parent sharing entire
- * address space
- * rax is 0 in child, child-TID in parent. Branch on that: child calls fn() then
- * SYS_exit(60) - Not exit_group(231), which would kill all threads
- * CHILD_CLEARTID then zeros t->tid (in nl_thread_t, NOT on mmap stack) and
- * calls futex_wake
+ * nl_thread_create - spawn fn(arg) on a freshly mmap'd stack with a guard page
  *
  * Returns 0 on success, -1 on error
  */
@@ -218,33 +237,32 @@ static inline int nl_thread_create(nl_thread_t *t, void *(*fn)(void *),
   }
 
   t->stack_base = (void *)mret;
+
+  /* Lowest page is PROT_NONE: an overflow faults instead of silently running
+   * into whatever mapping sits below stack */
+  __sc3(SYS_mprotect, (long)t->stack_base, NL_THREAD_GUARD_SIZE, PROT_NONE);
+
   void *stack_top = (char *)t->stack_base + t->stack_size;
 
-  long ret = _nl_clone(_NL_THREAD_FLAGS, stack_top, &t->tid, &t->tid);
-
+  long ret =
+      _nl_clone_run(_NL_THREAD_FLAGS, stack_top, &t->tid, &t->tid, fn, arg);
   if (ret < 0) {
     __sc2(SYS_munmap, (long)t->stack_base, (long)t->stack_size);
     t->stack_base = (void *)0;
+
     return -1;
   }
 
-  if (ret == 0) {
-    /*  child thread */
-    t->fn(t->arg);
-    /* Per-thread exit. CHILD_CLEARTID: zeros t->tid, wakes join() */
-    __sc1(SYS_exit, 0);
-    __builtin_unreachable();
-  }
-
-  /* parent: ret == child TID, already written into t->tid  */
+  /* parent only (child never returns here): ret == child TID, already written
+   * into t->tid by CLONE_PARENT_SETTID */
   return 0;
 }
 
 /*
  * nl_thread_join - wait for thread to exit, then free its stack
  *
- * futex val-check prevents a missed wakeup when thread exits before
- * we reach futex_wait (kernel sees *addr != val and returns EAGAIN at once)
+ * futex val-check prevents a missed wakeup when thread exits before reaching
+ * futex_wait (kernel sees *addr != val and returns EAGAIN at once)
  */
 static inline int nl_thread_join(nl_thread_t *t) {
   int tid;
