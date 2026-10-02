@@ -42,7 +42,7 @@ ifeq ($(PLATFORM),linux)
     # Linux: nolibc, V4L2, SSE4.1
     CFLAGS   := $(CFLAGS_COMMON) $(CFLAGS_EXTRA) -DPLATFORM_LINUX -D__LINUX_NOLIBC__
     CFLAGS   += -msse4.1
-    # No system headers at all: only compiler's own freestanding/intrinsics directory 
+    # No system headers at all: only compiler's own freestanding/intrinsics directory
     # (immintrin.h etc.) stays on include path
     NOSTDINC := -nostdinc -isystem $(shell $(CC) -print-file-name=include)
     CFLAGS   += $(NOSTDINC)
@@ -118,7 +118,9 @@ else ifeq ($(PLATFORM),windows)
 endif
 
 CORE_SRCS := $(SRCDIR)/ascii.c \
+             $(SRCDIR)/capture_reinit.c \
              $(SRCDIR)/main.c  \
+             $(SRCDIR)/mouse.c \
              $(SRCDIR)/plugins.c \
              $(SRCDIR)/thread_sharing.c \
              $(SRCDIR)/timing.c

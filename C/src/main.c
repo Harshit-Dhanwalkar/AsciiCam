@@ -2,6 +2,7 @@
 
 #include "ascii.h"
 #include "capture.h"
+#include "mouse.h"
 #include "plugins.h"
 // #include "thread_sharing.h"
 #include "timing.h"
@@ -21,6 +22,10 @@
 #define PANEL_ROWS 4
 #define MIN_ASCII_W 10
 #define MIN_ASCII_H 5
+#define MIN_CAPTURE_W 160 // mouse-resize limits for the capture size
+#define MIN_CAPTURE_H 120
+#define MAX_CAPTURE_W 1280
+#define MAX_CAPTURE_H 720
 
 #ifndef PLATFORM_MACOS
 
@@ -53,6 +58,9 @@ static void emergency_terminal_restore(void) {
   if (raw_mode_active) {
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_terminal);
   }
+
+  // otherwise shell keeps receiving mouse reports as garbage text
+  mouse_disable();
 
   static const char SHOW_CURSOR[] = "\033[?25h\033[0m\n";
   (void)write(STDOUT_FILENO, SHOW_CURSOR, sizeof(SHOW_CURSOR) - 1);
@@ -146,6 +154,8 @@ static void print_usage(const char *prog) {
       "  w / W         hw white-balance down / up   (V4L2, Linux only) \n"
       "  c / C         hw contrast down / up        (V4L2, Linux only) \n"
       "  up/down       select plugin    [ ] +-1   { } +-10   r reset   \n"
+      "  mouse         drag bottom-right corner to change capture      \n"
+      "                resolution; applied on release                  \n"
       "  q             quit                                            \n",
       prog, DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT, DEFAULT_FPS,
       DEFAULT_ASCII_WIDTH, DEFAULT_ASCII_HEIGHT, ASCII_CHARS_DEFAULT);
@@ -358,24 +368,45 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
                           const int *plugin_params, int count, int selected,
                           int color, const ascii_opts_t *opts,
                           const charset_registry_t *charsets, int hw_exposure,
-                          int hw_contrast, int hw_wb) {
+                          int hw_contrast, int hw_wb, int cap_w, int cap_h,
+                          int preview_w, int preview_h) {
   char buf[1024];
-  int n, base_row = ascii_h + 1; // 1-indexed panel row
+  int n;
+  int base_row = ascii_h + 1; // 1-indexed panel row
 
   // FPS + hint bar
   char fpsbuf[10];
   nl_fmt_fps(fpsbuf, sizeof(fpsbuf), fps);
-  if (color) {
-    n = nl_snprintf(buf, sizeof(buf),
-                    "\033[%d;1H\033[38;2;0;220;0m\033[48;2;18;18;18m"
-                    " FPS: %s  │  ↑↓ select  [ ] ±1  { } ±10  r reset  q quit "
-                    "\033[0m\033[K",
-                    base_row, fpsbuf);
+  if (preview_w > 0) {
+    // mouse drag in progress: show the pending capture size
+    if (color) {
+      n = nl_snprintf(buf, sizeof(buf),
+                      "\033[%d;1H\033[38;2;255;60;60m\033[48;2;18;18;18m"
+                      " RESIZING capture %dx%d -> %dx%d  │  release the mouse "
+                      "to apply\033[0m\033[K",
+                      base_row, cap_w, cap_h, preview_w, preview_h);
+    } else if (color) {
+      n = nl_snprintf(
+          buf, sizeof(buf),
+          "\033[%d;1H\033[38;2;0;220;0m\033[48;2;18;18;18m"
+          " FPS: %s  │  ↑↓ select  [ ] ±1  { } ±10  r reset  q quit "
+          " │  cap: %dx%d  ◢ drag to resize"
+          "\033[0m\033[K",
+          base_row, fpsbuf, cap_w, cap_h);
+    } else {
+      n = nl_snprintf(
+          buf, sizeof(buf),
+          "\033[%d;1H FPS: %s  |  up/dn select  [ ] +-1  { } +-10  r "
+          "reset  q quit"
+          "  |  cap: %dx%d  drag + to resize"
+          "\033[K",
+          base_row, fpsbuf, cap_w, cap_h);
+    }
   } else {
     n = nl_snprintf(buf, sizeof(buf),
                     "\033[%d;1H FPS: %s  |  up/dn select  [ ] +-1  { } +-10  r "
-                    "reset  q quit\033[K",
-                    base_row, fpsbuf);
+                    "reset  q quit  |  cap: %dx%d  drag + to resize\033[K",
+                    base_row, fpsbuf, cap_w, cap_h);
   }
   if (n > 0 && n < (int)sizeof(buf)) {
     (void)write(STDOUT_FILENO, buf, (size_t)n);
@@ -839,6 +870,11 @@ int main(int argc, char *argv[]) {
   (void)write(STDOUT_FILENO, "\033[2J\033[H\033[?25l", 13);
 
   term_raw_mode();
+  mouse_enable();
+
+  mouse_parser_t mouse_parser = {0, {0, 0, 0}, 0};
+  mouse_drag_t mouse_drag = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+  int preview_w = 0, preview_h = 0; // pending capture size while dragging
 
   struct timespec frame_start, last_frame_time;
   clock_gettime(CLOCK_MONOTONIC, &frame_start);
@@ -891,10 +927,82 @@ int main(int argc, char *argv[]) {
     // Keypress handling
     char ch;
     while (read(STDIN_FILENO, &ch, 1) == 1) {
+      // Inside an SGR mouse report (ESC [ < b ; x ; y M|m): bytes must not
+      // reach key handler, 'M' would cycle render mode
+      if (mouse_parser_active(&mouse_parser)) {
+        mouse_event_t mev;
+        int prc = mouse_parser_feed(&mouse_parser, ch, &mev);
+        if (prc == MOUSE_PARSE_MORE) {
+          continue;
+        }
+
+        if (prc == MOUSE_PARSE_DONE) {
+          int nw = 0, nh = 0;
+          int act =
+              mouse_drag_event(&mouse_drag, &mev, ascii_w, ascii_h, cam.width,
+                               cam.height, MIN_CAPTURE_W, MIN_CAPTURE_H,
+                               MAX_CAPTURE_W, MAX_CAPTURE_H, &nw, &nh);
+          if (act == MOUSE_GRAB || act == MOUSE_RESIZE) {
+            preview_w = nw; // shown in panel; camera is untouched
+            preview_h = nh;
+          } else if (act == MOUSE_RELEASE) {
+            preview_w = preview_h = 0;
+          } else if (act == MOUSE_APPLY) {
+            preview_w = preview_h = 0;
+            int prev_w = cam.width, prev_h = cam.height;
+
+            if (capture_reinit(&cam, device, nw, nh, &gray, &rgb, opts.color,
+                               &hw_exposure, &hw_contrast, &hw_wb) < 0) {
+              // requested mode failed: go back to previous one
+              nl_eprint("capture resize failed, restoring previous size\n");
+              if (capture_reinit(&cam, device, prev_w, prev_h, &gray, &rgb,
+                                 opts.color, &hw_exposure, &hw_contrast,
+                                 &hw_wb) < 0) {
+                nl_eprint("could not restore camera, exiting\n");
+                keep_running = 0;
+              }
+            }
+
+            cap_w = cam.width;
+            cap_h = cam.height;
+
+            (void)write(STDOUT_FILENO, "\033[2J", 4);
+          }
+
+          if (!keep_running) {
+            break;
+          }
+
+          continue;
+        }
+        // MOUSE_PARSE_FAIL: not a mouse report after all, handle byte below
+        // like any other key
+      }
+
       if (ch == '\033') {
         char seq[2] = {0, 0};
         if (read(STDIN_FILENO, &seq[0], 1) == 1 && seq[0] == '[') {
           if (read(STDIN_FILENO, &seq[1], 1) == 1) {
+            if (seq[1] == '<') {
+              mouse_parser_begin(&mouse_parser);
+
+              continue;
+            }
+
+            if (seq[1] == 'M') {
+              // Legacy X10 report (ESC [ M b x y) from a terminal that has no
+              // SGR mode: swallow 3 payload bytes, they are not keys (a
+              // coordinate byte can equal 'q')
+              char junk;
+              for (int k = 0; k < 3; k++) {
+                if (read(STDIN_FILENO, &junk, 1) != 1) {
+                  break;
+                }
+              }
+
+              continue;
+            }
+
             switch (seq[1]) {
             case 'A': // up arrow key, previous plugin
               if (plugin_count > 0) {
@@ -1107,7 +1215,9 @@ int main(int argc, char *argv[]) {
 
       overlay_panel(ascii_h, current_fps, plugins, plugin_params, plugin_count,
                     selected, opts.color, &opts, &charsets, hw_exposure,
-                    hw_contrast, hw_wb);
+                    hw_contrast, hw_wb, cam.width, cam.height, preview_w,
+                    preview_h);
+      draw_corner_indicator(ascii_w, ascii_h, opts.color, &mouse_drag);
     }
 
     if (webcam_requeue_buffer(&cam) < 0) {
@@ -1120,6 +1230,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Cleanup
+  mouse_disable();
   term_restore();
   // \033[2J = erase screen, \033[H = cursor home, \033[?25h = show cursor
   static const char CLEANUP[] = "\033[2J\033[H\033[0m\033[?25h";
