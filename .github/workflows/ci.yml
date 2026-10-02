@@ -194,6 +194,22 @@ jobs:
         shell: bash
         run: ./build/webcam_ascii --help | head -20
 
+      - name: Mouse + capture-resize tests (Linux nolibc)
+        if: matrix.platform == 'linux'
+        working-directory: C
+        shell: bash
+        run: |
+          set -euo pipefail
+          FLAGS="-D__LINUX_NOLIBC__ -DPLATFORM_LINUX -nostdinc -isystem $(gcc -print-file-name=include) -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -static -Iinclude -Ilib"
+          LIBS="lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
+          gcc $FLAGS tests/test_mouse.c src/mouse.c $LIBS -o /tmp/t_mouse
+          /tmp/t_mouse
+          # capture_reinit against a scripted fake camera (no hardware)
+          for O in -O0 -O2; do
+            gcc $O $FLAGS tests/test_capture_reinit.c src/capture_reinit.c $LIBS -o /tmp/t_reinit
+            /tmp/t_reinit
+          done
+
       - name: Smoke test --help (Windows)
         if: matrix.platform == 'windows'
         working-directory: C
