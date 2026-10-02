@@ -22,10 +22,12 @@
 #define PANEL_ROWS 4
 #define MIN_ASCII_W 10
 #define MIN_ASCII_H 5
-#define MIN_CAPTURE_W 160 // mouse-resize limits for the capture size
+#define MIN_CAPTURE_W 160 // sanity limits for capture_reinit
 #define MIN_CAPTURE_H 120
 #define MAX_CAPTURE_W 1280
 #define MAX_CAPTURE_H 720
+#define DRAG_MAX_ASCII_W 500 // upper bound mouse can drag frame to
+#define DRAG_MAX_ASCII_H 200
 
 #ifndef PLATFORM_MACOS
 
@@ -154,8 +156,9 @@ static void print_usage(const char *prog) {
       "  w / W         hw white-balance down / up   (V4L2, Linux only) \n"
       "  c / C         hw contrast down / up        (V4L2, Linux only) \n"
       "  up/down       select plugin    [ ] +-1   { } +-10   r reset   \n"
-      "  mouse         drag bottom-right corner to change capture      \n"
-      "                resolution; applied on release                  \n"
+      "  mouse         drag bottom-right corner to resize ASCII        \n"
+      "                frame; applied on release                       \n"
+      "  a / A         return frame to terminal auto-fit               \n"
       "  q             quit                                            \n",
       prog, DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT, DEFAULT_FPS,
       DEFAULT_ASCII_WIDTH, DEFAULT_ASCII_HEIGHT, ASCII_CHARS_DEFAULT);
@@ -369,7 +372,8 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
                           int color, const ascii_opts_t *opts,
                           const charset_registry_t *charsets, int hw_exposure,
                           int hw_contrast, int hw_wb, int cap_w, int cap_h,
-                          int preview_w, int preview_h) {
+                          int preview_w, int preview_h, int ascii_w_now,
+                          int ascii_size_manual) {
   char buf[1024];
   int n;
   int base_row = ascii_h + 1; // 1-indexed panel row
@@ -378,36 +382,36 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
   char fpsbuf[10];
   nl_fmt_fps(fpsbuf, sizeof(fpsbuf), fps);
   if (preview_w > 0) {
-    // mouse drag in progress: show the pending capture size
+    // mouse drag in progress: preview of the pending frame size
     if (color) {
       n = nl_snprintf(buf, sizeof(buf),
                       "\033[%d;1H\033[38;2;255;60;60m\033[48;2;18;18;18m"
-                      " RESIZING capture %dx%d -> %dx%d  │  release the mouse "
-                      "to apply\033[0m\033[K",
-                      base_row, cap_w, cap_h, preview_w, preview_h);
-    } else if (color) {
-      n = nl_snprintf(
-          buf, sizeof(buf),
-          "\033[%d;1H\033[38;2;0;220;0m\033[48;2;18;18;18m"
-          " FPS: %s  │  ↑↓ select  [ ] ±1  { } ±10  r reset  q quit "
-          " │  cap: %dx%d  ◢ drag to resize"
-          "\033[0m\033[K",
-          base_row, fpsbuf, cap_w, cap_h);
+                      " RESIZING frame %dx%d -> %dx%d  │  release to apply"
+                      "\033[0m\033[K",
+                      base_row, ascii_w_now, ascii_h, preview_w, preview_h);
     } else {
-      n = nl_snprintf(
-          buf, sizeof(buf),
-          "\033[%d;1H FPS: %s  |  up/dn select  [ ] +-1  { } +-10  r "
-          "reset  q quit"
-          "  |  cap: %dx%d  drag + to resize"
-          "\033[K",
-          base_row, fpsbuf, cap_w, cap_h);
+      n = nl_snprintf(buf, sizeof(buf),
+                      "\033[%d;1H RESIZING frame %dx%d -> %dx%d  |  release "
+                      "to apply\033[K",
+                      base_row, ascii_w_now, ascii_h, preview_w, preview_h);
     }
+  } else if (color) {
+    n = nl_snprintf(buf, sizeof(buf),
+                    "\033[%d;1H\033[38;2;0;220;0m\033[48;2;18;18;18m"
+                    " FPS: %s  │  ↑↓ select  [ ] ±1  { } ±10  r reset  q quit "
+                    " │  frame: %dx%d%s  cap: %dx%d  ◢ drag"
+                    "\033[0m\033[K",
+                    base_row, fpsbuf, ascii_w_now, ascii_h,
+                    ascii_size_manual ? " [manual]" : "", cap_w, cap_h);
   } else {
     n = nl_snprintf(buf, sizeof(buf),
-                    "\033[%d;1H FPS: %s  |  up/dn select  [ ] +-1  { } +-10  r "
-                    "reset  q quit  |  cap: %dx%d  drag + to resize\033[K",
-                    base_row, fpsbuf, cap_w, cap_h);
+                    "\033[%d;1H FPS: %s  |  up/dn select  [ ] +-1  { } +-10  "
+                    "r reset  q quit  |  frame: %dx%d%s  cap: %dx%d  drag +"
+                    "\033[K",
+                    base_row, fpsbuf, ascii_w_now, ascii_h,
+                    ascii_size_manual ? " [manual]" : "", cap_w, cap_h);
   }
+
   if (n > 0 && n < (int)sizeof(buf)) {
     (void)write(STDOUT_FILENO, buf, (size_t)n);
   }
@@ -529,8 +533,49 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
   }
 }
 
-// Returns >0 if the ASCII dimensions changed, 0 otherwise
-// Reallocates *out_buf and updates *out_size
+// Grow/shrink ASCII frame to (new_w, new_h). Clamps to MIN_ASCII_W/H,
+// reallocates *out_buf, updates *out_size
+//
+// Returns >0 if size changed, 0 if unchanged or OOM (in which case old buffer
+// is kept and *ascii_w / *ascii_h are left at their previous values so caller
+// is not left with a size that has no buffer to match)
+static int apply_ascii_size(int new_w, int new_h, int *ascii_w, int *ascii_h,
+                            char **out_buf, size_t *out_size, int color) {
+  if (new_h < MIN_ASCII_H) {
+    new_h = MIN_ASCII_H;
+  }
+  if (new_w < MIN_ASCII_W) {
+    new_w = MIN_ASCII_W;
+  }
+  if (new_w == *ascii_w && new_h == *ascii_h) {
+    return 0;
+  }
+
+  // Recompute output buffer size for new dimensions (max over all modes)
+  size_t need = 0;
+  for (render_mode_t rm = 0; rm < RENDER_MODE_COUNT; rm++) {
+    size_t s = ascii_out_size_for_mode(new_w * 2, new_h * 4, color, rm);
+    if (s > need) {
+      need = s;
+    }
+  }
+
+  char *nb = nl_malloc(need);
+  if (!nb) {
+    return 0;
+  }
+
+  nl_free(*out_buf);
+  *out_buf = nb;
+  *out_size = need;
+  *ascii_w = new_w;
+  *ascii_h = new_h;
+
+  return 1;
+}
+
+// Returns >0 if ASCII dimensions changed, 0 otherwise
+// Reads terminal size and delegates to apply_ascii_size
 int handle_term_resize(int *ascii_w, int *ascii_h, char **out_buf,
                        size_t *out_size, int color) {
   // Query terminal size via ioctl(TIOCGWINSZ)
@@ -543,29 +588,7 @@ int handle_term_resize(int *ascii_w, int *ascii_h, char **out_buf,
     return 0;
   }
 
-  int new_w = ws.ws_col;
   int new_h = ws.ws_row - PANEL_ROWS; // reserve rows for overlay panel
-  if (new_h < MIN_ASCII_H) {
-    new_h = MIN_ASCII_H;
-  }
-  if (new_w < MIN_ASCII_W) {
-    new_w = MIN_ASCII_W;
-  }
-  if (new_w == *ascii_w && new_h == *ascii_h) {
-    return 0;
-  }
-
-  *ascii_w = new_w;
-  *ascii_h = new_h;
-
-  // Recompute output buffer size for the new dimensions (max over all modes)
-  size_t need = 0;
-  for (render_mode_t rm = 0; rm < RENDER_MODE_COUNT; rm++) {
-    size_t s = ascii_out_size_for_mode(new_w * 2, new_h * 4, color, rm);
-    if (s > need) {
-      need = s;
-    }
-  }
 
   char dbg[96];
   int dn = nl_snprintf(dbg, sizeof(dbg), "[resize] ws_row=%u ws_col=%u\n",
@@ -574,16 +597,8 @@ int handle_term_resize(int *ascii_w, int *ascii_h, char **out_buf,
     write(2, dbg, (size_t)dn);
   }
 
-  char *nb = nl_malloc(need);
-  if (!nb) {
-    return 0; // keep old buffer, dimensions updated
-  }
-
-  nl_free(*out_buf);
-  *out_buf = nb;
-  *out_size = need;
-
-  return 1;
+  return apply_ascii_size(ws.ws_col, new_h, ascii_w, ascii_h, out_buf, out_size,
+                          color);
 }
 
 fps_counter_t fps_calc = {0};
@@ -874,7 +889,9 @@ int main(int argc, char *argv[]) {
 
   mouse_parser_t mouse_parser = {0, {0, 0, 0}, 0};
   mouse_drag_t mouse_drag = {0, 0, 0, 0, 0, 0, 0, 0, 0};
-  int preview_w = 0, preview_h = 0; // pending capture size while dragging
+  int preview_w = 0, preview_h = 0; // pending frame size while dragging
+  // 0 = frame follows terminal width (SIGWINCH); 1 = user dragged it
+  int ascii_size_manual = 0;
 
   struct timespec frame_start, last_frame_time;
   clock_gettime(CLOCK_MONOTONIC, &frame_start);
@@ -896,17 +913,28 @@ int main(int argc, char *argv[]) {
     double current_fps = fps_get(&fps_calc);
 
     // Apply any pending terminal resize (SIGWINCH) before drawing this frame.
+    // If user has manually sized frame with mouse, terminal auto-fit is
+    // suppressed until press 'a'
     if (term_resized) {
       term_resized = 0;
-      int rc = handle_term_resize(&ascii_w, &ascii_h, &out_buf, &out_size,
-                                  opts.color);
-      if (rc > 0) {
-        char _b[96];
-        int _n = nl_snprintf(_b, sizeof(_b),
-                             "Resized: ASCII %dx%d (terminal changed)\n",
-                             ascii_w, ascii_h);
-        if (_n > 0) {
-          write(2, _b, (size_t)_n);
+
+      // a mid-drag SIGWINCH would corrupt drag's frame-base snapshot
+      if (mouse_drag.dragging) {
+        mouse_drag.dragging = 0;
+        preview_w = preview_h = 0;
+      }
+
+      if (!ascii_size_manual) {
+        int rc = handle_term_resize(&ascii_w, &ascii_h, &out_buf, &out_size,
+                                    opts.color);
+        if (rc > 0) {
+          char _b[96];
+          int _n = nl_snprintf(_b, sizeof(_b),
+                               "Resized: ASCII %dx%d (terminal changed)\n",
+                               ascii_w, ascii_h);
+          if (_n > 0) {
+            write(2, _b, (size_t)_n);
+          }
         }
       }
     }
@@ -937,36 +965,27 @@ int main(int argc, char *argv[]) {
         }
 
         if (prc == MOUSE_PARSE_DONE) {
-          int nw = 0, nh = 0;
+          int nw = 0;
+          int nh = 0;
+          // Drag resizes the ASCII frame 1:1 in cells. Capture resolution is
+          // controlled only by -w/-h at startup and is not touched here, so
+          // frame's aspect and camera's aspect stay independent
           int act =
-              mouse_drag_event(&mouse_drag, &mev, ascii_w, ascii_h, cam.width,
-                               cam.height, MIN_CAPTURE_W, MIN_CAPTURE_H,
-                               MAX_CAPTURE_W, MAX_CAPTURE_H, &nw, &nh);
+              mouse_drag_event(&mouse_drag, &mev, ascii_w, ascii_h, ascii_w,
+                               ascii_h, MIN_ASCII_W, MIN_ASCII_H,
+                               DRAG_MAX_ASCII_W, DRAG_MAX_ASCII_H, &nw, &nh);
           if (act == MOUSE_GRAB || act == MOUSE_RESIZE) {
-            preview_w = nw; // shown in panel; camera is untouched
+            preview_w = nw; // shown in panel; buffer untouched
             preview_h = nh;
           } else if (act == MOUSE_RELEASE) {
             preview_w = preview_h = 0;
           } else if (act == MOUSE_APPLY) {
             preview_w = preview_h = 0;
-            int prev_w = cam.width, prev_h = cam.height;
-
-            if (capture_reinit(&cam, device, nw, nh, &gray, &rgb, opts.color,
-                               &hw_exposure, &hw_contrast, &hw_wb) < 0) {
-              // requested mode failed: go back to previous one
-              nl_eprint("capture resize failed, restoring previous size\n");
-              if (capture_reinit(&cam, device, prev_w, prev_h, &gray, &rgb,
-                                 opts.color, &hw_exposure, &hw_contrast,
-                                 &hw_wb) < 0) {
-                nl_eprint("could not restore camera, exiting\n");
-                keep_running = 0;
-              }
+            ascii_size_manual = 1;
+            if (apply_ascii_size(nw, nh, &ascii_w, &ascii_h, &out_buf,
+                                 &out_size, opts.color) > 0) {
+              (void)write(STDOUT_FILENO, "\033[2J", 4);
             }
-
-            cap_w = cam.width;
-            cap_h = cam.height;
-
-            (void)write(STDOUT_FILENO, "\033[2J", 4);
           }
 
           if (!keep_running) {
@@ -1114,6 +1133,14 @@ int main(int argc, char *argv[]) {
         opts.depth_invert = !opts.depth_invert;
 
         break;
+      case 'a':
+      case 'A':
+        // hand control of frame size back to SIGWINCH; the next loop
+        // iteration picks up the current terminal size
+        ascii_size_manual = 0;
+        term_resized = 1;
+
+        break;
       case 'e':
         webcam_adjust_exposure(&cam, -10, &hw_exposure);
 
@@ -1216,7 +1243,7 @@ int main(int argc, char *argv[]) {
       overlay_panel(ascii_h, current_fps, plugins, plugin_params, plugin_count,
                     selected, opts.color, &opts, &charsets, hw_exposure,
                     hw_contrast, hw_wb, cam.width, cam.height, preview_w,
-                    preview_h);
+                    preview_h, ascii_w, ascii_size_manual);
       draw_corner_indicator(ascii_w, ascii_h, opts.color, &mouse_drag);
     }
 

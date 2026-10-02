@@ -7,7 +7,7 @@
 //
 // Returns 0 on success. On failure camera is left closed (fd = -1, safe to pass
 // to webcam_cleanup) and *gray / *rgb are either still old buffers (camera
-// could not be opened) or NULL (new buffers could not be  allocated); both
+// could not be opened) or NULL (new buffers could not be allocated); both
 // states are valid input for another capture_reinit, which is how caller
 // restores previous size
 //
