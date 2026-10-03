@@ -122,6 +122,8 @@ CORE_SRCS := $(SRCDIR)/ascii.c \
              $(SRCDIR)/main.c  \
              $(SRCDIR)/mouse.c \
              $(SRCDIR)/plugins.c \
+             $(SRCDIR)/plugin_catalog.c \
+             $(SRCDIR)/plugin_picker.c \
              $(SRCDIR)/thread_sharing.c \
              $(SRCDIR)/timing.c
 
