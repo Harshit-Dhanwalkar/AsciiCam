@@ -32,6 +32,18 @@
 #include "plugin_picker.h"
 #include "plugins.h"
 
+#ifndef PC_SO_EXT
+#if defined(PLATFORM_WINDOWS)
+#define PC_SO_EXT "dll"
+#elif defined(PLATFORM_MACOS)
+#define PC_SO_EXT "dylib"
+#else
+#define PC_SO_EXT "so"
+#endif
+#endif
+
+static int fails, total;
+
 static int fails, total;
 #define CHECK(c, msg)                                                          \
   do {                                                                         \
@@ -78,26 +90,39 @@ static void write_file(const char *path, const char *text) {
 static void rm(const char *path) { unlink(path); }
 
 #if !defined(__LINUX_NOLIBC__)
+
 // Make `make` unfindable (restore with t_restore_path)
-static char saved_path[2048];
+
+#define SAVED_PATH_MAX 32768
+static char saved_path[SAVED_PATH_MAX];
+static int path_hidden = 0;
 
 static void t_hide_make(void) {
 #if defined(PLATFORM_WINDOWS)
-  GetEnvironmentVariableA("PATH", saved_path, sizeof(saved_path));
-  SetEnvironmentVariableA("PATH", "C:\\nonexistent");
+  DWORD n = GetEnvironmentVariableA("PATH", saved_path, SAVED_PATH_MAX);
+  if (n == 0 || n >= SAVED_PATH_MAX) {
+    saved_path[0] = '\0';
+    return; // PATH missing or too long; skip
+  }
+
+  path_hidden = SetEnvironmentVariableA("PATH", "C:\\nonexistent") != 0;
 #else
   const char *p = getenv("PATH");
   nl_strncpy_safe(saved_path, p ? p : "", sizeof(saved_path));
-  setenv("PATH", "/nonexistent", 1);
+  path_hidden = setenv("PATH", "/nonexistent", 1) == 0;
 #endif
 }
 
 static void t_restore_path(void) {
+  if (!path_hidden) {
+    return;
+  }
 #if defined(PLATFORM_WINDOWS)
   SetEnvironmentVariableA("PATH", saved_path);
 #else
   setenv("PATH", saved_path, 1);
 #endif
+  path_hidden = 0;
 }
 #else
 static void t_restore_path(void) {}
@@ -329,10 +354,12 @@ static void test_picker_render(void) {
 
 static void test_scan(char **envp) {
   mkdirs();
+
   rm(SRC_DIR "/good.c");
   rm(SRC_DIR "/helper.c");
   rm(SRC_DIR "/late.c");
   rm(SRC_DIR "/bad name.c");
+
   write_file(SRC_DIR "/good.c", GOOD_SRC);
   write_file(SRC_DIR "/helper.c", "int helper(void) { return 1; }\n");
   write_file(SRC_DIR "/bad name.c", GOOD_SRC);
@@ -386,7 +413,8 @@ static void test_scan(char **envp) {
 
 static void test_build_and_load(char **envp) {
   mkdirs();
-  rm(CACHE_DIR "/invert.so");
+
+  rm(CACHE_DIR "/invert." PC_SO_EXT);
 
   plugin_catalog_t c;
   catalog_init(&c, "filters", CACHE_DIR, envp);
@@ -438,8 +466,10 @@ static void test_build_and_load(char **envp) {
 
 static void test_failure_and_cancel(char **envp) {
   mkdirs();
+
   rm(SRC_DIR "/broken.c");
-  rm(CACHE_DIR "/broken.so");
+  rm(CACHE_DIR "/broken." PC_SO_EXT);
+
   write_file(SRC_DIR "/broken.c",
              "#include \"nolibc.h\"\n#include \"plugins.h\"\n"
              "int plugin_get(void) { return undeclared_thing; }\n");
@@ -486,7 +516,8 @@ static void test_failure_and_cancel(char **envp) {
   CHECK(n.e[idx].err[0] != '\0', "reason recorded");
 
   // cancelling kills and reaps child (a second wait finds no child)
-  rm(CACHE_DIR "/threshold.so");
+  rm(CACHE_DIR "/threshold." PC_SO_EXT);
+
   plugin_catalog_t k;
   catalog_init(&k, "filters", CACHE_DIR, envp);
   catalog_scan(&k);
