@@ -61,7 +61,7 @@ static int contains(const char *hay, const char *needle) {
   return 0;
 }
 
-// Wait up to ~secs for the build of entry idx to finish
+// Wait up to ~secs for build of entry idx to finish
 static int wait_build(plugin_catalog_t *c, int idx, int secs) {
   for (int i = 0; i < secs * 100; i++) {
     int fi;
@@ -135,7 +135,7 @@ static void test_picker_keys(void) {
   CHECK(p.sel == 1, "up wraps");
 
   CHECK(picker_key(&p, &c, 10, &li) == PK_LOAD, "enter loads");
-  CHECK(li == 3, "enter returns the selected catalog index");
+  CHECK(li == 3, "enter returns selected catalog index");
   CHECK(!p.active, "enter closes picker");
 
   // backspace and hotkey letters are text while open
@@ -158,7 +158,7 @@ static void test_picker_keys(void) {
   picker_open(&p);
   CHECK(picker_key(&p, &c, PK_KEY_ESC, &li) == PK_CLOSED, "esc closes");
 
-  // query overflow never writes past the buffer
+  // query overflow never writes past buffer
   picker_open(&p);
   for (int i = 0; i < 200; i++) {
     picker_key(&p, &c, 'a', &li);
@@ -184,7 +184,9 @@ static void test_picker_render(void) {
   picker_open(&p);
   char buf[4096];
 
-  int n = picker_render(&p, &c, 30, 1, buf, sizeof(buf));
+  int frame_rows = 30;
+
+  int n = picker_render(&p, &c, frame_rows, 1, buf, sizeof(buf));
   CHECK(n > 0 && (size_t)n < sizeof(buf), "renders");
   CHECK(buf[n] == '\0', "NUL terminated");
   CHECK(contains(buf, "edge_detect") && contains(buf, "threshold"),
@@ -192,43 +194,73 @@ static void test_picker_render(void) {
   CHECK(contains(buf, "[failed: t.c:3:1: error: boom]"),
         "failure reason shown");
   CHECK(contains(buf, "[active]"), "active state shown");
-  CHECK(contains(buf, "\033[27;1H"),
-        "box occupies the bottom rows (header 26, first entry 27)");
+  CHECK(contains(buf, "\033[31;1H"),
+        "header is at ascii_h + 1 (below the frame)");
+
+  // no ANSI cursor-position escape in output should land on a frame row
+  // (i.e. row <= frame_rows)
+  {
+    int on_frame = 0;
+    for (const char *s = buf; *s; s++) {
+      if (s[0] == '\033' && s[1] == '[') {
+        int row = 0;
+        const char *q = s + 2;
+        while (*q >= '0' && *q <= '9') {
+          row = row * 10 + (*q++ - '0');
+        }
+
+        if (*q == ';') {
+          const char *r = q + 1;
+          while (*r >= '0' && *r <= '9') {
+            r++;
+          }
+
+          if ((*r == 'H' || *r == 'f') && row > 0 && row <= frame_rows) {
+            on_frame = 1;
+          }
+        }
+      }
+    }
+
+    CHECK(!on_frame, "picker never writes to a frame row");
+  }
 
   picker_key(&p, &c, 'z', (int *)0);
-  n = picker_render(&p, &c, 30, 0, buf, sizeof(buf));
+  n = picker_render(&p, &c, frame_rows, 0, buf, sizeof(buf));
   CHECK(n > 0 && contains(buf, "no plugin matches"), "no-match row");
 
-  CHECK(picker_render(&p, &c, 1, 1, buf, sizeof(buf)) == 0,
-        "no room -> draws nothing");
+  CHECK(picker_render(&p, &c, 1, 1, buf, sizeof(buf)) > 0,
+        "short frame -> renders at ascii_h + 1");
 
   picker_t closed;
   nl_memset(&closed, 0, sizeof(closed));
-  CHECK(picker_render(&closed, &c, 30, 1, buf, sizeof(buf)) == 0,
+  CHECK(picker_render(&closed, &c, frame_rows, 1, buf, sizeof(buf)) == 0,
         "closed picker draws nothing");
 
   // tiny output buffer: truncated but never overrun
   char small[96];
   small[sizeof(small) - 1] = 'Z';
   picker_open(&p);
-  n = picker_render(&p, &c, 30, 1, small, 90);
-  CHECK(small[sizeof(small) - 1] == 'Z', "no write past the given size");
+  n = picker_render(&p, &c, frame_rows, 1, small, 90);
+  CHECK(small[sizeof(small) - 1] == 'Z', "no write past given size");
   (void)n;
 
-  // many plugins: window scrolls with the selection and stays bounded
+  // many plugins: window scrolls with selection and stays bounded
   plugin_catalog_t big;
   catalog_init(&big, "x", "y", (char **)0);
   for (int i = 0; i < 30; i++) {
     nl_snprintf(big.e[i].name, CATALOG_NAME_LEN, "plug%d", i);
   }
+
   big.count = 30;
   picker_open(&p);
   for (int i = 0; i < 20; i++) {
     picker_key(&p, &big, PK_KEY_DOWN, (int *)0);
   }
+
   n = picker_render(&p, &big, 40, 1, buf, sizeof(buf));
   CHECK(n > 0 && contains(buf, "plug20"), "selected row is scrolled into view");
-  CHECK(!contains(buf, "plug0 "), "rows above the window are not drawn");
+  CHECK(!contains(buf, "plug0 "), "rows above window are not drawn");
 
   char tbuf[512];
   n = toast_render("hello", 20, 1, tbuf, sizeof(tbuf));
@@ -251,7 +283,7 @@ static void test_scan(char **envp) {
   plugin_catalog_t c;
   catalog_init(&c, SRC_DIR "/", CACHE_DIR, envp);
   CHECK(catalog_supported(), "supported on Linux");
-  CHECK(catalog_scan(&c) == 1, "only the real plugin source is listed");
+  CHECK(catalog_scan(&c) == 1, "only real plugin source is listed");
   CHECK(c.count == 1 && nl_strcmp(c.e[0].name, "good") == 0, "name is stem");
   CHECK(nl_strcmp(c.e[0].src_path, SRC_DIR "/good.c") == 0,
         "trailing slash normalised");
@@ -260,13 +292,13 @@ static void test_scan(char **envp) {
   // rescan keeps indices and state, appends new files
   c.e[0].state = PC_FAILED;
   write_file(SRC_DIR "/late.c", GOOD_SRC);
-  CHECK(catalog_scan(&c) == 2, "rescan finds the new source");
+  CHECK(catalog_scan(&c) == 2, "rescan finds new source");
   CHECK(nl_strcmp(c.e[0].name, "good") == 0 && c.e[0].state == PC_FAILED,
         "known entry keeps index and state");
   CHECK(catalog_find(&c, "late") == 1 && catalog_find(&c, "nope") == -1,
         "find");
 
-  // the real filters dir lists the shipped plugins in alphabetical order
+  // filters dir lists shipped plugins in alphabetical order
   plugin_catalog_t f;
   catalog_init(&f, "filters", CACHE_DIR, envp);
   catalog_scan(&f);
@@ -277,6 +309,7 @@ static void test_scan(char **envp) {
       ok = 0;
     }
   }
+
   CHECK(ok, "initial list is alphabetical");
   CHECK(catalog_find(&f, "invert") >= 0 && catalog_find(&f, "threshold") >= 0,
         "invert and threshold present");
@@ -380,7 +413,7 @@ static void test_failure_and_cancel(char **envp) {
   CHECK(n.e[idx].state == PC_FAILED, "missing make -> failed");
   CHECK(n.e[idx].err[0] != '\0', "reason recorded");
 
-  // cancelling kills and reaps the child (a second wait finds no child)
+  // cancelling kills and reaps child (a second wait finds no child)
   rm(CACHE_DIR "/threshold.so");
   plugin_catalog_t k;
   catalog_init(&k, "filters", CACHE_DIR, envp);
