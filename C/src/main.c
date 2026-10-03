@@ -64,6 +64,41 @@ static const char *g_plugin_cache = DEFAULT_PLUGIN_CACHE;
 static volatile sig_atomic_t raw_mode_active = 0;
 static struct termios orig_terminal;
 
+// write(2) may take only part of a big frame (a signal such as SIGWINCH lands
+// mid-write, or pty is busy). A cut-off frame leaves stale rows and, with
+// colour, half an escape sequence: loop until everything is out
+static void write_all(int fd, const char *p, size_t n) {
+  while (n > 0) {
+    ssize_t w = write(fd, p, n);
+    if (w < 0) {
+      if (errno == EINTR || errno == EAGAIN) {
+        continue;
+      }
+
+      return;
+    }
+
+    p += w;
+    n -= (size_t)w;
+  }
+}
+
+// Synchronized output (DEC private mode 2026): terminals that support it show
+// whole frame at once instead of repainting half-drawn rows; others ignore
+// sequence
+#define SYNC_BEGIN "\033[?2026h"
+#define SYNC_END "\033[?2026l"
+
+// invert is a blend: at generic default of 128 (~50%) it flattens image to
+// mid-grey, so it starts fully on (as it does when run without a param)
+static int plugin_default_param(const filter_plugin_t *p) {
+  if (p && p->name && nl_strcmp(p->name, "invert") == 0) {
+    return 255;
+  }
+
+  return 128;
+}
+
 static void emergency_terminal_restore(void) {
   if (raw_mode_active) {
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_terminal);
@@ -72,7 +107,7 @@ static void emergency_terminal_restore(void) {
   // otherwise shell keeps receiving mouse reports as garbage text
   mouse_disable();
 
-  static const char SHOW_CURSOR[] = "\033[?25h\033[0m\n";
+  static const char SHOW_CURSOR[] = SYNC_END "\033[?25h\033[0m\n";
   (void)write(STDOUT_FILENO, SHOW_CURSOR, sizeof(SHOW_CURSOR) - 1);
 }
 
@@ -643,6 +678,7 @@ static int plugin_slot_add(plugin_loader_t *plugins, int *params, int *cat,
 
   if (plugin_load(&plugins[i], path) != 0) {
     nl_snprintf(err, errsz, "%s", plugins[i].status_msg);
+
     plugin_cleanup(&plugins[i]);
 
     return -1;
@@ -897,6 +933,7 @@ int main(int argc, char *argv[]) {
     // plugin_params[i] = 128; // default
     //
     // if (plugin_load(&plugins[i], plugin_paths[i]) == 0) {
+    //   plugin_params[i] = plugin_default_param(plugins[i].plugin);
     //   plugin_watch_init(&plugins[i], plugin_paths[i]);
     //   plugin_count++;
     // } else {
@@ -1265,7 +1302,7 @@ int main(int argc, char *argv[]) {
       case 'r':
       case 'R':
         if (pp) {
-          *pp = 128;
+          *pp = plugin_default_param(plugins[selected].plugin);
         }
 
         break;
@@ -1470,13 +1507,16 @@ int main(int argc, char *argv[]) {
     }
 
     if (len > 0) {
-      (void)write(STDOUT_FILENO, out_buf, (size_t)len);
+      write_all(STDOUT_FILENO, SYNC_BEGIN, sizeof(SYNC_BEGIN) - 1);
+      write_all(STDOUT_FILENO, out_buf, (size_t)len);
 
       overlay_panel(ascii_h, current_fps, plugins, plugin_params, plugin_count,
                     selected, opts.color, &opts, &charsets, hw_exposure,
                     hw_contrast, hw_wb, cam.width, cam.height, preview_w,
                     preview_h, ascii_w, ascii_size_manual);
       draw_corner_indicator(ascii_w, ascii_h, opts.color, &mouse_drag);
+
+      write_all(STDOUT_FILENO, SYNC_END, sizeof(SYNC_END) - 1);
 
       // Picker box, or a toast / build indicator, over bottom frame rows
       char ovl[2048];
@@ -1528,7 +1568,7 @@ int main(int argc, char *argv[]) {
   mouse_disable();
   term_restore();
   // \033[2J = erase screen, \033[H = cursor home, \033[?25h = show cursor
-  static const char CLEANUP[] = "\033[2J\033[H\033[0m\033[?25h";
+  static const char CLEANUP[] = SYNC_END "\033[2J\033[H\033[0m\033[?25h";
   (void)write(STDOUT_FILENO, CLEANUP, sizeof(CLEANUP) - 1);
 
   fprintf(stderr, "Stopped.\n");

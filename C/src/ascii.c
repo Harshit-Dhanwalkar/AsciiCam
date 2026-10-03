@@ -477,6 +477,20 @@ const char *edge_mode_name(edge_mode_t m) {
   }
 }
 
+// Per-channel version of gray adjustments in grayscale_to_ascii
+// (contrast around 128, brightness, optional gamma LUT)
+static inline uint8_t adjust_chan(int v, int contrast, int brightness,
+                                  const uint8_t *gamma_lut) {
+  if (contrast != 100) {
+    v = 128 + (v - 128) * contrast / 100;
+  }
+
+  v += brightness;
+  uint8_t c = clamp_u8(v);
+
+  return gamma_lut ? gamma_lut[c] : c;
+}
+
 static int emit_glyph(char *out, size_t out_size, int out_idx,
                       const char *glyph, int do_color, color_mode_t cmode,
                       int r, int g, int b) {
@@ -632,6 +646,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
           tg += gray[sy * src_w + sx];
           if (do_color) {
             const uint8_t *px = rgb + (sy * src_w + sx) * 3;
+
             tr += px[0];
             tgv += px[1];
             tb += px[2];
@@ -660,10 +675,11 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
 
       if (do_color) {
         uint8_t *op = subpixel_rgb + (y * safe_dst_w + x) * 3;
+        const uint8_t *glut = (gamma != 100) ? gamma_lut : NULL;
 
-        op[0] = clamp_u8((int)(tr / count));
-        op[1] = clamp_u8((int)(tgv / count));
-        op[2] = clamp_u8((int)(tb / count));
+        op[0] = adjust_chan((int)(tr / count), contrast, brightness, glut);
+        op[1] = adjust_chan((int)(tgv / count), contrast, brightness, glut);
+        op[2] = adjust_chan((int)(tb / count), contrast, brightness, glut);
       }
     }
   }
@@ -825,10 +841,12 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
         if (do_color) {
           const uint8_t *tp = subpixel_rgb + top_idx * 3;
           const uint8_t *bp = subpixel_rgb + bot_idx * 3;
+
           int written;
           if (color_mode == COLOR_256) {
             int fg = rgb_to_ansi256(tp[0], tp[1], tp[2]);
             int bg = rgb_to_ansi256(bp[0], bp[1], bp[2]);
+
             written = nl_snprintf(out + out_idx, out_size - (size_t)out_idx,
                                   "\033[38;5;%dm\033[48;5;%dm%s", fg, bg,
                                   HALF_BLOCK_UTF8);
@@ -864,8 +882,9 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
           out_idx += written;
         }
       } else {
-        if ((size_t)(out_idx + 1) < out_size)
+        if ((size_t)(out_idx + 1) < out_size) {
           out[out_idx++] = '\n';
+        }
       }
     }
 
