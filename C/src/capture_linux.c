@@ -11,18 +11,53 @@
 
 typedef struct webcam_impl webcam_impl_t;
 
+// Few buffers so driver always has somewhere to write while converting and
+// render one being held; capture_frame drains to newest
+#define NBUFS 4
+
 struct webcam_impl {
-  struct v4l2_buffer buf_info;
+  struct v4l2_buffer buf_info; // buffer currently dequeued by capture_frame
+  void *maps[NBUFS];
+  uint32_t lens[NBUFS];
+  int nbufs;
   int auto_exposure_disabled;
   int auto_wb_disabled;
+  int ae_prio_changed; // cleared AUTO_PRIORITY, restore it on cleanup
+  int ae_prio_saved;
 };
 
 static webcam_impl_t _impl_storage;
+
+static int v4l2_get_value(int fd, unsigned int id, int *value);
+static int v4l2_set_value(int fd, unsigned int id, int value);
+
+static void unmap_all(webcam_impl_t *im) {
+  for (int i = 0; i < im->nbufs; i++) {
+    if (im->maps[i] && im->maps[i] != MAP_FAILED) {
+      munmap(im->maps[i], im->lens[i]);
+    }
+
+    im->maps[i] = (void *)0;
+  }
+
+  im->nbufs = 0;
+}
+
+static int init_fail(webcam_t *cam) {
+  unmap_all(cam->impl);
+  close(cam->fd);
+
+  cam->fd = -1;
+  cam->buffer = MAP_FAILED;
+
+  return -1;
+}
 
 int webcam_init(webcam_t *cam, const char *device, int width, int height) {
   nl_memset(&_impl_storage, 0, sizeof(_impl_storage));
   cam->impl = &_impl_storage;
   cam->buffer = MAP_FAILED;
+  cam->stride = 0;
 
   // Open device non-blocking (for select)
   cam->fd = open(device ? device : "/dev/video0", O_RDWR | O_NONBLOCK, 0);
@@ -38,59 +73,76 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
   fmt.fmt.pix.field = V4L2_FIELD_NONE;
 
   if (ioctl(cam->fd, VIDIOC_S_FMT, &fmt) < 0) {
-    close(cam->fd);
+    return init_fail(cam);
+  }
 
-    return -1;
+  // S_FMT may silently substitute another format; everything downstream
+  // (gray, rgb) assumes packed YUYV, so refuse anything else
+  if (fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_YUYV) {
+    errno = 22; // EINVAL
+
+    return init_fail(cam);
+  }
+
+  // Rows may be padded: honour bytesperline instead of assuming width * 2
+  cam->stride = (int)fmt.fmt.pix.bytesperline;
+  if (cam->stride < cam->width * 2) {
+    cam->stride = cam->width * 2;
   }
 
   cam->width = (int)fmt.fmt.pix.width;
   cam->height = (int)fmt.fmt.pix.height;
 
   struct v4l2_requestbuffers req = {0};
-  req.count = 1;
+  req.count = NBUFS;
   req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   req.memory = V4L2_MEMORY_MMAP;
 
-  if (ioctl(cam->fd, VIDIOC_REQBUFS, &req) < 0) {
-    close(cam->fd);
-
-    return -1;
+  if (ioctl(cam->fd, VIDIOC_REQBUFS, &req) < 0 || req.count < 1) {
+    return init_fail(cam);
   }
 
-  struct v4l2_buffer buf = {0};
-  buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-  buf.memory = V4L2_MEMORY_MMAP;
-  buf.index = 0;
+  int want = (req.count > NBUFS) ? NBUFS : (int)req.count;
+  for (int i = 0; i < want; i++) {
+    struct v4l2_buffer buf = {0};
+    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buf.memory = V4L2_MEMORY_MMAP;
+    buf.index = (uint32_t)i;
 
-  if (ioctl(cam->fd, VIDIOC_QUERYBUF, &buf) < 0) {
-    close(cam->fd);
+    if (ioctl(cam->fd, VIDIOC_QUERYBUF, &buf) < 0) {
+      return init_fail(cam);
+    }
 
-    return -1;
-  }
+    void *m = mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED,
+                   cam->fd, (long)buf.m.offset);
+    if (m == MAP_FAILED) {
+      return init_fail(cam);
+    }
 
-  cam->buffer = mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED,
-                     cam->fd, (long)buf.m.offset);
-  if (cam->buffer == MAP_FAILED) {
-    close(cam->fd);
+    cam->impl->maps[i] = m;
+    cam->impl->lens[i] = buf.length;
+    cam->impl->nbufs = i + 1;
 
-    return -1;
-  }
-
-  cam->impl->buf_info = buf;
-
-  if (ioctl(cam->fd, VIDIOC_QBUF, &buf) < 0) {
-    munmap(cam->buffer, buf.length);
-    close(cam->fd);
-
-    return -1;
+    if (ioctl(cam->fd, VIDIOC_QBUF, &buf) < 0) {
+      return init_fail(cam);
+    }
   }
 
   enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if (ioctl(cam->fd, VIDIOC_STREAMON, &type) < 0) {
-    munmap(cam->buffer, buf.length);
-    close(cam->fd);
+    return init_fail(cam);
+  }
 
-    return -1;
+  // NOTE: In auto-exposure many UVC cameras trade frame rate for exposure
+  // time when it is dim: 30 fps silently becomes ~7 fps with long, smeary
+  // exposures Ask for a constant frame rate instead; previous value is put
+  // back in webcam_cleanup so other apps are not affected
+  int prio;
+  if (v4l2_get_value(cam->fd, V4L2_CID_EXPOSURE_AUTO_PRIORITY, &prio) == 0 &&
+      prio != 0 &&
+      v4l2_set_value(cam->fd, V4L2_CID_EXPOSURE_AUTO_PRIORITY, 0) == 0) {
+    cam->impl->ae_prio_saved = prio;
+    cam->impl->ae_prio_changed = 1;
   }
 
   return 0;
@@ -99,8 +151,10 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
 int webcam_wait_frame(const webcam_t *cam, int timeout_ms) {
   nl_fd_set fds;
   struct nl_timeval tv;
+
   NL_FD_ZERO(&fds);
   NL_FD_SET(cam->fd, &fds);
+
   tv.tv_sec = timeout_ms / 1000;
   tv.tv_usec = (long)(timeout_ms % 1000) * 1000L;
 
@@ -109,16 +163,56 @@ int webcam_wait_frame(const webcam_t *cam, int timeout_ms) {
   return (ret <= 0) ? -1 : 0;
 }
 
+static int dq(const webcam_t *cam, struct v4l2_buffer *buf) {
+  nl_memset(buf, 0, sizeof(*buf));
+
+  buf->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  buf->memory = V4L2_MEMORY_MMAP;
+
+  return ioctl(cam->fd, VIDIOC_DQBUF, buf);
+}
+
 int webcam_capture_frame(webcam_t *cam, uint8_t *gray_buffer) {
-  struct v4l2_buffer buf = cam->impl->buf_info;
-  if (ioctl(cam->fd, VIDIOC_DQBUF, &buf) < 0) {
+  webcam_impl_t *im = cam->impl;
+
+  struct v4l2_buffer buf;
+  if (dq(cam, &buf) < 0) {
     return -1;
   }
 
-  yuyv_to_gray_simd((uint8_t *)cam->buffer, gray_buffer, cam->width,
-                    cam->height);
+  struct v4l2_buffer newer;
+  while (dq(cam, &newer) == 0) {
+    ioctl(cam->fd, VIDIOC_QBUF, &buf);
+    buf = newer;
+  }
 
-  cam->impl->buf_info = buf;
+  if (buf.index >= (uint32_t)im->nbufs) {
+    ioctl(cam->fd, VIDIOC_QBUF, &buf);
+
+    return -1;
+  }
+
+  uint32_t full = (uint32_t)cam->stride * (uint32_t)cam->height;
+  if ((buf.flags & V4L2_BUF_FLAG_ERROR) ||
+      (buf.bytesused != 0 && buf.bytesused < full)) {
+    ioctl(cam->fd, VIDIOC_QBUF, &buf);
+
+    return 1;
+  }
+
+  im->buf_info = buf;
+  cam->buffer = im->maps[buf.index];
+
+  const uint8_t *src = (const uint8_t *)cam->buffer;
+  if (cam->stride == cam->width * 2) {
+    yuyv_to_gray_simd(src, gray_buffer, cam->width, cam->height);
+  } else {
+    for (int y = 0; y < cam->height; y++) {
+      yuyv_to_gray_simd(src + (size_t)y * (size_t)cam->stride,
+                        gray_buffer + (size_t)y * (size_t)cam->width,
+                        cam->width, 1);
+    }
+  }
 
   return 0;
 }
@@ -129,10 +223,15 @@ int webcam_requeue_buffer(webcam_t *cam) {
 
 void webcam_cleanup(webcam_t *cam) {
   if (cam->fd >= 0) {
+    if (cam->impl && cam->impl->ae_prio_changed) {
+      v4l2_set_value(cam->fd, V4L2_CID_EXPOSURE_AUTO_PRIORITY,
+                     cam->impl->ae_prio_saved);
+    }
+
     enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     ioctl(cam->fd, VIDIOC_STREAMOFF, &type);
-    if (cam->buffer != MAP_FAILED) {
-      munmap(cam->buffer, cam->impl->buf_info.length);
+    if (cam->impl) {
+      unmap_all(cam->impl);
     }
 
     close(cam->fd);

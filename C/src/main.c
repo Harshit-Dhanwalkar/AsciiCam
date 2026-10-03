@@ -1409,10 +1409,15 @@ int main(int argc, char *argv[]) {
       continue; // timeout, retry
     }
 
-    if (webcam_capture_frame(&cam, gray) < 0) {
+    int cap = webcam_capture_frame(&cam, gray);
+    if (cap < 0) {
       nl_perror("capture_frame");
 
       break;
+    }
+
+    if (cap > 0) {
+      continue; // corrupt frame dropped, its buffer is already requeued
     }
 
     // Run all plugins in order
@@ -1427,8 +1432,12 @@ int main(int argc, char *argv[]) {
     // On macOS, capture_macos.c delivers luma only; cam.buffer is NULL
     // TODO: Add color support for macOS
     // Color mode is therefore a Linux-only feature for now
+    // gray already went through the plugins, so use it as Y: shapes and colour
+    // then come from the same image (U/V are still the camera's)
+
     if (opts.color && rgb && cam.buffer && cam.buffer != MAP_FAILED) {
-      yuyv_to_rgb((const uint8_t *)cam.buffer, rgb, cam.width, cam.height);
+      yuyv_to_rgb_ex((const uint8_t *)cam.buffer, cam.stride, gray, rgb,
+                     cam.width, cam.height);
     }
 
     // Calculate proper subpixel dimensions

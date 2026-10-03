@@ -27,8 +27,13 @@ void *capture_thread(void *arg) {
     }
 
     // Capture into inactive frame buffer slot
-    if (webcam_capture_frame(&cam, sf->buf[write_idx]) < 0) {
+    int cap = webcam_capture_frame(&cam, sf->buf[write_idx]);
+    if (cap < 0) {
       break;
+    }
+
+    if (cap > 0) {
+      continue; // corrupt frame dropped, buffer already requeued
     }
 
     webcam_requeue_buffer(&cam);

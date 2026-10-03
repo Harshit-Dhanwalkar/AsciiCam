@@ -9,7 +9,8 @@ typedef struct {
   int fd; // Linux: V4L2 fd. macOS: -1 (unused externally)
   int width;
   int height;
-  void *buffer;
+  void *buffer; // Linux: mmap of buffer returned by last capture_frame
+  int stride;   // bytes per row of `buffer` (YUYV); 0 means width * 2
   webcam_impl_t *impl;
 } webcam_t;
 
@@ -22,6 +23,10 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height);
 int webcam_wait_frame(const webcam_t *cam, int timeout_ms);
 
 // Capture frame, dequeue buffer, fill grayscale output buffer
+//   0   success: gray_buffer holds a frame, caller must requeue buffer
+//   1   a corrupt/partial frame was discarded and its buffer already returned
+//       to driver: nothing to render, do NOT requeue
+//  -1   error
 int webcam_capture_frame(webcam_t *cam, uint8_t *gray_buffer);
 
 // Re‑queue buffer

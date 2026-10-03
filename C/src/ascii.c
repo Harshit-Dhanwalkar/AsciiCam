@@ -143,24 +143,39 @@ void yuyv_to_gray_simd(const uint8_t *yuyv, uint8_t *gray, int width,
 }
 #endif
 
-void yuyv_to_rgb(const uint8_t *yuyv, uint8_t *rgb, int width, int height) {
-  int pairs = (width * height) / 2;
-  for (int i = 0; i < pairs; i++) {
-    int y0 = yuyv[i * 4 + 0];
-    int u = yuyv[i * 4 + 1];
-    int y1 = yuyv[i * 4 + 2];
-    int v = yuyv[i * 4 + 3];
-    int d = u - 128;
-    int e = v - 128;
-    for (int p = 0; p < 2; p++) {
-      int c = ((p == 0) ? y0 : y1) - 16;
-      uint8_t *px = rgb + (i * 2 + p) * 3;
+void yuyv_to_rgb_ex(const uint8_t *yuyv, int stride, const uint8_t *luma,
+                    uint8_t *rgb, int width, int height) {
+  if (stride < width * 2) {
+    stride = width * 2;
+  }
 
-      px[0] = clamp_u8((298 * c + 409 * e + 128) >> 8);
-      px[1] = clamp_u8((298 * c - 100 * d - 208 * e + 128) >> 8);
-      px[2] = clamp_u8((298 * c + 516 * d + 128) >> 8);
+  int pairs = width / 2;
+  for (int y = 0; y < height; y++) {
+    const uint8_t *row = yuyv + (size_t)y * (size_t)stride;
+    const uint8_t *lrow = luma ? luma + (size_t)y * (size_t)width : NULL;
+    uint8_t *out = rgb + (size_t)y * (size_t)width * 3;
+
+    for (int i = 0; i < pairs; i++) {
+      int y0 = lrow ? lrow[i * 2] : row[i * 4 + 0];
+      int u = row[i * 4 + 1];
+      int y1 = lrow ? lrow[i * 2 + 1] : row[i * 4 + 2];
+      int v = row[i * 4 + 3];
+      int d = u - 128;
+      int e = v - 128;
+      for (int p = 0; p < 2; p++) {
+        int c = ((p == 0) ? y0 : y1) - 16;
+        uint8_t *px = out + (i * 2 + p) * 3;
+
+        px[0] = clamp_u8((298 * c + 409 * e + 128) >> 8);
+        px[1] = clamp_u8((298 * c - 100 * d - 208 * e + 128) >> 8);
+        px[2] = clamp_u8((298 * c + 516 * d + 128) >> 8);
+      }
     }
   }
+}
+
+void yuyv_to_rgb(const uint8_t *yuyv, uint8_t *rgb, int width, int height) {
+  yuyv_to_rgb_ex(yuyv, width * 2, NULL, rgb, width, height);
 }
 
 // Buffer sizing for multi-byte UTF-8 Braille (3 bytes per block) + color codes

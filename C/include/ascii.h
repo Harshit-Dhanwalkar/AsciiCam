@@ -3,7 +3,6 @@
 
 #include "nolibc.h"
 
-
 #define ASCII_CHARS_DEFAULT " .:-=+*#%@"
 #define MAX_CHARSETS 16
 #define CHARSET_NAME_LEN 32
@@ -90,6 +89,12 @@ void yuyv_to_gray(const uint8_t *yuyv, uint8_t *gray, int width, int height);
 void yuyv_to_gray_simd(const uint8_t *yuyv, uint8_t *gray, int width,
                        int height);
 void yuyv_to_rgb(const uint8_t *yuyv, uint8_t *rgb, int width, int height);
+
+// Stride-aware YUYV -> RGB. `luma` (width*height bytes, may be NULL) replaces Y
+// of every pixel while U/V still come from `yuyv`, so colour follows whatever
+// plugins did to grayscale frame
+void yuyv_to_rgb_ex(const uint8_t *yuyv, int stride, const uint8_t *luma,
+                    uint8_t *rgb, int width, int height);
 
 // Output buffer sizing
 size_t ascii_out_size(int dst_w, int dst_h, int color);
