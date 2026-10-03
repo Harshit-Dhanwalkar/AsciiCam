@@ -965,8 +965,8 @@ int main(int argc, char *argv[]) {
 
   // Pixel buffers allocation
   int cam_pixels = cam.width * cam.height;
-  uint8_t *gray = nl_malloc(cam_pixels);
-  uint8_t *rgb = opts.color ? malloc(cam_pixels * 3) : NULL;
+  uint8_t *gray = nl_malloc(cam_pixels + 16); // + canary
+  uint8_t *rgb = opts.color ? nl_malloc(cam_pixels * 3) : NULL;
 
   if (!gray || (opts.color && !rgb)) {
     nl_perror("malloc pixel buffers");

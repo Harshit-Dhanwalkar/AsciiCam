@@ -141,7 +141,7 @@ static int pc_list_c_files(const char *dir, char names[][PC_FILE_LEN],
     }
 
     for (long off = 0; off < n;) {
-      struct nl_dirent64 *d = (struct nl_dirent64 *)(dbuf + off);
+      const struct nl_dirent64 *d = (struct nl_dirent64 *)(dbuf + off);
       off += d->d_reclen;
 
       size_t len = nl_strlen(d->d_name);
