@@ -123,7 +123,7 @@ static void put_cell(char *buf, size_t size, size_t *pos, const char *s,
       buf[(*pos)++] = s[i];
     }
   }
-  for (; i < width && s[i]; i++) {
+  for (; i < width; i++) {
     if (*pos + 1 < size) {
       buf[(*pos)++] = ' ';
     }

@@ -223,6 +223,31 @@ jobs:
             /tmp/t_catalog
           done
 
+      - name: Plugin catalog tests (macOS)
+        if: matrix.platform == 'macos'
+        continue-on-error: true
+        working-directory: C
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ matrix.cc }} -Wall -Wextra -O1 -Iinclude -Ilib -DPLATFORM_MACOS \
+            tests/test_plugin_catalog.c src/plugin_catalog.c src/plugin_picker.c src/plugins.c \
+            -o /tmp/t_catalog
+          /tmp/t_catalog
+
+      - name: Plugin catalog tests (Windows)
+        if: matrix.platform == 'windows'
+        continue-on-error: true
+        working-directory: C
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ matrix.cc }} -Wall -Wextra -O1 -Iinclude -Ilib -DPLATFORM_WINDOWS -DWIN32_LEAN_AND_MEAN \
+            -D__USE_MINGW_ANSI_STDIO=1 \
+            tests/test_plugin_catalog.c src/plugin_catalog.c src/plugin_picker.c src/plugins.c \
+            -o t_catalog.exe -lwinpthread
+          ./t_catalog.exe
+
       - name: Smoke test --help (Windows)
         if: matrix.platform == 'windows'
         working-directory: C

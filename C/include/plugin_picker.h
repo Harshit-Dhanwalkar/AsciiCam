@@ -11,7 +11,7 @@
 
 #define PICKER_QUERY_MAX 32
 #define PICKER_MAX_ROWS 8
-#define PICKER_HEIGHT 32
+#define PICKER_HEIGHT (PICKER_MAX_ROWS + 1) // header + rows
 
 #define PK_KEY_UP (-1)
 #define PK_KEY_DOWN (-2)

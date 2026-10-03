@@ -9,8 +9,11 @@
  * for it: a build runs as a child process (`make` on existing plugin rule) so
  * render loop never blocks
  *
- * WARN: Only for Linux: other platforms get an empty catalog and
- * catalog_start_build() fails with a message
+ * Platform layer (src/plugin_catalog.c), five small primitives:
+ *   Linux nolibc  raw getdents64 / fork / execve / wait4
+ *   macOS         opendir / posix_spawnp / waitpid (system libc)
+ *   Windows       FindFirstFileA / CreateProcessA / WaitForSingleObject
+ * Built file is .so, .dylib or .dll depending on platform
  */
 
 #include "nl_types.h"
@@ -20,12 +23,15 @@
 #define CATALOG_PATH_LEN 256
 #define CATALOG_ERR_LEN 96
 
+// Build child: a pid on POSIX, a process HANDLE on Windows (64-bit wide)
+typedef long long pc_proc_t;
+
 typedef enum {
   PC_AVAILABLE = 0, // source found, never built this session, no .so cached
-  PC_READY,         // a built .so exists in the cache dir
+  PC_READY,         // a built .so exists in cache dir
   PC_COMPILING,     // build child running
   PC_FAILED,        // last build failed (see err)
-  PC_ACTIVE         // loaded and running in the filter chain
+  PC_ACTIVE         // loaded and running in filter chain
 } pc_state_t;
 
 typedef struct {
@@ -34,9 +40,9 @@ typedef struct {
   char so_path[CATALOG_PATH_LEN];
   char log_path[CATALOG_PATH_LEN];
   pc_state_t state;
-  long pid;                  // build child, valid while PC_COMPILING
-  int want_load;             // load as soon as the build succeeds
-  char err[CATALOG_ERR_LEN]; // first error line of the last failed build
+  pc_proc_t pid;             // build child, valid while PC_COMPILING
+  int want_load;             // load as soon as build succeeds
+  char err[CATALOG_ERR_LEN]; // first error line of last failed build
 } catalog_entry_t;
 
 typedef struct {
@@ -44,20 +50,22 @@ typedef struct {
   int count;
   char src_dir[CATALOG_PATH_LEN];
   char cache_dir[CATALOG_PATH_LEN];
-  char **envp; // environment for build children (NULL = empty)
+  char **envp; // build child environment: NULL = empty on Linux nolibc,
+               // inherited on macOS/Windows
 } plugin_catalog_t;
 
-// 1 if this platform can build plugins at runtime, 0 otherwise
+// 1 if this platform can build plugins at runtime, 0 otherwise (currently
+// always 1; kept so callers don't have to know)
 int catalog_supported(void);
 
 void catalog_init(plugin_catalog_t *c, const char *src_dir,
                   const char *cache_dir, char **envp);
 
 // (Re)scan src_dir. New sources are appended in alphabetical order; known
-// entries keep their state and index. Returns the number of entries
+// entries keep their state and index. Returns number of entries
 int catalog_scan(plugin_catalog_t *c);
 
-// Index of the entry called name, or -1
+// Index of entry called name, or -1
 int catalog_find(const plugin_catalog_t *c, const char *name);
 
 // Start a non-blocking build. 0 on success (or when already running/active),

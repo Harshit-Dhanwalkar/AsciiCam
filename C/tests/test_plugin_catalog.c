@@ -9,7 +9,23 @@
  *   gcc $FLAGS tests/test_plugin_catalog.c src/plugin_catalog.c \
  *     src/plugin_picker.c src/plugins.c lib/nl_dlfcn.c $LIBS -o /tmp/t_cat
  *   /tmp/t_cat
+ *
+ * Also builds against system libc (macOS, Windows, or a Linux host to exercise
+ * POSIX code path; there pass -DPLATFORM_MACOS -DPC_SO_EXT=\"so\" so Makefile's
+ * real extension is used)
  */
+
+#include "platform.h"
+
+#if !defined(__LINUX_NOLIBC__) && !defined(PLATFORM_WINDOWS)
+#include <signal.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
 #include "../lib/nolibc.h"
 
 #include "plugin_catalog.h"
@@ -29,21 +45,63 @@ static int fails, total;
 #define SRC_DIR ".cache/test_src"
 #define CACHE_DIR ".cache/test_plugins"
 
+#ifndef O_BINARY
+#define O_BINARY 0
+#endif
+
+static void t_mkdir(const char *path) {
+#if defined(__LINUX_NOLIBC__)
+  __sc2(SYS_mkdir, (long)path, 0755);
+#elif defined(PLATFORM_WINDOWS)
+  CreateDirectoryA(path, NULL);
+#else
+  mkdir(path, 0755);
+#endif
+}
+
 static void mkdirs(void) {
-  __sc2(SYS_mkdir, (long)".cache", 0755);
-  __sc2(SYS_mkdir, (long)SRC_DIR, 0755);
-  __sc2(SYS_mkdir, (long)CACHE_DIR, 0755);
+  t_mkdir(".cache");
+  t_mkdir(SRC_DIR);
+  t_mkdir(CACHE_DIR);
 }
 
 static void write_file(const char *path, const char *text) {
-  int fd = nl_open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0644);
   if (fd >= 0) {
-    nl_write(fd, text, nl_strlen(text));
-    nl_close(fd);
+    ssize_t wn = write(fd, text, nl_strlen(text));
+    (void)wn;
+
+    close(fd);
   }
 }
 
-static void rm(const char *path) { nl_unlink(path); }
+static void rm(const char *path) { unlink(path); }
+
+#if !defined(__LINUX_NOLIBC__)
+// Make `make` unfindable (restore with t_restore_path)
+static char saved_path[2048];
+
+static void t_hide_make(void) {
+#if defined(PLATFORM_WINDOWS)
+  GetEnvironmentVariableA("PATH", saved_path, sizeof(saved_path));
+  SetEnvironmentVariableA("PATH", "C:\\nonexistent");
+#else
+  const char *p = getenv("PATH");
+  nl_strncpy_safe(saved_path, p ? p : "", sizeof(saved_path));
+  setenv("PATH", "/nonexistent", 1);
+#endif
+}
+
+static void t_restore_path(void) {
+#if defined(PLATFORM_WINDOWS)
+  SetEnvironmentVariableA("PATH", saved_path);
+#else
+  setenv("PATH", saved_path, 1);
+#endif
+}
+#else
+static void t_restore_path(void) {}
+#endif
 
 static int contains(const char *hay, const char *needle) {
   size_t n = nl_strlen(needle);
@@ -403,13 +461,27 @@ static void test_failure_and_cancel(char **envp) {
   CHECK(c.e[idx].pid == 0, "pid cleared");
 
   // no make on PATH: report it instead of hanging or claiming success
+  // Linux nolibc build resolves make through the envp it is given; libc
+  // platforms through this process's own PATH
   char *noenv[] = {"PATH=/nonexistent", (char *)0};
   plugin_catalog_t n;
+#if defined(__LINUX_NOLIBC__)
   catalog_init(&n, SRC_DIR, CACHE_DIR, noenv);
+#else
+  (void)noenv;
+  t_hide_make();
+  catalog_init(&n, SRC_DIR, CACHE_DIR, (char **)0);
+#endif
+
   catalog_scan(&n);
   idx = catalog_find(&n, "broken");
-  CHECK(catalog_start_build(&n, idx) == 0, "spawn itself succeeds");
-  CHECK(wait_build(&n, idx, 10), "finishes");
+  int rc = catalog_start_build(&n, idx);
+  if (rc == 0) {
+    CHECK(wait_build(&n, idx, 10), "finishes");
+  }
+
+  t_restore_path();
+
   CHECK(n.e[idx].state == PC_FAILED, "missing make -> failed");
   CHECK(n.e[idx].err[0] != '\0', "reason recorded");
 
@@ -420,18 +492,35 @@ static void test_failure_and_cancel(char **envp) {
   catalog_scan(&k);
   int ti = catalog_find(&k, "threshold");
   CHECK(catalog_start_build(&k, ti) == 0, "build starts");
-  long pid = k.e[ti].pid;
+  pc_proc_t pid = k.e[ti].pid;
+
   catalog_cleanup(&k);
+
   CHECK(k.e[ti].state == PC_FAILED && k.e[ti].pid == 0, "cancelled");
+
+#if defined(__LINUX_NOLIBC__)
   int status;
-  long r = __sc4(SYS_wait4, pid, (long)&status, 1, 0);
+  long r = __sc4(SYS_wait4, (long)pid, (long)&status, 1, 0);
   CHECK(r < 0, "child was reaped (no zombie left)");
+#elif !defined(PLATFORM_WINDOWS)
+  int status;
+  CHECK(waitpid((pid_t)pid, &status, WNOHANG) < 0,
+        "child was reaped (no zombie left)");
+#else
+  (void)pid;
+#endif
 
   rm(SRC_DIR "/broken.c");
 }
 
 int main(int argc, char **argv) {
+#if defined(__LINUX_NOLIBC__)
   char **envp = argv + argc + 1;
+#else
+  char **envp = (char **)0; // build children inherit our environment
+  (void)argc;
+  (void)argv;
+#endif
 
   test_match();
   test_picker_keys();

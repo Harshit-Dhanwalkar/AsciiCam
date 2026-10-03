@@ -5,17 +5,23 @@
 #include "nl_dlfcn.h"
 #include "nl_inotify.h"
 
+// Windows opens files in text mode by default, which would mangle a DLL copied
+// byte by byte (CRLF translation, ^Z treated as EOF)
+#ifndef O_BINARY
+#define O_BINARY 0
+#endif
+
 int plugin_log_stderr = 1;
 
 static int copy_file(const char *src, const char *dst) {
-  int fd_src = open(src, O_RDONLY);
+  int fd_src = open(src, O_RDONLY | O_BINARY);
   if (fd_src < 0) {
     nl_perror("[plugin] open src");
 
     return -1;
   }
 
-  int fd_dst = open(dst, O_WRONLY | O_CREAT | O_TRUNC, 0755);
+  int fd_dst = open(dst, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0755);
   if (fd_dst < 0) {
     nl_perror("[plugin] open dst");
     close(fd_src);
