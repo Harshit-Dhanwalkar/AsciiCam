@@ -419,15 +419,16 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
   } else if (color) {
     n = nl_snprintf(buf, sizeof(buf),
                     "\033[%d;1H\033[38;2;0;220;0m\033[48;2;18;18;18m"
-                    " FPS: %s  │  ↑↓ select  [ ] ±1  { } ±10  r reset  q quit "
-                    " │  frame: %dx%d%s  cap: %dx%d  ◢ drag"
+                    " FPS: %s  │  / catalog  ↑↓ select  [ ] ±1  { } ±10  "
+                    "r reset  q quit  │  frame: %dx%d%s  cap: %dx%d  ◢ drag"
                     "\033[0m\033[K",
                     base_row, fpsbuf, ascii_w_now, ascii_h,
                     ascii_size_manual ? " [manual]" : "", cap_w, cap_h);
   } else {
     n = nl_snprintf(buf, sizeof(buf),
-                    "\033[%d;1H FPS: %s  |  up/dn select  [ ] +-1  { } +-10  "
-                    "r reset  q quit  |  frame: %dx%d%s  cap: %dx%d  drag +"
+                    "\033[%d;1H FPS: %s  |  / catalog  up/dn select  "
+                    "[ ] +-1  { } +-10  r reset  q quit  |  frame: %dx%d%s  "
+                    "cap: %dx%d  drag +"
                     "\033[K",
                     base_row, fpsbuf, ascii_w_now, ascii_h,
                     ascii_size_manual ? " [manual]" : "", cap_w, cap_h);
