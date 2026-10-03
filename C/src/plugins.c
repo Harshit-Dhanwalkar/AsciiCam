@@ -5,15 +5,23 @@
 #include "nl_dlfcn.h"
 #include "nl_inotify.h"
 
+// Windows opens files in text mode by default, which would mangle a DLL copied
+// byte by byte (CRLF translation, ^Z treated as EOF)
+#ifndef O_BINARY
+#define O_BINARY 0
+#endif
+
+int plugin_log_stderr = 1;
+
 static int copy_file(const char *src, const char *dst) {
-  int fd_src = open(src, O_RDONLY);
+  int fd_src = open(src, O_RDONLY | O_BINARY);
   if (fd_src < 0) {
     nl_perror("[plugin] open src");
 
     return -1;
   }
 
-  int fd_dst = open(dst, O_WRONLY | O_CREAT | O_TRUNC, 0755);
+  int fd_dst = open(dst, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0755);
   if (fd_dst < 0) {
     nl_perror("[plugin] open dst");
     close(fd_src);
@@ -55,10 +63,15 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
   }
 
   nl_snprintf(pl->tmp_path, sizeof(pl->tmp_path), "%s.%ld.tmp", path,
-           (long)time(NULL));
+              (long)time(NULL));
 
   if (copy_file(path, pl->tmp_path) < 0) {
-    fprintf(stderr, "[plugin] could not copy %s -> %s\n", path, pl->tmp_path);
+    if (plugin_log_stderr) {
+      fprintf(stderr, "[plugin] could not copy %s to %s\n", path, pl->tmp_path);
+    }
+
+    nl_snprintf(pl->status_msg, sizeof(pl->status_msg), "could not copy %s",
+                path);
     pl->tmp_path[0] = '\0';
 
     return -1;
@@ -67,6 +80,7 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
   pl->dl_handle = dlopen(pl->tmp_path, RTLD_NOW | RTLD_LOCAL);
   if (!pl->dl_handle) {
     fprintf(stderr, "[plugin] dlopen: %s\n", dlerror());
+
     unlink(pl->tmp_path);
     pl->tmp_path[0] = '\0';
 
@@ -75,7 +89,13 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
 
   filter_plugin_t *(*get_plugin)(void) = dlsym(pl->dl_handle, "plugin_get");
   if (!get_plugin) {
-    fprintf(stderr, "[plugin] dlsym plugin_get: %s\n", dlerror());
+    const char *serr = dlerror();
+    if (plugin_log_stderr) {
+      fprintf(stderr, "[plugin] dlsym plugin_get: %s\n", serr);
+    }
+
+    nl_snprintf(pl->status_msg, sizeof(pl->status_msg), "no plugin_get: %s",
+                serr);
 
     dlclose(pl->dl_handle);
     pl->dl_handle = NULL;
@@ -87,7 +107,7 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
 
   pl->plugin = get_plugin();
   nl_snprintf(pl->status_msg, sizeof(pl->status_msg), "loaded: %s",
-           pl->plugin->name);
+              pl->plugin->name);
 
   return 0;
 }
@@ -153,10 +173,10 @@ void plugin_check_reload(plugin_loader_t *pl) {
 
   if (plugin_load(pl, pl->path) == 0) {
     nl_snprintf(pl->status_msg, sizeof(pl->status_msg), "hot-swapped -> %s",
-             pl->plugin->name);
+                pl->plugin->name);
   } else {
     nl_snprintf(pl->status_msg, sizeof(pl->status_msg),
-             "hot-swap FAILED - old filter retained");
+                "hot-swap FAILED - old filter retained");
   }
 }
 

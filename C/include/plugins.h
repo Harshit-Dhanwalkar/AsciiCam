@@ -18,6 +18,10 @@ typedef struct {
   int inotify_wd;          // watch descriptor
 } plugin_loader_t;
 
+// 0 silences stderr diagnostics (TUI owns terminal), status_msg is always
+// filled in
+extern int plugin_log_stderr;
+
 int plugin_load(plugin_loader_t *pl, const char *path);
 void plugin_watch_init(plugin_loader_t *pl, const char *path);
 void plugin_check_reload(plugin_loader_t *pl);

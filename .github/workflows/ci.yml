@@ -210,6 +210,44 @@ jobs:
             /tmp/t_reinit
           done
 
+      - name: Plugin catalog tests (Linux nolibc)
+        if: matrix.platform == 'linux'
+        working-directory: C
+        shell: bash
+        run: |
+          set -euo pipefail
+          FLAGS="-D__LINUX_NOLIBC__ -DPLATFORM_LINUX -nostdinc -isystem $(gcc -print-file-name=include) -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -static -Iinclude -Ilib"
+          LIBS="lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
+          for O in -O0 -O2; do
+            gcc $O $FLAGS tests/test_plugin_catalog.c src/plugin_catalog.c src/plugin_picker.c src/plugins.c lib/nl_dlfcn.c $LIBS -o /tmp/t_catalog
+            /tmp/t_catalog
+          done
+
+      - name: Plugin catalog tests (macOS)
+        if: matrix.platform == 'macos'
+        continue-on-error: true
+        working-directory: C
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ matrix.cc }} -Wall -Wextra -O1 -Iinclude -Ilib -DPLATFORM_MACOS \
+            tests/test_plugin_catalog.c src/plugin_catalog.c src/plugin_picker.c src/plugins.c \
+            -o /tmp/t_catalog
+          /tmp/t_catalog
+
+      - name: Plugin catalog tests (Windows)
+        if: matrix.platform == 'windows'
+        continue-on-error: true
+        working-directory: C
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ matrix.cc }} -Wall -Wextra -O1 -Iinclude -Ilib -DPLATFORM_WINDOWS -DWIN32_LEAN_AND_MEAN \
+            -D__USE_MINGW_ANSI_STDIO=1 \
+            tests/test_plugin_catalog.c src/plugin_catalog.c src/plugin_picker.c src/plugins.c \
+            -o t_catalog.exe -lwinpthread
+          ./t_catalog.exe
+
       - name: Smoke test --help (Windows)
         if: matrix.platform == 'windows'
         working-directory: C

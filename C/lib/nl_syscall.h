@@ -54,6 +54,13 @@ extern int errno;
 #define SYS_time 201
 #define SYS_inotify_init1 294
 #define SYS_inotify_add_watch 254
+#define SYS_dup2 33
+#define SYS_fork 57
+#define SYS_execve 59
+#define SYS_wait4 61
+#define SYS_kill 62
+#define SYS_mkdir 83
+#define SYS_getdents64 217
 
 // Raw syscall asm wrappers
 static inline long __sc1(long n, long a1) {

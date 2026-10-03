@@ -48,11 +48,11 @@ ifeq ($(PLATFORM),linux)
     CFLAGS   += $(NOSTDINC)
     LDFLAGS  := $(LDFLAGS_EXTRA) -nostdlib -nostdinc \
                 -Wl,--no-as-needed \
-                -Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2 \
                 -B/usr/bin/ \
                 -L/usr/lib/x86_64-linux-gnu
     # LDFLAGS  += -Wl,-rpath-link=/usr/lib/x86_64-linux-gnu
     LDFLAGS  += -static
+    # LDFLAGS  += -Wl,-dynamic-linker,/lib64/ld-linux-x86-64.so.2
     LDFLAGS  += -msse4.1
 
     LIBSRCS  := $(LIBDIR)/nl_alloc.c \
@@ -122,6 +122,8 @@ CORE_SRCS := $(SRCDIR)/ascii.c \
              $(SRCDIR)/main.c  \
              $(SRCDIR)/mouse.c \
              $(SRCDIR)/plugins.c \
+             $(SRCDIR)/plugin_catalog.c \
+             $(SRCDIR)/plugin_picker.c \
              $(SRCDIR)/thread_sharing.c \
              $(SRCDIR)/timing.c
 
@@ -181,6 +183,10 @@ $(BUILDDIR):
 
 clean:
 	rm -rf $(BUILDDIR)
+	rm -rf .cache
+	rm -f tests/test_nl_alloc tests/test_nl_printf tests/test_nl_dlfcn
+	rm -f tests/test_mouse tests/test_capture_reinit tests/test_plugin_catalog
+	rm -f tests/test_nl_thread tests/fuzz_nolibc
 
 # make sanitize  (Linux x86_64 only)
 # Builds with AddressSanitizer + UndefinedBehaviorSanitizer

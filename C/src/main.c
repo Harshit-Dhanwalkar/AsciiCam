@@ -3,6 +3,8 @@
 #include "ascii.h"
 #include "capture.h"
 #include "mouse.h"
+#include "plugin_catalog.h"
+#include "plugin_picker.h"
 #include "plugins.h"
 // #include "thread_sharing.h"
 #include "timing.h"
@@ -15,8 +17,11 @@
 #define DEFAULT_FPS 20
 #define MAX_PLUGINS 8
 
-#define DEFAULT_CHARSET_DIR "./charsets"
 #define DEFAULT_CONFIG_PATH ".asciicamrc"
+#define DEFAULT_CHARSET_DIR "./charsets"
+#define DEFAULT_PLUGIN_DIR "./filters"          // plugin sources to browse
+#define DEFAULT_PLUGIN_CACHE "./.cache/plugins" // where runtime builds land
+#define TOAST_SECONDS 3
 #define CONFIG_MAX_BYTES 4096
 
 #define PANEL_ROWS 4
@@ -52,6 +57,9 @@ volatile sig_atomic_t keep_running = 1;
 //
 //   keep_running = 0;
 // }
+
+static const char *g_plugin_dir = DEFAULT_PLUGIN_DIR;
+static const char *g_plugin_cache = DEFAULT_PLUGIN_CACHE;
 
 static volatile sig_atomic_t raw_mode_active = 0;
 static struct termios orig_terminal;
@@ -125,7 +133,8 @@ static void print_usage(const char *prog) {
       "  -W <width>    ASCII output columns     (default: %d)          \n"
       "  -H <height>   ASCII output rows        (default: %d)          \n"
       "  -s <chars>    custom charset string    (default: \"%s\")      \n"
-      "  -p <path>     filter plugin .so path                          \n"
+      "  -p <path>     filter plugin .so path (repeatable)             \n"
+      "  -L <dir>      plugin source dir for live picker (default: %s) \n"
       "  -m <mode>     render mode: braille|blocks|ascii|halfblock|dots\n"
       "  -k <dir>      charset directory (hot-reloadable .txt ramps)   \n"
       "\n"
@@ -156,12 +165,16 @@ static void print_usage(const char *prog) {
       "  w / W         hw white-balance down / up   (V4L2, Linux only) \n"
       "  c / C         hw contrast down / up        (V4L2, Linux only) \n"
       "  up/down       select plugin    [ ] +-1   { } +-10   r reset   \n"
+      "  /             search plugin sources, enter builds + loads it  \n"
+      "                (up/down move, esc closes; compiles in background)\n"
+      "  u             unload the selected plugin                      \n"
       "  mouse         drag bottom-right corner to resize ASCII        \n"
       "                frame; applied on release                       \n"
       "  a / A         return frame to terminal auto-fit               \n"
       "  q             quit                                            \n",
       prog, DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT, DEFAULT_FPS,
-      DEFAULT_ASCII_WIDTH, DEFAULT_ASCII_HEIGHT, ASCII_CHARS_DEFAULT);
+      DEFAULT_ASCII_WIDTH, DEFAULT_ASCII_HEIGHT, ASCII_CHARS_DEFAULT,
+      DEFAULT_PLUGIN_DIR);
 }
 
 static render_mode_t parse_render_mode(const char *s) {
@@ -236,6 +249,8 @@ static void load_config_file(const char *path, char **device, int *ascii_w,
   static char cfg_charset[CHARSET_RAMP_LEN];
   static char cfg_charset_dir[256];
   static char cfg_plugins[MAX_PLUGINS][256];
+  static char cfg_plugin_dir[256];
+  static char cfg_plugin_cache[256];
 
   int fd = open(path, O_RDONLY, 0);
   if (fd < 0) {
@@ -329,6 +344,12 @@ static void load_config_file(const char *path, char **device, int *ascii_w,
         } else if (nl_strcmp(key, "charset_dir") == 0) {
           nl_strncpy_safe(cfg_charset_dir, val, sizeof(cfg_charset_dir));
           *charset_dir = cfg_charset_dir;
+        } else if (nl_strcmp(key, "plugin_dir") == 0) {
+          nl_strncpy_safe(cfg_plugin_dir, val, sizeof(cfg_plugin_dir));
+          g_plugin_dir = cfg_plugin_dir;
+        } else if (nl_strcmp(key, "plugin_cache") == 0) {
+          nl_strncpy_safe(cfg_plugin_cache, val, sizeof(cfg_plugin_cache));
+          g_plugin_cache = cfg_plugin_cache;
         } else if (nl_strcmp(key, "plugin") == 0) {
           if (*plugin_path_count < MAX_PLUGINS) {
             nl_strncpy_safe(cfg_plugins[*plugin_path_count], val,
@@ -398,15 +419,16 @@ static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
   } else if (color) {
     n = nl_snprintf(buf, sizeof(buf),
                     "\033[%d;1H\033[38;2;0;220;0m\033[48;2;18;18;18m"
-                    " FPS: %s  │  ↑↓ select  [ ] ±1  { } ±10  r reset  q quit "
-                    " │  frame: %dx%d%s  cap: %dx%d  ◢ drag"
+                    " FPS: %s  │  / catalog  ↑↓ select  [ ] ±1  { } ±10  "
+                    "r reset  q quit  │  frame: %dx%d%s  cap: %dx%d  ◢ drag"
                     "\033[0m\033[K",
                     base_row, fpsbuf, ascii_w_now, ascii_h,
                     ascii_size_manual ? " [manual]" : "", cap_w, cap_h);
   } else {
     n = nl_snprintf(buf, sizeof(buf),
-                    "\033[%d;1H FPS: %s  |  up/dn select  [ ] +-1  { } +-10  "
-                    "r reset  q quit  |  frame: %dx%d%s  cap: %dx%d  drag +"
+                    "\033[%d;1H FPS: %s  |  / catalog  up/dn select  "
+                    "[ ] +-1  { } +-10  r reset  q quit  |  frame: %dx%d%s  "
+                    "cap: %dx%d  drag +"
                     "\033[K",
                     base_row, fpsbuf, ascii_w_now, ascii_h,
                     ascii_size_manual ? " [manual]" : "", cap_w, cap_h);
@@ -601,6 +623,84 @@ int handle_term_resize(int *ascii_w, int *ascii_h, char **out_buf,
                           color);
 }
 
+// Active-plugin list. plugins[]/params[]/cat[] stay packed, so adding and
+// removing at runtime is just append / shift-down. cat[i] is catalog entry a
+// slot was loaded from, or -1 for plugins given with -p
+static int plugin_slot_add(plugin_loader_t *plugins, int *params, int *cat,
+                           int *count, const char *path, int cat_idx, char *err,
+                           size_t errsz) {
+  if (*count >= MAX_PLUGINS) {
+    nl_snprintf(err, errsz, "plugin list full (%d)", MAX_PLUGINS);
+
+    return -1;
+  }
+
+  int i = *count;
+  nl_memset(&plugins[i], 0, sizeof(plugin_loader_t));
+  plugins[i].inotify_fd = -1;
+  params[i] = 128; // default
+  cat[i] = cat_idx;
+
+  if (plugin_load(&plugins[i], path) != 0) {
+    nl_snprintf(err, errsz, "%s", plugins[i].status_msg);
+    plugin_cleanup(&plugins[i]);
+
+    return -1;
+  }
+
+  plugin_watch_init(&plugins[i], path);
+  (*count)++;
+
+  return i;
+}
+
+static void plugin_slot_remove(plugin_loader_t *plugins, int *params, int *cat,
+                               int *count, int *selected, int idx,
+                               plugin_catalog_t *cc) {
+  if (idx < 0 || idx >= *count) {
+    return;
+  }
+
+  if (cat[idx] >= 0 && cat[idx] < cc->count) {
+    cc->e[cat[idx]].state = PC_READY;
+  }
+
+  plugin_cleanup(&plugins[idx]);
+  for (int i = idx; i + 1 < *count; i++) {
+    nl_memcpy(&plugins[i], &plugins[i + 1], sizeof(plugin_loader_t));
+    params[i] = params[i + 1];
+    cat[i] = cat[i + 1];
+  }
+
+  (*count)--;
+
+  if (*selected >= *count) {
+    *selected = *count > 0 ? *count - 1 : 0;
+  }
+}
+
+// Load a built catalog entry into the filter chain. msg gets the toast text
+static int plugin_activate(plugin_catalog_t *cc, int ci,
+                           plugin_loader_t *plugins, int *params, int *cat,
+                           int *count, char *msg, size_t msgsz) {
+  catalog_entry_t *e = &cc->e[ci];
+  char err[CATALOG_ERR_LEN];
+
+  if (plugin_slot_add(plugins, params, cat, count, e->so_path, ci, err,
+                      sizeof(err)) < 0) {
+    e->state = PC_FAILED;
+    nl_snprintf(e->err, sizeof(e->err), "%s", err);
+    nl_snprintf(msg, msgsz, "%s: %s", e->name, err);
+
+    return -1;
+  }
+
+  e->state = PC_ACTIVE;
+  nl_snprintf(msg, msgsz, "loaded %s", e->name);
+
+  return 0;
+}
+
 fps_counter_t fps_calc = {0};
 
 // Main
@@ -656,8 +756,8 @@ int main(int argc, char *argv[]) {
 
   // CLI parsing
   int opt;
-  while ((opt = nl_getopt(argc, argv, "d:W:H:w:h:f:b:c:g:iCD2s:p:m:E:k:P:")) !=
-         -1)
+  while ((opt = nl_getopt(argc, argv,
+                          "d:W:H:w:h:f:b:c:g:iCD2s:p:L:m:E:k:P:")) != -1)
     switch (opt) {
     case 'd':
       device = optarg;
@@ -763,6 +863,10 @@ int main(int argc, char *argv[]) {
       opts.charset = optarg;
 
       break;
+    case 'L':
+      g_plugin_dir = optarg;
+
+      break;
     case 'p':
       if (plugin_path_count < MAX_PLUGINS) {
         plugin_paths[plugin_path_count++] = optarg;
@@ -784,20 +888,55 @@ int main(int argc, char *argv[]) {
   // Initialize plugins
   plugin_loader_t plugins[MAX_PLUGINS];
   int plugin_params[MAX_PLUGINS];
+  int plugin_cat[MAX_PLUGINS];
   int plugin_count = 0;
 
   for (int i = 0; i < plugin_path_count; i++) {
-    nl_memset(&plugins[i], 0, sizeof(plugin_loader_t));
-    plugins[i].inotify_fd = -1;
-    plugin_params[i] = 128; // default
-
-    if (plugin_load(&plugins[i], plugin_paths[i]) == 0) {
-      plugin_watch_init(&plugins[i], plugin_paths[i]);
-      plugin_count++;
-    } else {
-      fprintf(stderr, "Failed to load plugin: %s\n", plugin_paths[i]);
+    // nl_memset(&plugins[i], 0, sizeof(plugin_loader_t));
+    // plugins[i].inotify_fd = -1;
+    // plugin_params[i] = 128; // default
+    //
+    // if (plugin_load(&plugins[i], plugin_paths[i]) == 0) {
+    //   plugin_watch_init(&plugins[i], plugin_paths[i]);
+    //   plugin_count++;
+    // } else {
+    //   fprintf(stderr, "Failed to load plugin: %s\n", plugin_paths[i]);
+    // }
+    char perr[CATALOG_ERR_LEN];
+    if (plugin_slot_add(plugins, plugin_params, plugin_cat, &plugin_count,
+                        plugin_paths[i], -1, perr, sizeof(perr)) < 0) {
+      fprintf(stderr, "Failed to load plugin: %s (%s)\n", plugin_paths[i],
+              perr);
     }
   }
+
+  // From here on TUI owns terminal: load problems are reported in UI
+  // (status_msg), not on stderr
+  plugin_log_stderr = 0;
+
+  // Catalog of plugin sources that can be built and loaded while running
+  plugin_catalog_t catalog;
+  catalog_init(&catalog, g_plugin_dir, g_plugin_cache,
+#ifdef __LINUX_NOLIBC__
+               argv + argc + 1 // envp follows argv NULL terminator
+#else
+               (char **)0
+#endif
+  );
+  catalog_scan(&catalog);
+
+  picker_t picker;
+  nl_memset(&picker, 0, sizeof(picker));
+  char toast_msg[128];
+  toast_msg[0] = '\0';
+  int toast_frames = 0;
+
+#define TOAST(...)                                                             \
+  do {                                                                         \
+    nl_snprintf(toast_msg, sizeof(toast_msg), __VA_ARGS__);                    \
+                                                                               \
+    toast_frames = fps * TOAST_SECONDS;                                        \
+  } while (0)
 
   int selected = 0;
 
@@ -826,8 +965,8 @@ int main(int argc, char *argv[]) {
 
   // Pixel buffers allocation
   int cam_pixels = cam.width * cam.height;
-  uint8_t *gray = nl_malloc(cam_pixels);
-  uint8_t *rgb = opts.color ? malloc(cam_pixels * 3) : NULL;
+  uint8_t *gray = nl_malloc(cam_pixels + 16); // + canary
+  uint8_t *rgb = opts.color ? nl_malloc(cam_pixels * 3) : NULL;
 
   if (!gray || (opts.color && !rgb)) {
     nl_perror("malloc pixel buffers");
@@ -1023,19 +1162,68 @@ int main(int argc, char *argv[]) {
             }
 
             switch (seq[1]) {
-            case 'A': // up arrow key, previous plugin
-              if (plugin_count > 0) {
+            case 'A': // up arrow key, previous plugin / picker row
+              if (picker.active) {
+                picker_key(&picker, &catalog, PK_KEY_UP, NULL);
+              } else if (plugin_count > 0) {
                 selected = (selected - 1 + plugin_count) % plugin_count;
               }
 
               break;
-            case 'B': // down arrow key, next plugin
-              if (plugin_count > 0) {
+            case 'B': // down arrow key, next plugin / picker row
+              if (picker.active) {
+                picker_key(&picker, &catalog, PK_KEY_DOWN, NULL);
+              } else if (plugin_count > 0) {
                 selected = (selected + 1) % plugin_count;
               }
 
               break;
             }
+          }
+        } else if (picker.active) {
+          // a lone ESC closes the picker
+          picker_key(&picker, &catalog, PK_KEY_ESC, NULL);
+        }
+
+        continue;
+      }
+
+      // Picker open: it owns keyboard, so typing a plugin name can't trigger
+      // hotkeys below (w/e/c would all fire on "water")
+      if (picker.active) {
+        int load_idx = -1;
+        picker_action_t pa =
+            picker_key(&picker, &catalog, (unsigned char)ch, &load_idx);
+        if (pa == PK_LOAD) {
+          catalog_entry_t *ce = &catalog.e[load_idx];
+          if (ce->state == PC_ACTIVE) {
+            TOAST("%s is already loaded", ce->name);
+          } else if (ce->state == PC_COMPILING) {
+            ce->want_load = 1;
+            TOAST("%s is already compiling", ce->name);
+          } else {
+            ce->want_load = 1;
+            if (catalog_start_build(&catalog, load_idx) == 0) {
+              TOAST("compiling %s...", ce->name);
+            } else {
+              ce->want_load = 0;
+              TOAST("%s: %s", ce->name, ce->err);
+            }
+          }
+        }
+
+        continue;
+      }
+
+      if (ch == '/') {
+        if (!catalog_supported()) {
+          TOAST("runtime plugin build not supported on this platform yet");
+        } else {
+          catalog_scan(&catalog); // pick up sources added since startup
+          if (catalog.count == 0) {
+            TOAST("no plugin sources in %s", catalog.src_dir);
+          } else {
+            picker_open(&picker);
           }
         }
 
@@ -1133,6 +1321,18 @@ int main(int argc, char *argv[]) {
         opts.depth_invert = !opts.depth_invert;
 
         break;
+      case 'u':
+      case 'U':
+        if (plugin_count > 0) {
+          const char *uname =
+              plugins[selected].plugin ? plugins[selected].plugin->name : "?";
+          TOAST("unloaded %s", uname);
+
+          plugin_slot_remove(plugins, plugin_params, plugin_cat, &plugin_count,
+                             &selected, selected, &catalog);
+        }
+
+        break;
       case 'a':
       case 'A':
         // hand control of frame size back to SIGWINCH; the next loop
@@ -1170,6 +1370,29 @@ int main(int argc, char *argv[]) {
 
     if (!keep_running) {
       break;
+    }
+
+    // Collect finished background builds; load ones user asked for
+    {
+      int fi;
+      while (catalog_poll(&catalog, &fi)) {
+        catalog_entry_t *ce = &catalog.e[fi];
+        if (ce->state == PC_READY && ce->want_load) {
+          ce->want_load = 0;
+
+          char lmsg[128];
+          plugin_activate(&catalog, fi, plugins, plugin_params, plugin_cat,
+                          &plugin_count, lmsg, sizeof(lmsg));
+
+          TOAST("%s", lmsg);
+        } else if (ce->state == PC_READY) {
+          TOAST("%s built", ce->name);
+        } else {
+          ce->want_load = 0;
+
+          TOAST("%s build failed: %s", ce->name, ce->err);
+        }
+      }
     }
 
     // Hot-reload check for all plugins
@@ -1245,6 +1468,42 @@ int main(int argc, char *argv[]) {
                     hw_contrast, hw_wb, cam.width, cam.height, preview_w,
                     preview_h, ascii_w, ascii_size_manual);
       draw_corner_indicator(ascii_w, ascii_h, opts.color, &mouse_drag);
+
+      // Picker box, or a toast / build indicator, over bottom frame rows
+      char ovl[2048];
+      int on = 0;
+      if (picker.active) {
+        on = picker_render(&picker, &catalog, ascii_h, opts.color, ovl,
+                           sizeof(ovl));
+      } else if (toast_frames > 0) {
+        toast_frames--;
+        on = toast_render(toast_msg, ascii_h, opts.color, ovl, sizeof(ovl));
+      } else {
+        char bmsg[128];
+        size_t bl = 0;
+        for (int i = 0; i < catalog.count; i++) {
+          if (catalog.e[i].state != PC_COMPILING) {
+            continue;
+          }
+          if (bl == 0) {
+            bl = (size_t)nl_snprintf(bmsg, sizeof(bmsg), "compiling:");
+          }
+
+          int w = nl_snprintf(bmsg + bl, sizeof(bmsg) - bl, " %s",
+                              catalog.e[i].name);
+          if (w > 0 && bl + (size_t)w < sizeof(bmsg)) {
+            bl += (size_t)w;
+          }
+        }
+
+        if (bl > 0) {
+          on = toast_render(bmsg, ascii_h, opts.color, ovl, sizeof(ovl));
+        }
+      }
+
+      if (on > 0) {
+        (void)write(STDOUT_FILENO, ovl, (size_t)on);
+      }
     }
 
     if (webcam_requeue_buffer(&cam) < 0) {
@@ -1271,6 +1530,7 @@ int main(int argc, char *argv[]) {
   for (int i = 0; i < plugin_count; i++) {
     plugin_cleanup(&plugins[i]);
   }
+  catalog_cleanup(&catalog);
   charset_registry_cleanup(&charsets);
   webcam_cleanup(&cam);
 
