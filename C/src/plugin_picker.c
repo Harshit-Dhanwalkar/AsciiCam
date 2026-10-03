@@ -118,12 +118,12 @@ picker_action_t picker_key(picker_t *p, const plugin_catalog_t *c, int key,
 static void put_cell(char *buf, size_t size, size_t *pos, const char *s,
                      int width) {
   int i = 0;
-  for (; s[i] && i < width; i++) {
+  for (; i < width && s[i]; i++) {
     if (*pos + 1 < size) {
       buf[(*pos)++] = s[i];
     }
   }
-  for (; i < width; i++) {
+  for (; i < width && s[i]; i++) {
     if (*pos + 1 < size) {
       buf[(*pos)++] = ' ';
     }
