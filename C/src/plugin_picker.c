@@ -162,7 +162,8 @@ int picker_render(const picker_t *p, const plugin_catalog_t *c, int ascii_h,
   int vis = count < PICKER_MAX_ROWS ? count : PICKER_MAX_ROWS;
   int body = vis > 0 ? vis : 1; // "no match" takes a row
   int total = body + 1;         // + header
-  if (ascii_h < total) {
+  // if (ascii_h < total) {
+  if (total > PICKER_HEIGHT) {
     return 0;
   }
 
@@ -185,7 +186,8 @@ int picker_render(const picker_t *p, const plugin_catalog_t *c, int ascii_h,
       color ? "\033[38;2;200;200;200m\033[48;2;18;18;18m" : "\033[0m";
 
   size_t pos = 0;
-  int top = ascii_h - total + 1;
+  // int top = ascii_h - total + 1;
+  int top = ascii_h + 1; // starts on row just below frame
   char line[160];
 
   nl_snprintf(line, sizeof(line),
