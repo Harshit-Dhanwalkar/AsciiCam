@@ -1,10 +1,12 @@
 # AsciiCam
+
 [![CI](https://github.com/Harshit-Dhanwalkar/AsciiCam/actions/workflows/ci.yml/badge.svg)](https://github.com/Harshit-Dhanwalkar/AsciiCam/actions/workflows/ci.yml)
 
 Real-time webcam video rendered as ASCII art directly in the terminal
 
-Written in C99. Ships its own minimal libc layer (`nolibc`) on Linux for zero
-runtime dependencies beyond `dlopen`. Uses platform-native capture backends:
+Written in C99. Ships its own minimal libc layer (`nolibc`) on Linux: the binary is
+statically linked with no runtime dependencies (plugins load through its own
+ELF loader, `nl_dlfcn`). Uses platform-native capture backends:
 V4L2 on Linux, AVFoundation on macOS, Media Foundation on Windows.
 
 <p align="center">
@@ -24,7 +26,6 @@ V4L2 on Linux, AVFoundation on macOS, Media Foundation on Windows.
 | **Edge detection**            | Sobel, Sobel with direction, Laplacian - toggle with `x`/`X`                                                                       |
 | **Image adjustments**         | Brightness, contrast, gamma (`-g 10..400`), invert mapping                                                                         |
 | **Pseudo-3D depth pop**       | Parallax displacement based on brightness — `+`/`-`/`v`                                                                            |
-| **Pseudo‑3D depth pop**       | Parallax effect based on brightness - adjust with `+`/`-`/`v`                                                                      |
 | **Floyd‑Steinberg dither**    | Error‑diffusion to reduce banding                                                                                                  |
 | **ANSI color**                | Truecolor (`-C`) or xterm-256 (`-2`) per-cell foreground                                                                           |
 | **ANSI truecolor**            | `\033[38;2;R;G;Bm` per‑cell coloring                                                                                               |
@@ -36,7 +37,7 @@ V4L2 on Linux, AVFoundation on macOS, Media Foundation on Windows.
 | **Hardware camera controls**  | V4L2 exposure, contrast, white-balance via `ioctl` - live keys `e`/`E`, `c`/`C`, `w`/`W` (Linux only; macOS/Windows display `n/a`) |
 | **Cross-platform**            | Linux (V4L2, nolibc), macOS (AVFoundation, system libc), Windows (Media Foundation, MinGW)                                         |
 
-- Linux: requires `gcc`, `linux/videodev2.h` (kernel headers), `libdl`, `libpthread`.
+- Linux: requires `gcc` only (no kernel headers, `libdl` or `libpthread`).
 - macOS: requires `Clang` and `AVFoundation` frameworks (linked automatically).
 - Windows: requires `MinGW-w64`; links `mfplat`, `mf`, `mfreadwrite`, `mfuuid`, `ole32` (Media Foundation).
 
@@ -87,9 +88,9 @@ flowchart TD
 
 On Linux, the application makes raw `syscall(2)` invocations instead of
 calling into glibc. Threading (when enabled) uses `clone()` + `futex(2)`
-directly - no `libpthread`. Dynamic loading is the only remaining glibc
-dependency, and it is scheduled for replacement by a minimal ELF loader
-(see [TODO]).
+directly - no `libpthread`. Plugins are loaded by a from-scratch ELF loader
+(`nl_dlfcn`), so the Linux binary is fully static with no glibc dependency.
+macOS and Windows still use their system libraries.
 
 ---
 
@@ -128,9 +129,15 @@ plugins in filters/ into build/\*.{so,dylib,dll}.
 
 ### Requirements:
 
-- Linux: `gcc`, kernel headers (`linux/videodev2.h`), `libdl`
+- Linux: `gcc` (V4L2 ABI and everything else is vendored under `lib/`)
 - macOS: `clang`, AVFoundation (linked automatically)
 - Windows: MinGW-w64; links `mfplat`, `mf`, `mfreadwrite`, `mfuuid`, `ole32`
+
+### Tests (Linux)
+
+`make test` builds and runs the dependency-free unit tests (allocator, printf,
+ELF loader, fuzz, mouse, capture reinit, plugin catalog, threads, filter
+security) - the same commands CI runs.
 
 ## Run
 
@@ -225,14 +232,15 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 
 ## TODO
 
-- [ ] Reduce remaining libc/runtime dependencies
-  - [ ] Eliminate `-lc`
-  - [ ] Replace `pthread` with raw `futex`/`clone`
+- [x] Reduce remaining libc/runtime dependencies
+  - [x] Eliminate `-lc`
+  - [x] Replace `pthread` with raw `futex`/`clone`
     - [x] `nl_thread.h`: futex + `clone` implementation
     - [ ] Double-buffered capture thread active in main loop
-  - [ ] Replace `dlopen` with a minimal ELF loader
+  - [x] Replace `dlopen` with a minimal ELF loader
+  - [x] Implement an ELF loader (or statically link plugins) to eliminate `-ldl` dependency
+- [ ] Wire capture/render thread split into the main loop (`thread_sharing.c` is built and tested but unused)
 - [x] Adjustable capture resolution
-- [ ] Producer/consumer thread split : Double-buffered capture/render architecture
 - [x] Brightness / contrast / gamma adjustment
 - [x] Invert brightness to charset mapping
 - [x] ANSI truecolor and 256-color output
@@ -241,9 +249,9 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 - [x] SIMD YUYV to grayscale (SSE2)
 - [x] Hot-reload plugin system
 - [x] Config file (`./.asciicamrc`)
-- [ ] Capture frame resizing
+- [x] Capture frame resizing
   - [x] Auto resize on terminal `SIGWINCH`
-  - [ ] Manual resize with cursor drag
+  - [x] Manual resize with cursor drag
 - [x] Custom charset via config file
 - [x] Hardware camera controls (Linux V4L2)
 - [x] macOS support
@@ -253,14 +261,7 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
   - [ ] Windows console raw-mode and signal handling (`SetConsoleMode` / `SetConsoleCtrlHandler`)
   - [ ] Hardware controls via `IAMCameraControl` / `IAMVideoProcAmp` (capture works, controls stubbed)
   - [ ] macOS hardware controls via `AVCaptureDevice` exposure/white-balance APIs (capture works, controls stubbed)
-- [ ] Capture frame resizing
-  - [x] Auto frame resizing (depends on terminal `w` and `h`)
-  - [ ] Frame resizing using cursor
-- [ ] Record to `.mp4` / `.gif`
-- [ ] Inter-frame delta compression
-- [ ] LUT cache optimization
-  - [ ] LUT cache for gamma/dither paths
-- [ ] Implement an ELF loader (or statically link plugins) to eliminate `-ldl` dependency
+- [x] Runtime plugin catalog: search, build and load plugins while running (`/`)
 
 ## Fixes
 
