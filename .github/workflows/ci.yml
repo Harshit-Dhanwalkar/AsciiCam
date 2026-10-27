@@ -210,6 +210,17 @@ jobs:
             /tmp/t_reinit
           done
 
+      - name: Filter security tests (Linux nolibc)
+        if: matrix.platform == 'linux'
+        working-directory: C
+        shell: bash
+        run: |
+          set -euo pipefail
+          FLAGS="-DTESTING -D__LINUX_NOLIBC__ -DPLATFORM_LINUX -nostdinc -isystem $(gcc -print-file-name=include) -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -static -msse4.1 -Iinclude -Ilib"
+          LIBS="lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
+          gcc $FLAGS tests/security_tests.c filters/edge_detect.c filters/invert.c filters/threshold.c $LIBS -o /tmp/t_security
+          /tmp/t_security
+
       - name: Plugin catalog tests (Linux nolibc)
         if: matrix.platform == 'linux'
         working-directory: C

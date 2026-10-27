@@ -1,103 +1,105 @@
 /*
-Tests for plugins must never corrupt heap or crash due to integer
-overflow in dimension-based allocations.
-*/
+ * Tests for plugins must never corrupt heap or crash due to integer
+ * overflow in dimension-based allocations
+ *
+ * Dependency-free (nolibc) port of the old libcheck test, so it runs in CI
+ * and under `make test` without installing anything.
+ *
+ * gcc -DTESTING -D__LINUX_NOLIBC__ -DPLATFORM_LINUX -nostdlib -static \
+ *     tests/security_tests.c filters/edge_detect.c filters/invert.c \
+ *     filters/threshold.c lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c \
+ *     lib/nl_start.c -Iinclude -Ilib -o security_tests
+ */
 
-#include <check.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <limits.h>
-#include <stdio.h>
+#include "../lib/nolibc.h"
 
 #include "../filters/edge_detect.h"
 #include "../filters/invert.h"
 #include "../filters/threshold.h"
 
-typedef uint8_t* (*filter_test_func)(uint8_t*, int, int);
+static int _pass = 0;
+static int _fail = 0;
 
-START_TEST(test_all_plugins_safe) {
-    typedef struct { uint32_t w; uint32_t h; } dims;
+static void _chk(int ok, const char *what, const char *name, int line) {
+  char buf[256];
+  int n = nl_snprintf(buf, sizeof(buf),
+                      ok ? "ok   [%3d] %s: %s\n" : "FAIL [%3d] %s: %s\n", line,
+                      name, what);
+  if (ok) {
+    _pass++;
+  } else {
+    _fail++;
+  }
 
-    dims payloads[] = {
-        /* Exact exploit: w*h overflows 32-bit (65536*65536 = 0 mod 2^32) */
-        { 65536, 65536 },
-        /* Boundary: just over 16-bit max, product overflows uint16_t */
-        { 65535, 65535 },
-        /* Valid small input: should succeed without issues */
-        { 64, 48 },
-    };
+  if (n > 0) {
+    nl_write(1, buf, (size_t)n);
+  }
+}
 
-    int num_payloads = sizeof(payloads) / sizeof(payloads[0]);
+typedef uint8_t *(*filter_fn)(uint8_t *, int, int);
 
-    struct {
-        filter_test_func func;
-        const char *name;
-    } plugins[] = {
-        { edge_detect, "edge_detect" },
-        { invert,      "invert"      },
-        { threshold,   "threshold"   }
-    };
-    int num_plugins = sizeof(plugins) / sizeof(plugins[0]);
+typedef struct {
+  filter_fn fn;
+  const char *name;
+} filter_case_t;
 
-    // Run every test payload against every single filter plugin
-    for (int p = 0; p < num_plugins; p++) {
-        for (int i = 0; i < num_payloads; i++) {
-            uint32_t w = payloads[i].w;
-            uint32_t h = payloads[i].h;
+typedef struct {
+  int w;
+  int h;
+} dims_t;
 
-            size_t safe_size = (size_t)w * (size_t)h;
-            uint8_t *input = NULL;
+int main(void) {
+  filter_case_t filters[] = {
+      {edge_detect, "edge_detect"},
+      {invert, "invert"},
+      {threshold, "threshold"},
+  };
 
-            if (safe_size > 0 && safe_size <= (1024 * 1024 * 16)) {
-                input = calloc(safe_size, 1);
-            }
+  dims_t payloads[] = {
+      {65536, 65536},  // w*h == 0 mod 2^32: the original exploit
+      {65535, 65535},  // product overflows 16 bits, fits no sane frame
+      {2147483647, 2}, // int * int would overflow if computed as int
+      {-1, 48},        // negative width
+      {64, -1},        // negative height
+      {0, 0},          // empty
+      {64, 48},        // valid small frame
+  };
 
-            // Execute for target plugin
-            uint8_t *result = plugins[p].func(input, w, h);
+  for (size_t p = 0; p < sizeof(filters) / sizeof(filters[0]); p++) {
+    const char *name = filters[p].name;
 
-            if ((uint64_t)w * (uint64_t)h > (uint64_t)UINT32_MAX) {
-                char error_msg[128];
-                sprintf(error_msg, "%s must reject overflowing dimensions safely", plugins[p].name);
-                ck_assert_msg(result == NULL, "%s", error_msg);
-            }
+    for (size_t i = 0; i < sizeof(payloads) / sizeof(payloads[0]); i++) {
+      int w = payloads[i].w;
+      int h = payloads[i].h;
+      uint64_t area = (w > 0 && h > 0) ? (uint64_t)w * (uint64_t)h : 0;
 
-            free(result);
-            free(input);
-        }
- 
-        // Verifying explicit NULL buffer safety rules
-        ck_assert_ptr_eq(plugins[p].func(NULL, 64, 48), NULL);
-        ck_assert_ptr_eq(plugins[p].func(NULL, 0, 0), NULL);
+      uint8_t *input = NULL;
+      if (area > 0 && area <= (uint64_t)(16 * 1024 * 1024)) {
+        input = nl_calloc((size_t)area, 1);
+      }
+
+      uint8_t *result = filters[p].fn(input, w, h);
+
+      if (area > (uint64_t)UINT32_MAX || w <= 0 || h <= 0) {
+        _chk(result == NULL, "rejects bad dimensions", name, __LINE__);
+      } else if (input) {
+        _chk(result != NULL, "accepts valid frame", name, __LINE__);
+      }
+
+      nl_free(result);
+      nl_free(input);
     }
-}
-END_TEST;
 
-Suite *security_suite(void)
-{
-    Suite *s;
-    TCase *tc_core;
+    _chk(filters[p].fn(NULL, 64, 48) == NULL, "NULL buffer rejected", name,
+         __LINE__);
+    _chk(filters[p].fn(NULL, 0, 0) == NULL, "NULL buffer, 0x0 rejected", name,
+         __LINE__);
 
-    s = suite_create("Security");
-    tc_core = tcase_create("Core");
+    char buf[128];
+    int n =
+        nl_snprintf(buf, sizeof(buf), "\n%d passed  %d failed\n", _pass, _fail);
+    nl_write(1, buf, (size_t)n);
 
-    tcase_add_test(tc_core, test_all_plugins_safe);
-    suite_add_tcase(s, tc_core);
-
-    return s;
-}
-
-int main(void)
-{
-    int number_failed;
-    Suite *s;
-    SRunner *sr;
-
-    s = security_suite();
-    sr = srunner_create(s);
-
-    srunner_run_all(sr, CK_NORMAL);
-    number_failed = srunner_ntests_failed(sr);
-    srunner_free(sr);
-
-    return (number_failed == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
+    return _fail ? 1 : 0;
+  }
 }

@@ -243,6 +243,43 @@ sanitize-run: $(ASAN_TARGET)
 .PHONY: sanitize sanitize-run
 endif
 
+# `make test`: dependency-free unit tests (Linux only)
+ifeq ($(PLATFORM),linux)
+TESTDIR    := $(BUILDDIR)/tests
+TEST_FLAGS := -D__LINUX_NOLIBC__ -DPLATFORM_LINUX -nostdinc \
+              -isystem $(shell $(CC) -print-file-name=include) -ffreestanding \
+              -fno-builtin -fno-stack-protector -nostdlib -static -msse4.1 \
+              -Iinclude -I$(LIBDIR)
+TEST_LIBS  := $(LIBDIR)/nl_printf.c $(LIBDIR)/nl_errno.c $(LIBDIR)/nl_alloc.c \
+              $(LIBDIR)/nl_start.c
+FILTER_SRC := $(FILTERDIR)/edge_detect.c $(FILTERDIR)/invert.c \
+              $(FILTERDIR)/threshold.c
+
+test: plugins
+	@mkdir -p $(TESTDIR)
+	$(CC) $(TEST_FLAGS) tests/test_nl_alloc.c $(TEST_LIBS) -o $(TESTDIR)/alloc
+	$(CC) $(TEST_FLAGS) tests/test_nl_printf.c $(TEST_LIBS) -o $(TESTDIR)/printf
+	$(CC) $(TEST_FLAGS) tests/test_nl_dlfcn.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/dlfcn
+	$(CC) $(TEST_FLAGS) tests/fuzz_nolibc.c $(LIBDIR)/nl_getopt.c $(TEST_LIBS) -o $(TESTDIR)/fuzz
+	$(CC) $(TEST_FLAGS) tests/test_mouse.c $(SRCDIR)/mouse.c $(TEST_LIBS) -o $(TESTDIR)/mouse
+	$(CC) -O2 $(TEST_FLAGS) tests/test_capture_reinit.c $(SRCDIR)/capture_reinit.c $(TEST_LIBS) -o $(TESTDIR)/reinit
+	$(CC) -O2 $(TEST_FLAGS) tests/test_plugin_catalog.c $(SRCDIR)/plugin_catalog.c $(SRCDIR)/plugin_picker.c $(SRCDIR)/plugins.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/catalog
+	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_thread.c $(TEST_LIBS) -o $(TESTDIR)/thread
+	$(CC) -DTESTING $(TEST_FLAGS) tests/security_tests.c $(FILTER_SRC) $(TEST_LIBS) -o $(TESTDIR)/security
+	$(TESTDIR)/alloc
+	$(TESTDIR)/printf
+	$(TESTDIR)/dlfcn build
+	for seed in 1 2 3; do $(TESTDIR)/fuzz 100000 $$seed || exit 1; done
+	$(TESTDIR)/mouse
+	$(TESTDIR)/reinit
+	$(TESTDIR)/catalog
+	$(TESTDIR)/thread
+	$(TESTDIR)/security
+	@echo "All tests passed"
+
+.PHONY: test
+endif
+
 info:
 	@echo "Platform : $(PLATFORM)"
 	@echo "Arch     : $(UNAME_M)"
