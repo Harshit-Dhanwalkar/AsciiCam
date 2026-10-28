@@ -1,0 +1,26 @@
+# Disabled checks, and why:
+#  bugprone-easily-swappable-parameters   (w, h) / (src, dst) pairs are normal
+#  bugprone-reserved-identifier           __LINUX_NOLIBC__, _nl_* are project's
+#                                         own libc-replacement names
+#  bugprone-implicit-widening-of-multiplication-result
+#  bugprone-misplaced-widening-cast       frame dimensions are validated and
+#                                         bounded, so int w*h cannot overflow;
+#                                         widening every index in the hot loops
+#                                         costs speed
+#  performance-no-int-to-ptr              MAP_FAILED / raw syscall results
+#  clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
+#                                         C11 Annex K advice (memset_s)
+Checks: >
+  -*,
+  clang-analyzer-*,
+  bugprone-*,
+  performance-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-reserved-identifier,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-misplaced-widening-cast,
+  -performance-no-int-to-ptr,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
+WarningsAsErrors: "*"
+# report findings in project headers, not in compiler headers
+HeaderFilterRegex: "(^|/)C/(src|lib|include|filters)/"

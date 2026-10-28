@@ -316,7 +316,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential linux-libc-dev libv4l-dev \
-            cppcheck clang-tidy
+            cppcheck clang clang-tidy
           pip install compiledb
 
       - name: Run cppcheck
@@ -338,15 +338,11 @@ jobs:
         working-directory: C
         run: |
           make clean
-          compiledb -n make
+          compiledb -n make CC=clang LD=clang
 
       - name: Run clang-tidy
         working-directory: C
         run: |
           find "$PWD/src" "$PWD/lib" "$PWD/filters" -name '*.c' \
               -not -path '*/build/*' \
-            | xargs clang-tidy -p . \
-                --warnings-as-errors='*' \
-                --checks='-*,clang-analyzer-*,bugprone-*,performance-*' \
-               || true
-        # TODO: Once clean, drop `true` and add a .clang-tidy config.
+            | xargs clang-tidy -p .
