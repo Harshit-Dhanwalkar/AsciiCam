@@ -794,20 +794,23 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
           int idx = y * safe_dst_w + x;
           int16_t old = err[idx];
           int16_t nval = (old > (int16_t)thresh_limit) ? 255 : 0;
-          int16_t qerr = old - nval;
+          int16_t qerr = (int16_t)(old - nval);
           err[idx] = nval;
 
           if (x + 1 < safe_dst_w) {
-            err[idx + 1] += (qerr * 7) >> 4;
+            err[idx + 1] = (int16_t)(err[idx + 1] + ((qerr * 7) >> 4));
           }
           if (y + 1 < safe_dst_h) {
             if (x > 0) {
-              err[idx + safe_dst_w - 1] += (qerr * 3) >> 4;
+              err[idx + safe_dst_w - 1] =
+                  (int16_t)(err[idx + safe_dst_w - 1] + ((qerr * 3) >> 4));
             }
 
-            err[idx + safe_dst_w] += (qerr * 5) >> 4;
+            err[idx + safe_dst_w] =
+                (int16_t)(err[idx + safe_dst_w] + ((qerr * 5) >> 4));
             if (x + 1 < safe_dst_w) {
-              err[idx + safe_dst_w + 1] += (qerr * 1) >> 4;
+              err[idx + safe_dst_w + 1] =
+                  (int16_t)(err[idx + safe_dst_w + 1] + ((qerr * 1) >> 4));
             }
           }
         }

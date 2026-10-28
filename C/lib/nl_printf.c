@@ -9,7 +9,7 @@ static int _uint_to_dec(char *out, size_t avail, unsigned long long v) {
     tmp[len++] = '0';
   } else {
     while (v) {
-      tmp[len++] = '0' + (int)(v % 10);
+      tmp[len++] = (char)('0' + (int)(v % 10));
       v /= 10;
     }
   }

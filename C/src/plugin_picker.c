@@ -12,7 +12,11 @@ void picker_open(picker_t *p) {
 void picker_close(picker_t *p) { p->active = 0; }
 
 static char lower(char ch) {
-  return (ch >= 'A' && ch <= 'Z') ? (char)(ch + 32) : ch;
+  if (ch >= 'A' && ch <= 'Z') {
+    return (char)(ch + 32);
+  }
+
+  return ch;
 }
 
 int picker_name_match(const char *name, const char *query) {

@@ -141,7 +141,6 @@ void plugin_check_reload(plugin_loader_t *pl) {
 
   // Read all available events from the non-blocking queue
   char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
-  // char buf[sizeof(struct inotify_event) + 256];
   ssize_t n = read(pl->inotify_fd, buf, sizeof(buf));
   if (n <= 0) {
     return; // No new filesystem modifications detected
@@ -155,6 +154,7 @@ void plugin_check_reload(plugin_loader_t *pl) {
   const char *p = buf;
   while (p < buf + n) {
     const struct inotify_event *ev = (const struct inotify_event *)p;
+    // NOLINTNEXTLINE(clang-analyzer-core.UndefinedBinaryOperatorResult)
     if (ev->len > 0 && nl_strcmp(ev->name, soname) == 0) {
       relevant = 1;
 

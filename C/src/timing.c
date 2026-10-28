@@ -7,7 +7,7 @@ static long frame_duration_ns = 0; // nanoseconds per frame
 void timing_init(int fps) { frame_duration_ns = 1000000000L / fps; }
 
 void timing_sleep(const struct timespec *start_time) {
-  struct timespec end_time;
+  struct timespec end_time = {0, 0};
   clock_gettime(CLOCK_MONOTONIC, &end_time);
 
   long elapsed_ns = (end_time.tv_sec - start_time->tv_sec) * 1000000000L +

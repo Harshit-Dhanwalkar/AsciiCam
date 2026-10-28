@@ -1402,6 +1402,8 @@ int main(int argc, char *argv[]) {
         webcam_adjust_contrast(&cam, 5, &hw_contrast);
 
         break;
+      default:
+        break;
       }
     }
 
@@ -1478,8 +1480,8 @@ int main(int argc, char *argv[]) {
     }
 
     // Calculate proper subpixel dimensions
-    int subpixel_w = ascii_w;
-    int subpixel_h = ascii_h;
+    int subpixel_w;
+    int subpixel_h;
 
     switch (opts.render_mode) {
     case RENDER_BRAILLE:

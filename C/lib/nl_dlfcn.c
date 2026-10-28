@@ -121,9 +121,6 @@ static void _nl_apply_rela(const Elf64_Rela *relas, size_t count,
 
       break;
     case R_X86_64_GLOB_DAT:
-      *tgt = S;
-
-      break;
     case R_X86_64_JUMP_SLOT:
       *tgt = S;
 
@@ -171,7 +168,7 @@ void *nl_dlopen(const char *path, int flags) {
   }
 
   // 2. read ELF header
-  Elf64_Ehdr ehdr;
+  Elf64_Ehdr ehdr = {0}; // filled by a raw pread syscall
   if (_nl_pread(fd, &ehdr, sizeof(ehdr), 0) != (long)sizeof(ehdr)) {
     _nl_set_err("nl_dlopen: short ELF header read");
     __sc1(SYS_close, fd);
