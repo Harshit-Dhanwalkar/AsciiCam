@@ -1215,6 +1215,10 @@ int main(int argc, char *argv[]) {
               }
 
               break;
+            default:
+              // other CSI sequences (Home, End, F1..F12, C/D cursor keys)
+              // are not bound; fall through to the outer continue
+              break;
             }
           }
         } else if (picker.active) {

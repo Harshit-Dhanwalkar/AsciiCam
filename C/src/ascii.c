@@ -258,13 +258,14 @@ static void sobel_dir(const uint8_t *in, uint8_t *out_mag, uint8_t *out_dir,
       int mag = my_abs(gx) + my_abs(gy);
       out_mag[y * w + x] = (uint8_t)(mag > 255 ? 255 : mag);
 
+      // |gx| dominates -> gradient mostly horizontal -> vertical edge glyph
+      // |gy| dominates, or no gradient at all -> horizontal edge glyph
+      //   (no-gradient case picks horizontal arbitrarily but stably)
       uint8_t dir;
       int agx = my_abs(gx), agy = my_abs(gy);
-      if (agx == 0 && agy == 0) {
-        dir = 0;
-      } else if (agy * 5 < agx * 2) {
+      if (agy * 5 < agx * 2) {
         dir = 2;
-      } else if (agx * 5 < agy * 2) {
+      } else if ((agx == 0 && agy == 0) || (agx * 5 < agy * 2)) {
         dir = 0;
       } else {
         dir = ((gx > 0) == (gy > 0)) ? 3 : 1;
