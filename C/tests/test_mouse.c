@@ -5,7 +5,7 @@
  * -print-file-name=include) \
  *     -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -static \
  *     test_mouse.c ../src/mouse.c ../lib/nl_printf.c ../lib/nl_errno.c \
- *     ../lib/nl_alloc.c ../lib/nl_start.c -I../include -I../lib -o test_mouse
+ *     ../lib/nl_alloc.c ../lib/nl_start.c -I../include -I../lib -o /tmp/test_mouse
  */
 #include "../lib/nolibc.h"
 #include "mouse.h"

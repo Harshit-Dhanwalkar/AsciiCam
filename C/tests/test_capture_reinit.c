@@ -9,7 +9,7 @@
  *     -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -static \
  *     test_capture_reinit.c ../src/capture_reinit.c ../lib/nl_printf.c \
  *     ../lib/nl_errno.c ../lib/nl_alloc.c ../lib/nl_start.c \
- *     -I../include -I../lib -o test_capture_reinit
+ *     -I../include -I../lib -o /tmp/test_capture_reinit
  */
 
 #include "../lib/nolibc.h"

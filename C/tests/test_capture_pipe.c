@@ -11,7 +11,7 @@
  * -print-file-name=include) -ffreestanding -fno-builtin -fno-stack-protector \
  *     -nostdlib -static test_capture_pipe.c ../src/thread_sharing.c \
  *     ../lib/nl_printf.c ../lib/nl_errno.c ../lib/nl_alloc.c ../lib/nl_start.c
- * \ -I../include -I../lib -o test_capture_pipe
+ * \ -I../include -I../lib -o /tmp/test_capture_pipe
  */
 
 #include "../lib/nolibc.h"

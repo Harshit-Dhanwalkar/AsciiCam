@@ -1,6 +1,9 @@
 # AsciiCam
 
 [![CI](https://github.com/Harshit-Dhanwalkar/AsciiCam/actions/workflows/ci.yml/badge.svg)](https://github.com/Harshit-Dhanwalkar/AsciiCam/actions/workflows/ci.yml)
+[![License: PolyForm NC](https://img.shields.io/badge/License-PolyForm_Noncommercial-red.svg)](https://polyformproject.org/licenses/noncommercial/1.0.0/)
+![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)
+![Language](https://img.shields.io/badge/language-C99-orange)
 
 Real-time webcam video rendered as ASCII art directly in the terminal
 

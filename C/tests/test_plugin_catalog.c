@@ -7,8 +7,7 @@
  *     -fno-stack-protector -nostdlib -static -Iinclude -Ilib"
  *   LIBS="lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
  *   gcc $FLAGS tests/test_plugin_catalog.c src/plugin_catalog.c \
- *     src/plugin_picker.c src/plugins.c lib/nl_dlfcn.c $LIBS -o /tmp/t_cat
- *   /tmp/t_cat
+ *     src/plugin_picker.c src/plugins.c lib/nl_dlfcn.c $LIBS -o /tmp/t_cat /tmp/t_cat
  *
  * Also builds against system libc (macOS, Windows, or a Linux host to exercise
  * POSIX code path; there pass -DPLATFORM_MACOS -DPC_SO_EXT=\"so\" so Makefile's

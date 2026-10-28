@@ -9,9 +9,10 @@
  * gcc -D__LINUX_NOLIBC__ -DPLATFORM_LINUX -ffreestanding -fno-builtin \
  *     -fno-stack-protector -nostdlib -static fuzz_nolibc.c \
  *     ../lib/nl_printf.c ../lib/nl_errno.c ../lib/nl_alloc.c \
- *     ../lib/nl_getopt.c ../lib/nl_start.c -I../include -I../lib -o fuzz_nolibc
- * ./fuzz_nolibc [iterations=20000] [seed=1]
+ *     ../lib/nl_getopt.c ../lib/nl_start.c -I../include -I../lib -o /tmp/fuzz_nolibc
+ * ./tmp./fuzz_nolibc [iterations=20000] [seed=1]
  */
+
 #include "../lib/nolibc.h"
 
 static unsigned long long rng_state;

@@ -8,7 +8,7 @@
  * gcc -DTESTING -D__LINUX_NOLIBC__ -DPLATFORM_LINUX -nostdlib -static \
  *     tests/security_tests.c filters/edge_detect.c filters/invert.c \
  *     filters/threshold.c lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c \
- *     lib/nl_start.c -Iinclude -Ilib -o security_tests
+ *     lib/nl_start.c -Iinclude -Ilib -o /tmp/security_tests
  */
 
 #include "../lib/nolibc.h"
@@ -94,12 +94,12 @@ int main(void) {
          __LINE__);
     _chk(filters[p].fn(NULL, 0, 0) == NULL, "NULL buffer, 0x0 rejected", name,
          __LINE__);
-
-    char buf[128];
-    int n =
-        nl_snprintf(buf, sizeof(buf), "\n%d passed  %d failed\n", _pass, _fail);
-    nl_write(1, buf, (size_t)n);
-
-    return _fail ? 1 : 0;
   }
+
+  char buf[128];
+  int n =
+      nl_snprintf(buf, sizeof(buf), "\n%d passed  %d failed\n", _pass, _fail);
+  nl_write(1, buf, (size_t)n);
+
+  return _fail ? 1 : 0;
 }

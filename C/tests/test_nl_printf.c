@@ -10,8 +10,7 @@
  *
  * gcc -D__LINUX_NOLIBC__ -nostdlib -static  test_nl_printf.c \
  *           ../lib/nl_printf.c ../lib/nl_errno.c ../lib/nl_alloc.c \
- *           ../lib/nl_start.c -I../include -I../lib -o test_nl_printf
- *
+ *           ../lib/nl_start.c -I../include -I../lib -o /tmp/test_nl_printf
  */
 #include "../lib/nolibc.h"
 

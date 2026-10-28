@@ -8,8 +8,8 @@
  *     -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -static \
  *     test_nl_dlfcn.c ../lib/nl_dlfcn.c ../lib/nl_alloc.c ../lib/nl_printf.c \
  *     ../lib/nl_errno.c ../lib/nl_start.c -I../include -I../lib -o
- *     test_nl_dlfcn run from C/ after `make plugins`:  ./tests/test_nl_dlfcn
- *     build
+ *     test_nl_dlfcn
+ * run from C/ after `make plugins`:  ./tests/test_nl_dlfcn build
  */
 #include "../lib/nolibc.h"
 #include "plugins.h"
