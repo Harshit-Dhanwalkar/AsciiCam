@@ -18,24 +18,24 @@ V4L2 on Linux, AVFoundation on macOS, Media Foundation on Windows.
 
 ## Features
 
-| Feature                       | Details                                                                                                                            |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **YUYV to grayscale**         | SSE2 SIMD (`yuyv_to_gray_simd`) - 16 pixels per iteration on x86_64, NEON on ARM64                                                 |
-| **YUYV to RGB**               | Fixed‑point BT.601 conversion for truecolor output                                                                                 |
-| **Render modes**              | Braille, Blocks, ASCII ramp, Half-block, Dots - cycle live with `m`/`M`                                                            |
-| **Edge detection**            | Sobel, Sobel with direction, Laplacian - toggle with `x`/`X`                                                                       |
-| **Image adjustments**         | Brightness, contrast, gamma (`-g 10..400`), invert mapping                                                                         |
-| **Pseudo-3D depth pop**       | Parallax displacement based on brightness — `+`/`-`/`v`                                                                            |
-| **Floyd‑Steinberg dither**    | Error‑diffusion to reduce banding                                                                                                  |
-| **ANSI color**                | Truecolor (`-C`) or xterm-256 (`-2`) per-cell foreground                                                                           |
-| **ANSI truecolor**            | `\033[38;2;R;G;Bm` per‑cell coloring                                                                                               |
-| **Hot‑reloadable charsets**   | Load `.txt` ramps from a directory, switch with `n`/`N`, monitor with inotify                                                      |
-| **Hot‑reload plugin system**  | `inotify` + `dlopen` - rebuild a filter `.so`, it reloads live                                                                     |
-| **SIGWINCH auto-resize**      | Terminal resize re-queries `TIOCGWINSZ` and reallocates buffers                                                                    |
-| **FPS‑capped render loop**    | `CLOCK_MONOTONIC` + `nanosleep` frame pacing                                                                                       |
-| **Capture thread**            | Linux: capture + luma conversion on a `clone()`d thread, triple-buffered hand-off to the render loop; `-T` captures inline         |
-| **Hardware camera controls**  | V4L2 exposure, contrast, white-balance via `ioctl` - live keys `e`/`E`, `c`/`C`, `w`/`W` (Linux only; macOS/Windows display `n/a`) |
-| **Cross-platform**            | Linux (V4L2, nolibc), macOS (AVFoundation, system libc), Windows (Media Foundation, MinGW)                                         |
+| Feature                      | Details                                                                                                                            |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **YUYV to grayscale**        | SSE2 SIMD (`yuyv_to_gray_simd`) - 16 pixels per iteration on x86_64, NEON on ARM64                                                 |
+| **YUYV to RGB**              | Fixed‑point BT.601 conversion for truecolor output                                                                                 |
+| **Render modes**             | Braille, Blocks, ASCII ramp, Half-block, Dots - cycle live with `m`/`M`                                                            |
+| **Edge detection**           | Sobel, Sobel with direction, Laplacian - toggle with `x`/`X`                                                                       |
+| **Image adjustments**        | Brightness, contrast, gamma (`-g 10..400`), invert mapping                                                                         |
+| **Pseudo-3D depth pop**      | Parallax displacement based on brightness — `+`/`-`/`v`                                                                            |
+| **Floyd‑Steinberg dither**   | Error‑diffusion to reduce banding                                                                                                  |
+| **ANSI color**               | Truecolor (`-C`) or xterm-256 (`-2`) per-cell foreground                                                                           |
+| **ANSI truecolor**           | `\033[38;2;R;G;Bm` per‑cell coloring                                                                                               |
+| **Hot‑reloadable charsets**  | Load `.txt` ramps from a directory, switch with `n`/`N`, monitor with inotify                                                      |
+| **Hot‑reload plugin system** | `inotify` + `dlopen` - rebuild a filter `.so`, it reloads live                                                                     |
+| **SIGWINCH auto-resize**     | Terminal resize re-queries `TIOCGWINSZ` and reallocates buffers                                                                    |
+| **FPS‑capped render loop**   | `CLOCK_MONOTONIC` + `nanosleep` frame pacing                                                                                       |
+| **Capture thread**           | Linux: capture + luma conversion on a `clone()`d thread, triple-buffered hand-off to the render loop; `-T` captures inline         |
+| **Hardware camera controls** | V4L2 exposure, contrast, white-balance via `ioctl` - live keys `e`/`E`, `c`/`C`, `w`/`W` (Linux only; macOS/Windows display `n/a`) |
+| **Cross-platform**           | Linux (V4L2, nolibc), macOS (AVFoundation, system libc), Windows (Media Foundation, MinGW)                                         |
 
 - Linux: requires `gcc` only (no kernel headers, `libdl` or `libpthread`).
 - macOS: requires `Clang` and `AVFoundation` frameworks (linked automatically).
@@ -138,6 +138,9 @@ plugins in filters/ into build/\*.{so,dylib,dll}.
 `make test` builds and runs the dependency-free unit tests (allocator, printf,
 ELF loader, fuzz, mouse, capture reinit, plugin catalog, threads, capture
 pipeline, filter security)
+
+`make e2e` runs the real main loop against a software camera in a pty (threaded
+and `-T`, colour, padded rows, and a wedged camera) - no webcam needed.
 
 ## Run
 

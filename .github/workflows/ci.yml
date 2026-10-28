@@ -248,6 +248,12 @@ jobs:
             /tmp/t_pipe
           done
 
+      - name: End-to-end with software camera (Linux)
+        if: matrix.platform == 'linux'
+        working-directory: C
+        shell: bash
+        run: make e2e
+
       - name: Plugin catalog tests (macOS)
         if: matrix.platform == 'macos'
         continue-on-error: true

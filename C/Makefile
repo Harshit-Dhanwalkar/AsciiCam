@@ -279,7 +279,16 @@ test: plugins
 	$(TESTDIR)/security
 	@echo "All tests passed"
 
-.PHONY: test
+# `make e2e`: main loop, linked against a software camera instead of V4L2,
+# driven through a pty (NOTE: Require python3)
+E2E_BIN := $(TESTDIR)/asciicam_fake
+
+e2e:
+	@mkdir -p $(TESTDIR)
+	$(CC) $(CFLAGS) $(CORE_SRCS) tests/fake_capture.c $(LIBSRCS) -o $(E2E_BIN) $(LDFLAGS)
+	python3 tests/e2e_capture.py $(E2E_BIN)
+
+.PHONY: test e2e
 endif
 
 info:
