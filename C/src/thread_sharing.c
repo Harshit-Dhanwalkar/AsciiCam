@@ -1,107 +1,161 @@
-#include "nl_thread.h"
-#include "nl_types.h"
 #include "nolibc.h"
 
-#include "ascii.h"
 #include "capture.h"
 #include "thread_sharing.h"
 
-// Producer thread for capturing frames
-void *capture_thread(void *arg) {
-  shared_frame_t *sf = arg;
-  webcam_t cam = {.fd = -1, .buffer = MAP_FAILED};
+#define CAPTURE_WAIT_MS 50 // upper bound on how long stop takes to be noticed
+#define SLOT_ALIGN 64
+#define GRAY_SLACK 16 // SIMD luma conversion may touch a few bytes past end
 
-  // Intialialize webcam into the thread context
-  if (webcam_init(&cam, "/dev/video0", sf->width, sf->height) < 0) {
-    nl_perror("webcam_init in capture thread");
-    sf->stop = 1;
+static size_t align_up(size_t n) {
+  return (n + (SLOT_ALIGN - 1)) & ~(size_t)(SLOT_ALIGN - 1);
+}
 
-    return NULL;
-  }
+// Producer
+static void *capture_thread(void *arg) {
+  capture_pipe_t *p = arg;
+  webcam_t *cam = p->cam;
 
-  int write_idx = 0;
-
-  while (!sf->stop) {
-    if (webcam_wait_frame(&cam, 100) < 0) {
-      continue;
+  while (!p->stop) {
+    if (webcam_wait_frame(cam, CAPTURE_WAIT_MS) < 0) {
+      continue; // timeout (or signal): re-check stop and wait again
     }
 
-    // Capture into inactive frame buffer slot
-    int cap = webcam_capture_frame(&cam, sf->buf[write_idx]);
-    if (cap < 0) {
+    int slot = fx_write_begin(&p->fx);
+    capture_frame_t *f = &p->frame[slot];
+
+    int rc = webcam_capture_frame(cam, f->gray);
+    if (rc < 0) {
+      fx_write_abort(&p->fx);
+      p->failed = 1;
+
       break;
     }
 
-    if (cap > 0) {
-      continue; // corrupt frame dropped, buffer already requeued
+    if (rc > 0) {
+      fx_write_abort(&p->fx);
+
+      continue; // corrupt frame dropped, its buffer is already requeued
     }
 
-    webcam_requeue_buffer(&cam);
+    // Raw frame must be copied before buffer goes back to driver:
+    // colour is derived from it after plugins have changed luma
+    f->has_yuyv = 0;
+    if (f->yuyv && cam->buffer && cam->buffer != MAP_FAILED) {
+      nl_memcpy(f->yuyv, cam->buffer, p->yuyv_bytes);
+      f->has_yuyv = 1;
+    }
 
-    nl_mutex_lock(&sf->lock);
-    sf->ready_idx = write_idx;
-    sf->has_frame = 1;
-    nl_cond_signal(&sf->cond); // wake render thread
-    nl_mutex_unlock(&sf->lock);
+    if (webcam_requeue_buffer(cam) < 0) {
+      fx_write_abort(&p->fx);
+      p->failed = 1;
 
-    write_idx ^= 1; // XOR, swap buffers
+      break;
+    }
+
+    fx_write_publish(&p->fx);
   }
-
-  webcam_cleanup(&cam);
 
   return NULL;
 }
 
-// Producer thread for rendering
-void *render_thread(void *arg) {
-  shared_frame_t *sf = arg;
+static void *slab_alloc(size_t n) {
+#ifdef __LINUX_NOLIBC__
+  // Page-backed and committed lazily: three full-size slots never compete with
+  // small-block arena (2 MiB) rest of program lives in
+  void *m = nl_mmap(NULL, n, PROT_READ | PROT_WRITE,
+                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
-  int braille_w = sf->ascii_w * 2;
-  int braille_h = sf->ascii_h * 4;
-  size_t out_size = ascii_out_size(braille_w, braille_h, sf->opts.color);
-  char *out_buf = nl_malloc(out_size);
+  return (m == MAP_FAILED) ? NULL : m;
+#else
+  return nl_malloc(n);
+#endif
+}
 
-  // TODO: extend shared_frame_t to carry an rgb double-buffer alongside gray
-  uint8_t *local_rgb = NULL;
+static void slab_free(void *m, size_t n) {
+#ifdef __LINUX_NOLIBC__
+  nl_munmap(m, n);
+#else
+  (void)n;
+  nl_free(m);
+#endif
+}
 
-  if (!out_buf) {
-    nl_perror("render_thread malloc");
+int capture_pipe_start(capture_pipe_t *p, webcam_t *cam, int want_yuyv) {
+  nl_memset(p, 0, sizeof(*p));
 
-    return NULL;
+  if (!cam || cam->width <= 0 || cam->height <= 0) {
+    return -1;
   }
 
-  nl_mutex_lock(&sf->lock);
-  while (!sf->stop) {
-    while (!sf->has_frame && !sf->stop) {
-      nl_cond_wait(&sf->cond, &sf->lock); // sleep until frame ready
-    }
+  int stride = cam->stride > 0 ? cam->stride : cam->width * 2;
 
-    if (sf->stop) {
-      break;
-    }
+  p->cam = cam;
+  p->gray_bytes =
+      align_up((size_t)cam->width * (size_t)cam->height + GRAY_SLACK);
+  p->yuyv_bytes = want_yuyv ? (size_t)stride * (size_t)cam->height : 0;
 
-    int read_idx = sf->ready_idx;
-    sf->has_frame = 0;
-
-    nl_mutex_unlock(&sf->lock);
-
-    // Process frame outside locked state
-    int len =
-        grayscale_to_ascii(sf->buf[read_idx], local_rgb, sf->width, sf->height,
-                           braille_w, braille_h, out_buf, out_size, &sf->opts);
-
-    if (len > 0) {
-      write(STDOUT_FILENO, "\033[H", 3); // cursor to top-left
-      write(STDOUT_FILENO, out_buf, (size_t)len);
-    }
-
-    nl_mutex_lock(&sf->lock);
+  size_t per_slot = p->gray_bytes + align_up(p->yuyv_bytes);
+  p->slab_bytes = per_slot * FX_SLOTS;
+  p->slab = slab_alloc(p->slab_bytes);
+  if (!p->slab) {
+    return -1;
   }
 
-  nl_mutex_unlock(&sf->lock);
+  for (int i = 0; i < FX_SLOTS; i++) {
+    uint8_t *base = (uint8_t *)p->slab + (size_t)i * per_slot;
 
-  nl_free(out_buf);
-  nl_free(local_rgb);
+    p->frame[i].gray = base;
+    p->frame[i].yuyv = want_yuyv ? base + p->gray_bytes : NULL;
+  }
 
-  return NULL;
+  fx_init(&p->fx);
+
+  if (nl_thread_create(&p->thread, capture_thread, p) < 0) {
+    slab_free(p->slab, p->slab_bytes);
+    p->slab = NULL;
+
+    return -1;
+  }
+
+  p->started = 1;
+
+  return 0;
+}
+
+int capture_pipe_acquire(capture_pipe_t *p, int timeout_ms,
+                         capture_frame_t **out) {
+  // No timed condition wait in nl_thread, so poll: 1 ms granularity is far
+  // below a frame period, and an idle wait costs next to nothing
+  for (int waited = 0;; waited++) {
+    int slot = fx_read_acquire(&p->fx);
+    if (slot >= 0) {
+      *out = &p->frame[slot];
+
+      return 1;
+    }
+
+    if (p->failed) {
+      return -1; // frames published before failure were delivered above
+    }
+
+    if (waited >= timeout_ms) {
+      return 0;
+    }
+
+    nl_usleep(1000);
+  }
+}
+
+void capture_pipe_stop(capture_pipe_t *p) {
+  if (p->started) {
+    p->stop = 1;
+    nl_thread_join(&p->thread);
+    p->started = 0;
+  }
+
+  if (p->slab) {
+    slab_free(p->slab, p->slab_bytes);
+    p->slab = NULL;
+  }
 }

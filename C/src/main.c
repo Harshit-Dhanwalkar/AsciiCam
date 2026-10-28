@@ -6,7 +6,7 @@
 #include "plugin_catalog.h"
 #include "plugin_picker.h"
 #include "plugins.h"
-// #include "thread_sharing.h"
+#include "thread_sharing.h"
 #include "timing.h"
 
 // Defaults
@@ -163,6 +163,8 @@ static void print_usage(const char *prog) {
       "  -w <width>    capture width            (default: %d)         \n"
       "  -h <height>   capture height           (default: %d)         \n"
       "  -f <fps>      target framerate         (default: %d)         \n"
+      "  -T            capture in main loop     (Linux default: a separate\n"
+      "                capture thread keeps UI responsive)             \n"
       "\n"
       "Output options:\n"
       "  -W <width>    ASCII output columns     (default: %d)          \n"
@@ -781,6 +783,9 @@ int main(int argc, char *argv[]) {
       .depth_invert = 0,
   };
 
+  // Linux captures on its own thread unless -T; other platforms capture inline
+  int capture_threaded = 1;
+
   // Plugins
   const char *plugin_paths[MAX_PLUGINS];
   int plugin_path_count = 0;
@@ -793,7 +798,7 @@ int main(int argc, char *argv[]) {
   // CLI parsing
   int opt;
   while ((opt = nl_getopt(argc, argv,
-                          "d:W:H:w:h:f:b:c:g:iCD2s:p:L:m:E:k:P:")) != -1)
+                          "d:W:H:w:h:f:b:c:g:iCD2s:p:L:m:E:k:P:T")) != -1)
     switch (opt) {
     case 'd':
       device = optarg;
@@ -893,6 +898,10 @@ int main(int argc, char *argv[]) {
       break;
     case 'D':
       opts.dither = 1;
+
+      break;
+    case 'T':
+      capture_threaded = 0;
 
       break;
     case 's':
@@ -1038,24 +1047,25 @@ int main(int argc, char *argv[]) {
   charset_registry_init(&charsets, charset_dir);
   opts.charset = charset_registry_active_ramp(&charsets);
 
-  // // Thead sharing
-  // shared_frame_t sf = {0};
-  // sf.buf[0] = malloc(cam_pixels);
-  // sf.buf[1] = malloc(cam_pixels);
-  // sf.width  = cam.width;  sf.height = cam.height;
-  // sf.ascii_w = ascii_w;   sf.ascii_h = ascii_h;
-  // sf.opts   = opts;
-  // pthread_mutex_init(&sf.lock, NULL);
-  // pthread_cond_init(&sf.cond, NULL);
-  //
-  // pthread_t tid_cap, tid_render;
-  // pthread_create(&tid_cap,    NULL, capture_thread, &sf);
-  // pthread_create(&tid_render, NULL, render_thread,  &sf);
-  //
-  // sf.stop = 1;
-  // pthread_cond_broadcast(&sf.cond);
-  // pthread_join(tid_cap,    NULL);
-  // pthread_join(tid_render, NULL);
+  // Capture thread (Linux). If memory or thread cannot be had, fall back to
+  // capturing inline, exactly as with -T
+  capture_pipe_t cap_pipe = {0};
+  int pipe_on = 0;
+#ifdef PLATFORM_LINUX
+  if (capture_threaded) {
+    if (capture_pipe_start(&cap_pipe, &cam, rgb != NULL) == 0) {
+      pipe_on = 1;
+
+      // frames now arrive in pipe's own slots
+      nl_free(gray);
+      gray = NULL;
+    } else {
+      fprintf(stderr, "capture thread unavailable, capturing inline\n");
+    }
+  }
+#else
+  (void)capture_threaded;
+#endif
 
   // Initial screen setup
   (void)write(STDOUT_FILENO, "\033[2J\033[H\033[?25l", 13);
@@ -1143,7 +1153,7 @@ int main(int argc, char *argv[]) {
         if (prc == MOUSE_PARSE_DONE) {
           int nw = 0;
           int nh = 0;
-          // Drag resizes the ASCII frame 1:1 in cells. Capture resolution is
+          // Drag resizes ASCII frame 1:1 in cells. Capture resolution is
           // controlled only by -w/-h at startup and is not touched here, so
           // frame's aspect and camera's aspect stay independent
           int act =
@@ -1222,7 +1232,7 @@ int main(int argc, char *argv[]) {
             }
           }
         } else if (picker.active) {
-          // a lone ESC closes the picker
+          // a lone ESC closes picker
           picker_key(&picker, &catalog, PK_KEY_ESC, NULL);
         }
 
@@ -1376,8 +1386,8 @@ int main(int argc, char *argv[]) {
         break;
       case 'a':
       case 'A':
-        // hand control of frame size back to SIGWINCH; the next loop
-        // iteration picks up the current terminal size
+        // hand control of frame size back to SIGWINCH; next loop iteration
+        // picks up current terminal size
         ascii_size_manual = 0;
         term_resized = 1;
 
@@ -1447,40 +1457,64 @@ int main(int argc, char *argv[]) {
     charset_registry_check_reload(&charsets);
     opts.charset = charset_registry_active_ramp(&charsets);
 
-    // Frame capture
-    if (webcam_wait_frame(&cam, 1000) < 0) {
-      continue; // timeout, retry
-    }
+    // Frame capture. `frame` is luma the plugins and renderer work on; `raw`
+    // is the camera's YUYV for this frame (colour needs it), NULL if
+    // unavailable
+    uint8_t *frame = gray;
+    const uint8_t *raw = NULL;
 
-    int cap = webcam_capture_frame(&cam, gray);
-    if (cap < 0) {
-      nl_perror("capture_frame");
+    if (pipe_on) {
+      capture_frame_t *cf = NULL;
+      int got = capture_pipe_acquire(&cap_pipe, 100, &cf);
+      if (got < 0) {
+        fprintf(stderr, "capture thread failed\n");
 
-      break;
-    }
+        break;
+      }
 
-    if (cap > 0) {
-      continue; // corrupt frame dropped, its buffer is already requeued
+      if (got == 0) {
+        continue; // no new frame yet; keys were handled above
+      }
+
+      frame = cf->gray; // exclusively ours until the next acquire
+      raw = cf->has_yuyv ? cf->yuyv : NULL;
+    } else {
+      if (webcam_wait_frame(&cam, 1000) < 0) {
+        continue; // timeout, retry
+      }
+
+      int cap = webcam_capture_frame(&cam, gray);
+      if (cap < 0) {
+        nl_perror("capture_frame");
+
+        break;
+      }
+
+      if (cap > 0) {
+        continue; // corrupt frame dropped, its buffer is already requeued
+      }
+
+      // NOTE: cam.buffer is the V4L2 mmap region (Linux only)
+      // On macOS, capture_macos.c delivers luma only; cam.buffer is NULL
+      // TODO: Add color support for macOS
+      // Color mode is therefore a Linux-only feature for now
+      if (cam.buffer && cam.buffer != MAP_FAILED) {
+        raw = (const uint8_t *)cam.buffer;
+      }
     }
 
     // Run all plugins in order
     for (int i = 0; i < plugin_count; i++) {
       if (plugins[i].plugin) {
-        plugins[i].plugin->process(gray, cam.width, cam.height,
+        plugins[i].plugin->process(frame, cam.width, cam.height,
                                    &plugin_params[i]);
       }
     }
 
-    // NOTE: cam.buffer is the V4L2 mmap region (Linux only)
-    // On macOS, capture_macos.c delivers luma only; cam.buffer is NULL
-    // TODO: Add color support for macOS
-    // Color mode is therefore a Linux-only feature for now
-    // gray already went through the plugins, so use it as Y: shapes and colour
-    // then come from the same image (U/V are still the camera's)
-
-    if (opts.color && rgb && cam.buffer && cam.buffer != MAP_FAILED) {
-      yuyv_to_rgb_ex((const uint8_t *)cam.buffer, cam.stride, gray, rgb,
-                     cam.width, cam.height);
+    // frame already went through plugins, so use it as Y: shapes and colour
+    // then come from same image (U/V are still the camera's)
+    if (opts.color && rgb && raw) {
+      yuyv_to_rgb_ex(raw, cam.stride, frame, rgb, cam.width, cam.height);
     }
 
     // Calculate proper subpixel dimensions
@@ -1506,7 +1540,7 @@ int main(int argc, char *argv[]) {
       break;
     }
 
-    int len = grayscale_to_ascii(gray, rgb, cam.width, cam.height, subpixel_w,
+    int len = grayscale_to_ascii(frame, rgb, cam.width, cam.height, subpixel_w,
                                  subpixel_h, out_buf, out_size, &opts);
     if (len > (int)out_size) {
       fprintf(stderr, "WARNING: len=%d > out_size=%zu\n", len, out_size);
@@ -1561,7 +1595,7 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    if (webcam_requeue_buffer(&cam) < 0) {
+    if (!pipe_on && webcam_requeue_buffer(&cam) < 0) {
       nl_perror("requeue_buffer");
 
       break;
@@ -1587,6 +1621,7 @@ int main(int argc, char *argv[]) {
   }
   catalog_cleanup(&catalog);
   charset_registry_cleanup(&charsets);
+  capture_pipe_stop(&cap_pipe); // before the camera it reads from is closed
   webcam_cleanup(&cam);
 
   return 0;

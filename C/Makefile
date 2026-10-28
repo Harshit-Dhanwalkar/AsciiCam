@@ -265,6 +265,7 @@ test: plugins
 	$(CC) -O2 $(TEST_FLAGS) tests/test_capture_reinit.c $(SRCDIR)/capture_reinit.c $(TEST_LIBS) -o $(TESTDIR)/reinit
 	$(CC) -O2 $(TEST_FLAGS) tests/test_plugin_catalog.c $(SRCDIR)/plugin_catalog.c $(SRCDIR)/plugin_picker.c $(SRCDIR)/plugins.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/catalog
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_thread.c $(TEST_LIBS) -o $(TESTDIR)/thread
+	$(CC) -O2 $(TEST_FLAGS) tests/test_capture_pipe.c $(SRCDIR)/thread_sharing.c $(TEST_LIBS) -o $(TESTDIR)/capture_pipe
 	$(CC) -DTESTING $(TEST_FLAGS) tests/security_tests.c $(FILTER_SRC) $(TEST_LIBS) -o $(TESTDIR)/security
 	$(TESTDIR)/alloc
 	$(TESTDIR)/printf
@@ -274,6 +275,7 @@ test: plugins
 	$(TESTDIR)/reinit
 	$(TESTDIR)/catalog
 	$(TESTDIR)/thread
+	$(TESTDIR)/capture_pipe
 	$(TESTDIR)/security
 	@echo "All tests passed"
 

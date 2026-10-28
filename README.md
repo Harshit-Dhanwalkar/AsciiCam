@@ -33,7 +33,7 @@ V4L2 on Linux, AVFoundation on macOS, Media Foundation on Windows.
 | **Hot‑reload plugin system**  | `inotify` + `dlopen` - rebuild a filter `.so`, it reloads live                                                                     |
 | **SIGWINCH auto-resize**      | Terminal resize re-queries `TIOCGWINSZ` and reallocates buffers                                                                    |
 | **FPS‑capped render loop**    | `CLOCK_MONOTONIC` + `nanosleep` frame pacing                                                                                       |
-| **Producer/consumer threads** | Double‑buffered capture + render (stubbed in main loop, active in `thread_sharing.c`)                                              |
+| **Capture thread**            | Linux: capture + luma conversion on a `clone()`d thread, triple-buffered hand-off to the render loop; `-T` captures inline         |
 | **Hardware camera controls**  | V4L2 exposure, contrast, white-balance via `ioctl` - live keys `e`/`E`, `c`/`C`, `w`/`W` (Linux only; macOS/Windows display `n/a`) |
 | **Cross-platform**            | Linux (V4L2, nolibc), macOS (AVFoundation, system libc), Windows (Media Foundation, MinGW)                                         |
 
@@ -136,8 +136,8 @@ plugins in filters/ into build/\*.{so,dylib,dll}.
 ### Tests (Linux)
 
 `make test` builds and runs the dependency-free unit tests (allocator, printf,
-ELF loader, fuzz, mouse, capture reinit, plugin catalog, threads, filter
-security) - the same commands CI runs.
+ELF loader, fuzz, mouse, capture reinit, plugin catalog, threads, capture
+pipeline, filter security)
 
 ## Run
 
@@ -236,10 +236,9 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
   - [x] Eliminate `-lc`
   - [x] Replace `pthread` with raw `futex`/`clone`
     - [x] `nl_thread.h`: futex + `clone` implementation
-    - [ ] Double-buffered capture thread active in main loop
+    - [x] Triple-buffered capture thread active in main loop (Linux; `-T` for inline)
   - [x] Replace `dlopen` with a minimal ELF loader
   - [x] Implement an ELF loader (or statically link plugins) to eliminate `-ldl` dependency
-- [ ] Wire capture/render thread split into the main loop (`thread_sharing.c` is built and tested but unused)
 - [x] Adjustable capture resolution
 - [x] Brightness / contrast / gamma adjustment
 - [x] Invert brightness to charset mapping
