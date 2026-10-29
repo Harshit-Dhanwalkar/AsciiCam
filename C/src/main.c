@@ -1,5 +1,6 @@
 #include "nolibc.h"
 
+#include "app_paths.h"
 #include "ascii.h"
 #include "capture.h"
 #include "mouse.h"
@@ -21,6 +22,10 @@
 #define DEFAULT_CHARSET_DIR "./charsets"
 #define DEFAULT_PLUGIN_DIR "./filters"          // plugin sources to browse
 #define DEFAULT_PLUGIN_CACHE "./.cache/plugins" // where runtime builds land
+// Plugin sources, build cache, prebuilt libraries and charsets are located
+// relative to binary as well as current directory (app_paths.h)
+#define DEFAULT_PLUGIN_DIR "<sdk>/filters"
+
 #define TOAST_SECONDS 3
 #define CONFIG_MAX_BYTES 4096
 
@@ -58,8 +63,8 @@ volatile sig_atomic_t keep_running = 1;
 //   keep_running = 0;
 // }
 
-static const char *g_plugin_dir = DEFAULT_PLUGIN_DIR;
-static const char *g_plugin_cache = DEFAULT_PLUGIN_CACHE;
+static const char *g_plugin_dir = NULL;   // NULL: chosen by app_paths_resolve
+static const char *g_plugin_cache = NULL; // NULL: chosen by app_paths_resolve
 
 static volatile sig_atomic_t raw_mode_active = 0;
 static struct termios orig_terminal;
@@ -766,7 +771,7 @@ int main(int argc, char *argv[]) {
   int cap_w = DEFAULT_CAPTURE_WIDTH;
   int cap_h = DEFAULT_CAPTURE_HEIGHT;
   int fps = DEFAULT_FPS;
-  const char *charset_dir = DEFAULT_CHARSET_DIR;
+  const char *charset_dir = NULL;
 
   ascii_opts_t opts = {
       .brightness = 0,
@@ -961,15 +966,39 @@ int main(int argc, char *argv[]) {
   plugin_log_stderr = 0;
 
   // Catalog of plugin sources that can be built and loaded while running
-  plugin_catalog_t catalog;
-  catalog_init(&catalog, g_plugin_dir, g_plugin_cache,
+  char **envp =
 #ifdef __LINUX_NOLIBC__
-               argv + argc + 1 // envp follows argv NULL terminator
+      argv + argc + 1; // envp follows argv NULL terminator
 #else
-               (char **)0
+      (char **)0;
 #endif
-  );
+
+  // Where everything lives: prebuilt plugins beside binary or under install
+  // prefix, sources + build cache only if a plugin SDK is around
+  char exe_dir[AP_LEN];
+  app_env_t app_env = {
+      .exe_dir = app_exe_dir(exe_dir, sizeof(exe_dir)) == 0 ? exe_dir : NULL,
+      .home = app_getenv(envp, "HOME"),
+      .xdg_cache = app_getenv(envp, "XDG_CACHE_HOME"),
+      .exists = NULL,
+  };
+  static app_paths_t paths;
+  app_paths_resolve(&paths, &app_env, g_plugin_dir, g_plugin_cache,
+                    charset_dir);
+  charset_dir = paths.charset_dir;
+
+  plugin_catalog_t catalog;
+  catalog_init(&catalog, paths.src_dir, paths.cache_dir, envp);
+  // "." is directory make already runs in; -C is only for a remote SDK
+  if (paths.sdk_dir[0] && nl_strcmp(paths.sdk_dir, ".") != 0) {
+    catalog_set_sdk(&catalog, paths.sdk_dir);
+  }
+
   catalog_scan(&catalog);
+
+  for (int i = 0; i < paths.prebuilt_count; i++) {
+    catalog_add_prebuilt(&catalog, paths.prebuilt_dir[i]);
+  }
 
   picker_t picker;
   nl_memset(&picker, 0, sizeof(picker));

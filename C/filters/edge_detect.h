@@ -28,5 +28,4 @@ static inline uint8_t *edge_detect(uint8_t *gray, int w, int h) {
 
   return out_buffer;
 }
-
 #endif

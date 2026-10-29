@@ -21,4 +21,6 @@ static filter_plugin_t self = {
 };
 
 filter_plugin_t *plugin_get(void) { return &self; }
+
+PLUGIN_ABI_EXPORT;
 #endif

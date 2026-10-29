@@ -1,11 +1,10 @@
 /*
  * Plugin catalog: shared logic on top of five per-platform primitives
  *
- *   pc_list_c_files  names of *.c files in a directory
- *   pc_make_dirs     mkdir -p
- *   pc_spawn         start `make` on plugin rule, output to a log file
- *   pc_reap          non-blocking (or blocking) wait for that child
- *   pc_kill          terminate and reap child
+ *   pc_list_files    names of files in a directory (Windows: matching
+ * *.ext) pc_make_dirs     mkdir -p pc_spawn         start `make` on plugin
+ * rule, output to a log file pc_reap          non-blocking (or blocking) wait
+ * for that child pc_kill          terminate and reap child
  *
  * System headers must come before nolibc.h on libc platforms: nolibc redirects
  * names like strlen/signal with macros that would rewrite their declarations
@@ -96,6 +95,11 @@ void catalog_init(plugin_catalog_t *c, const char *src_dir,
   strip_trailing_slash(c->cache_dir);
 }
 
+void catalog_set_sdk(plugin_catalog_t *c, const char *sdk_dir) {
+  cat_copy(c->sdk_dir, sizeof(c->sdk_dir), sdk_dir ? sdk_dir : "");
+  strip_trailing_slash(c->sdk_dir);
+}
+
 int catalog_find(const plugin_catalog_t *c, const char *name) {
   for (int i = 0; i < c->count; i++) {
     if (nl_strcmp(c->e[i].name, name) == 0) {
@@ -124,8 +128,9 @@ struct nl_dirent64 {
   char d_name[];
 };
 
-static int pc_list_c_files(const char *dir, char names[][PC_FILE_LEN],
-                           int max) {
+static int pc_list_files(const char *dir, const char *ext,
+                         char names[][PC_FILE_LEN], int max) {
+  (void)ext; // every entry is listed; callers filter by suffix
   int fd = open(dir, O_RDONLY | NL_O_DIRECTORY, 0);
   if (fd < 0) {
     return 0;
@@ -179,7 +184,7 @@ static int pc_spawn(const plugin_catalog_t *c, const catalog_entry_t *e,
     return -1;
   }
 
-  // Use the Makefile's own plugin rule so flags always match a normal build
+  // Use Makefile's own plugin rule so flags always match a normal build
   char a_filter[CATALOG_PATH_LEN + 16];
   char a_build[CATALOG_PATH_LEN + 16];
   nl_snprintf(a_filter, sizeof(a_filter), "FILTERDIR=%s", c->src_dir);
@@ -189,13 +194,26 @@ static int pc_spawn(const plugin_catalog_t *c, const catalog_entry_t *e,
   char **envp = c->envp ? c->envp : empty_env;
 
   // /usr/bin/env resolves make through PATH; without an environment there is
-  // no PATH, so fall back to the usual absolute location
+  // no PATH, so fall back to usual absolute location
   const char *prog = c->envp ? "/usr/bin/env" : "/usr/bin/make";
-  char *argv_env[] = {
-      "env", "make", "-s", a_filter, a_build, (char *)e->so_path, (char *)0};
-  char *argv_make[] = {"make",   "-s", a_filter, a_build, (char *)e->so_path,
-                       (char *)0};
-  char **argv = c->envp ? argv_env : argv_make;
+  // [env] make -s [-C <sdk>] FILTERDIR=.. BUILDDIR=.. <target>
+  char *argv[12];
+  int ac = 0;
+  if (c->envp) {
+    argv[ac++] = "env";
+  }
+
+  argv[ac++] = "make";
+  argv[ac++] = "-s";
+  if (c->sdk_dir[0]) {
+    argv[ac++] = "-C";
+    argv[ac++] = (char *)c->sdk_dir;
+  }
+
+  argv[ac++] = a_filter;
+  argv[ac++] = a_build;
+  argv[ac++] = (char *)e->so_path;
+  argv[ac] = (char *)0;
 
   long pid = __sc1(SYS_fork, 0);
   if (pid < 0) {
@@ -225,7 +243,7 @@ static int pc_spawn(const plugin_catalog_t *c, const catalog_entry_t *e,
 }
 
 // 1 finished (*code = exit status, -1 if killed by a signal), 0 running,
-// -1 lost track of the child
+// -1 lost track of child
 static int pc_reap(pc_proc_t h, int block, int *code) {
   int status = 0;
   long r = __sc4(SYS_wait4, (long)h, (long)&status, block ? 0 : NL_WNOHANG, 0);
@@ -251,8 +269,9 @@ static void pc_kill(pc_proc_t h) {
 
 extern char **environ;
 
-static int pc_list_c_files(const char *dir, char names[][PC_FILE_LEN],
-                           int max) {
+static int pc_list_files(const char *dir, const char *ext,
+                         char names[][PC_FILE_LEN], int max) {
+  (void)ext; // every entry is listed; callers filter by suffix
   DIR *d = opendir(dir);
   if (!d) {
     return 0;
@@ -292,11 +311,22 @@ static int pc_spawn(const plugin_catalog_t *c, const catalog_entry_t *e,
   nl_snprintf(a_filter, sizeof(a_filter), "FILTERDIR=%s", c->src_dir);
   nl_snprintf(a_build, sizeof(a_build), "BUILDDIR=%s", c->cache_dir);
 
-  char *argv[] = {"make",   "-s", a_filter, a_build, (char *)e->so_path,
-                  (char *)0};
+  char *argv[12];
+  int ac = 0;
+  argv[ac++] = "make";
+  argv[ac++] = "-s";
+  if (c->sdk_dir[0]) {
+    argv[ac++] = "-C";
+    argv[ac++] = (char *)c->sdk_dir;
+  }
+
+  argv[ac++] = a_filter;
+  argv[ac++] = a_build;
+  argv[ac++] = (char *)e->so_path;
+  argv[ac] = (char *)0;
 
   // posix_spawn rather than fork: macOS has AVFoundation threads running, and
-  // spawn is the supported way to start a child from a threaded process
+  // spawn is supported way to start a child from a threaded process
   posix_spawn_file_actions_t fa;
   if (posix_spawn_file_actions_init(&fa) != 0) {
     cat_copy(err, errsz, "cannot set up build process");
@@ -346,10 +376,10 @@ static void pc_kill(pc_proc_t h) {
 
 #else /* PC_WINDOWS */
 
-static int pc_list_c_files(const char *dir, char names[][PC_FILE_LEN],
-                           int max) {
-  char pattern[CATALOG_PATH_LEN + 8];
-  nl_snprintf(pattern, sizeof(pattern), "%s/*.c", dir);
+static int pc_list_files(const char *dir, const char *ext,
+                         char names[][PC_FILE_LEN], int max) {
+  char pattern[CATALOG_PATH_LEN + 16];
+  nl_snprintf(pattern, sizeof(pattern), "%s/*.%s", dir, ext);
 
   WIN32_FIND_DATAA fd;
   HANDLE h = FindFirstFileA(pattern, &fd);
@@ -420,10 +450,17 @@ static int pc_spawn(const plugin_catalog_t *c, const catalog_entry_t *e,
   int started = 0;
 
   for (int t = 0; t < 2 && !started; t++) {
-    char cmd[4 * CATALOG_PATH_LEN];
+    char cmd[5 * CATALOG_PATH_LEN];
+    char chdir_arg[CATALOG_PATH_LEN + 8];
+    if (c->sdk_dir[0]) {
+      nl_snprintf(chdir_arg, sizeof(chdir_arg), " -C \"%s\"", c->sdk_dir);
+    } else {
+      chdir_arg[0] = '\0';
+    }
+
     nl_snprintf(cmd, sizeof(cmd),
-                "%s -s \"FILTERDIR=%s\" \"BUILDDIR=%s\" \"%s\"", tools[t],
-                c->src_dir, c->cache_dir, e->so_path);
+                "%s -s%s \"FILTERDIR=%s\" \"BUILDDIR=%s\" \"%s\"", tools[t],
+                chdir_arg, c->src_dir, c->cache_dir, e->so_path);
     nl_memset(&pi, 0, sizeof(pi));
     started = CreateProcessA(NULL, cmd, NULL, NULL, TRUE, CREATE_NO_WINDOW,
                              NULL, NULL, &si, &pi) != 0;
@@ -541,7 +578,7 @@ static int file_exists(const char *path) {
 static int list_sources(const char *dir, char names[][CATALOG_NAME_LEN],
                         int max) {
   static char files[CATALOG_MAX * 4][PC_FILE_LEN];
-  int nfiles = pc_list_c_files(dir, files, CATALOG_MAX * 4);
+  int nfiles = pc_list_files(dir, "c", files, CATALOG_MAX * 4);
   int count = 0;
 
   for (int i = 0; i < nfiles && count < max; i++) {
@@ -622,6 +659,72 @@ int catalog_scan(plugin_catalog_t *c) {
   return c->count;
 }
 
+// "<stem>.<ext>" -> stem, if file is a plugin library name
+static int lib_stem(const char *file, char *stem, size_t stemsz) {
+  size_t len = nl_strlen(file);
+  size_t el = nl_strlen(PC_SO_EXT);
+  if (len <= el + 1 || file[len - el - 1] != '.') {
+    return 0;
+  }
+
+  for (size_t i = 0; i < el; i++) {
+    if (file[len - el + i] != PC_SO_EXT[i]) {
+      return 0;
+    }
+  }
+
+  if (len - el - 1 >= stemsz) {
+    return 0;
+  }
+
+  nl_memcpy(stem, file, len - el - 1);
+  stem[len - el - 1] = '\0';
+
+  return name_ok(stem);
+}
+
+int catalog_add_prebuilt(plugin_catalog_t *c, const char *dir) {
+  static char files[CATALOG_MAX * 4][PC_FILE_LEN];
+  int nfiles = pc_list_files(dir, PC_SO_EXT, files, CATALOG_MAX * 4);
+
+  for (int i = 0; i < nfiles; i++) {
+    char stem[CATALOG_NAME_LEN];
+    if (!lib_stem(files[i], stem, sizeof(stem)) ||
+        !path_fits(dir, files[i], 0)) {
+      continue;
+    }
+
+    char lib[CATALOG_PATH_LEN];
+    nl_snprintf(lib, sizeof(lib), "%s/%s", dir, files[i]);
+
+    int at = catalog_find(c, stem);
+    if (at >= 0) {
+      // source known: a cached build wins, else use shipped library
+      catalog_entry_t *e = &c->e[at];
+      if (e->state == PC_AVAILABLE) {
+        cat_copy(e->so_path, sizeof(e->so_path), lib);
+        e->state = PC_READY;
+      }
+
+      continue;
+    }
+
+    if (c->count >= CATALOG_MAX || !path_fits(c->cache_dir, stem, 6)) {
+      continue;
+    }
+
+    catalog_entry_t *e = &c->e[c->count++];
+    nl_memset(e, 0, sizeof(*e));
+    cat_copy(e->name, sizeof(e->name), stem);
+    cat_copy(e->so_path, sizeof(e->so_path), lib);
+    nl_snprintf(e->log_path, sizeof(e->log_path), "%s/%s.log", c->cache_dir,
+                stem);
+    e->state = PC_READY; // src_path stays empty: nothing to build from
+  }
+
+  return c->count;
+}
+
 int catalog_start_build(plugin_catalog_t *c, int idx) {
   if (idx < 0 || idx >= c->count) {
     return -1;
@@ -630,6 +733,26 @@ int catalog_start_build(plugin_catalog_t *c, int idx) {
   catalog_entry_t *e = &c->e[idx];
   if (e->state == PC_COMPILING || e->state == PC_ACTIVE) {
     return 0;
+  }
+
+  if (!e->src_path[0]) {
+    set_err(e, "prebuilt library, no source to build");
+    if (e->state != PC_READY) {
+      e->state = PC_FAILED;
+    }
+
+    return -1;
+  }
+
+  if (c->sdk_dir[0]) {
+    char mk[CATALOG_PATH_LEN + 16];
+    nl_snprintf(mk, sizeof(mk), "%s/Makefile", c->sdk_dir);
+    if (!file_exists(mk)) {
+      set_err(e, "no plugin SDK (Makefile + headers): prebuilt plugins only");
+      e->state = PC_FAILED;
+
+      return -1;
+    }
   }
 
   pc_make_dirs(c->cache_dir);

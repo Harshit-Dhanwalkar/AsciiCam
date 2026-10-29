@@ -16,4 +16,6 @@ void do_invert(uint8_t *gray, int w, int h, void *ctx) {
 static filter_plugin_t self = {.process = do_invert, .name = "invert"};
 
 filter_plugin_t *plugin_get(void) { return &self; }
+
+PLUGIN_ABI_EXPORT;
 #endif

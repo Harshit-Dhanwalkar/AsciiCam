@@ -8,6 +8,17 @@ typedef struct {
   const char *name;
 } filter_plugin_t;
 
+// Version of plugin interface (filter_plugin_t and hooks host calls). Bump it
+// when that layout changes. A plugin built from these headers carries number it
+// was built against, so a prebuilt library from anthero release is refused with
+// a message instead of crashing host. Put it once in plugin source, next to
+// plugin_get(): PLUGIN_ABI_EXPORT; Libraries without it (older plugins) are
+// still accepted
+#define PLUGIN_ABI 1
+#define PLUGIN_ABI_EXPORT                                                      \
+  const int asciicam_plugin_abi __attribute__((visibility("default"), used)) = \
+      PLUGIN_ABI
+
 typedef struct {
   void *dl_handle;         // handle from dlopen
   filter_plugin_t *plugin; // resolved plugin vtable
