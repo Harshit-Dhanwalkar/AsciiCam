@@ -117,7 +117,8 @@ else ifeq ($(PLATFORM),windows)
     SO_FLAGS := -shared
 endif
 
-CORE_SRCS := $(SRCDIR)/ascii.c \
+CORE_SRCS := $(SRCDIR)/app_paths.c \
+             $(SRCDIR)/ascii.c \
              $(SRCDIR)/capture_reinit.c \
              $(SRCDIR)/main.c  \
              $(SRCDIR)/mouse.c \
@@ -260,6 +261,7 @@ test: plugins
 	$(CC) $(TEST_FLAGS) tests/fuzz_nolibc.c $(LIBDIR)/nl_getopt.c $(TEST_LIBS) -o $(TESTDIR)/fuzz
 	$(CC) $(TEST_FLAGS) tests/test_mouse.c $(SRCDIR)/mouse.c $(TEST_LIBS) -o $(TESTDIR)/mouse
 	$(CC) -O2 $(TEST_FLAGS) tests/test_capture_reinit.c $(SRCDIR)/capture_reinit.c $(TEST_LIBS) -o $(TESTDIR)/reinit
+	$(CC) -O2 $(TEST_FLAGS) tests/test_app_paths.c $(SRCDIR)/app_paths.c $(TEST_LIBS) -o $(TESTDIR)/app_paths
 	$(CC) -O2 $(TEST_FLAGS) tests/test_plugin_catalog.c $(SRCDIR)/plugin_catalog.c $(SRCDIR)/plugin_picker.c $(SRCDIR)/plugins.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/catalog
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_thread.c $(TEST_LIBS) -o $(TESTDIR)/thread
 	$(CC) -O2 $(TEST_FLAGS) tests/test_capture_pipe.c $(SRCDIR)/thread_sharing.c $(TEST_LIBS) -o $(TESTDIR)/capture_pipe
@@ -270,6 +272,7 @@ test: plugins
 	for seed in 1 2 3; do $(TESTDIR)/fuzz 100000 $$seed || exit 1; done
 	$(TESTDIR)/mouse
 	$(TESTDIR)/reinit
+	$(TESTDIR)/app_paths
 	$(TESTDIR)/catalog
 	$(TESTDIR)/thread
 	$(TESTDIR)/capture_pipe
@@ -295,3 +298,32 @@ info:
 	@echo "CFLAGS   : $(CFLAGS)"
 	@echo "LDFLAGS  : $(LDFLAGS)"
 	@echo "Objects  : $(OBJECTS)"
+
+# Installing
+#
+#   make install        binary + prebuilt plugins + charsets (no compiler needed
+#                       on target machine)
+#   make install-sdk    additionally Makefile, headers and plugin sources, so
+#                       `/` picker can compile plugins nobody prebuilt
+#
+# NOTE: Binary finds its plugins relative to itself (see include/app_paths.h),
+# so a prefix can also be moved or a build/ directory zipped and unpacked:
+#   <dir>/asciicam + <dir>/plugins/*.so  works as is
+PREFIX  ?= /usr/local
+DESTDIR ?=
+SHAREDIR = $(DESTDIR)$(PREFIX)/share/asciicam
+
+.PHONY: install install-sdk
+
+install: all plugins
+	install -d $(DESTDIR)$(PREFIX)/bin $(SHAREDIR)/plugins $(SHAREDIR)/charsets
+	install -m 755 $(TARGET) $(DESTDIR)$(PREFIX)/bin/asciicam
+	install -m 755 $(PLUGIN_TARGETS) $(SHAREDIR)/plugins
+	install -m 644 charsets/* $(SHAREDIR)/charsets
+
+install-sdk: install
+	install -d $(SHAREDIR)/sdk/include $(SHAREDIR)/sdk/lib $(SHAREDIR)/sdk/filters
+	install -m 644 Makefile $(SHAREDIR)/sdk
+	install -m 644 include/*.h $(SHAREDIR)/sdk/include
+	install -m 644 lib/*.h $(SHAREDIR)/sdk/lib
+	install -m 644 filters/*.c $(SHAREDIR)/sdk/filters

@@ -53,4 +53,6 @@ void do_edge_boost(uint8_t *gray, int w, int h, void *ctx) {
 static filter_plugin_t self = {do_edge_boost, "edge_boost"};
 
 filter_plugin_t *plugin_get(void) { return &self; }
+
+PLUGIN_ABI_EXPORT;
 #endif

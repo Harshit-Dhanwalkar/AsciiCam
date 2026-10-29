@@ -7,7 +7,8 @@
  *     -fno-stack-protector -nostdlib -static -Iinclude -Ilib"
  *   LIBS="lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
  *   gcc $FLAGS tests/test_plugin_catalog.c src/plugin_catalog.c \
- *     src/plugin_picker.c src/plugins.c lib/nl_dlfcn.c $LIBS -o /tmp/t_cat /tmp/t_cat
+ *     src/plugin_picker.c src/plugins.c lib/nl_dlfcn.c $LIBS -o /tmp/t_cat
+ * /tmp/t_cat
  *
  * Also builds against system libc (macOS, Windows, or a Linux host to exercise
  * POSIX code path; there pass -DPLATFORM_MACOS -DPC_SO_EXT=\"so\" so Makefile's
@@ -490,7 +491,7 @@ static void test_failure_and_cancel(char **envp) {
   CHECK(c.e[idx].pid == 0, "pid cleared");
 
   // no make on PATH: report it instead of hanging or claiming success
-  // Linux nolibc build resolves make through the envp it is given; libc
+  // Linux nolibc build resolves make through envp it is given; libc
   // platforms through this process's own PATH
   char *noenv[] = {"PATH=/nonexistent", (char *)0};
   plugin_catalog_t n;
@@ -543,6 +544,111 @@ static void test_failure_and_cancel(char **envp) {
   rm(SRC_DIR "/broken.c");
 }
 
+static int starts(const char *a, const char *b, size_t n) {
+  for (size_t i = 0; i < n; i++) {
+    if (a[i] != b[i]) {
+      return 0;
+    }
+  }
+
+  return 1;
+}
+
+static int nl_strstr_ok(const char *hay, const char *needle) {
+  size_t nl = nl_strlen(needle);
+  for (; *hay; hay++) {
+    if (starts(hay, needle, nl)) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+// Shipped layout: ready-made libraries, with or without sources and SDK
+static void test_prebuilt_and_abi(char **envp) {
+  mkdirs();
+  rm(CACHE_DIR "/invert." PC_SO_EXT);
+
+  // libraries only: listed, loadable, but nothing to rebuild from
+  plugin_catalog_t c;
+  catalog_init(&c, ".cache/no_such_sources", CACHE_DIR, envp);
+  catalog_scan(&c);
+  CHECK(c.count == 0, "no sources -> empty before prebuilt");
+  CHECK(catalog_add_prebuilt(&c, "build") >= 3, "prebuilt libraries listed");
+  int idx = catalog_find(&c, "invert");
+  CHECK(idx >= 0 && c.e[idx].state == PC_READY, "prebuilt entry is ready");
+  CHECK(idx >= 0 && c.e[idx].src_path[0] == '\0',
+        "prebuilt entry has no source");
+  CHECK(idx >= 0 && catalog_start_build(&c, idx) == -1 &&
+            c.e[idx].state == PC_READY,
+        "cannot rebuild a source-less plugin, stays usable");
+  int n = c.count;
+  catalog_add_prebuilt(&c, "build");
+  CHECK(c.count == n, "adding the same directory twice adds nothing");
+  CHECK(catalog_add_prebuilt(&c, ".cache/no_such_dir") == c.count,
+        "missing prebuilt dir is harmless");
+
+  plugin_loader_t pl;
+  nl_memset(&pl, 0, sizeof(pl));
+  pl.inotify_fd = -1;
+  plugin_log_stderr = 0;
+  CHECK(idx >= 0 && plugin_load(&pl, c.e[idx].so_path) == 0,
+        "prebuilt library loads without compiling");
+  plugin_cleanup(&pl);
+
+  // sources known + prebuilt available: use the library, no compiler needed
+  plugin_catalog_t s;
+  catalog_init(&s, "filters", CACHE_DIR, envp);
+  catalog_scan(&s);
+  int si = catalog_find(&s, "invert");
+  CHECK(si >= 0 && s.e[si].state == PC_AVAILABLE, "source only -> available");
+  catalog_add_prebuilt(&s, "build");
+  CHECK(si >= 0 && s.e[si].state == PC_READY, "prebuilt makes it ready");
+  CHECK(si >= 0 && s.e[si].src_path[0] != '\0', "source kept for rebuilds");
+
+  // sources but no SDK around: clear error instead of a make failure
+  plugin_catalog_t nosdk;
+  catalog_init(&nosdk, "filters", CACHE_DIR, envp);
+  catalog_set_sdk(&nosdk, ".cache/no_such_sdk");
+  catalog_scan(&nosdk);
+  int ni = catalog_find(&nosdk, "threshold");
+  CHECK(ni >= 0 && catalog_start_build(&nosdk, ni) == -1 &&
+            nosdk.e[ni].state == PC_FAILED,
+        "missing SDK fails fast");
+  CHECK(ni >= 0 && nl_strstr_ok(nosdk.e[ni].err, "SDK"),
+        "error mentions the SDK");
+
+  // library built for another plugin interface version is refused
+  write_file(SRC_DIR "/abi99.c",
+             "#include \"nolibc.h\"\n#include \"plugins.h\"\n"
+             "static void p(uint8_t *g, int w, int h, void *x) "
+             "{ (void)g; (void)w; (void)h; (void)x; }\n"
+             "static filter_plugin_t self = {p, \"abi99\"};\n"
+             "filter_plugin_t *plugin_get(void) { return &self; }\n"
+             "const int asciicam_plugin_abi "
+             "__attribute__((visibility(\"default\"), used)) = 99;\n");
+  plugin_catalog_t a;
+  catalog_init(&a, SRC_DIR, CACHE_DIR, envp);
+  catalog_scan(&a);
+  int ai = catalog_find(&a, "abi99");
+  CHECK(ai >= 0, "abi fixture listed");
+  if (ai >= 0 && catalog_start_build(&a, ai) == 0 && wait_build(&a, ai, 60) &&
+      a.e[ai].state == PC_READY) {
+    nl_memset(&pl, 0, sizeof(pl));
+    pl.inotify_fd = -1;
+    CHECK(plugin_load(&pl, a.e[ai].so_path) == -1 && pl.plugin == NULL,
+          "plugin with a different ABI version is refused");
+    CHECK(nl_strstr_ok(pl.status_msg, "v99"), "refusal says which version");
+    plugin_cleanup(&pl);
+  } else {
+    CHECK(0, "abi fixture builds");
+  }
+
+  rm(SRC_DIR "/abi99.c");
+  rm(CACHE_DIR "/abi99." PC_SO_EXT);
+}
+
 int main(int argc, char **argv) {
 #if defined(__LINUX_NOLIBC__)
   char **envp = argv + argc + 1;
@@ -558,6 +664,7 @@ int main(int argc, char **argv) {
   test_scan(envp);
   test_build_and_load(envp);
   test_failure_and_cancel(envp);
+  test_prebuilt_and_abi(envp);
 
   fprintf(stderr, "%d/%d checks passed\n", total - fails, total);
 

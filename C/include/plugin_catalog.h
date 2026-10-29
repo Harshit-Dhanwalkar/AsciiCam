@@ -50,6 +50,7 @@ typedef struct {
   int count;
   char src_dir[CATALOG_PATH_LEN];
   char cache_dir[CATALOG_PATH_LEN];
+  char sdk_dir[CATALOG_PATH_LEN]; // where `make` runs (-C); "" = current dir
   char **envp; // build child environment: NULL = empty on Linux nolibc,
                // inherited on macOS/Windows
 } plugin_catalog_t;
@@ -61,9 +62,22 @@ int catalog_supported(void);
 void catalog_init(plugin_catalog_t *c, const char *src_dir,
                   const char *cache_dir, char **envp);
 
+// Directory that holds Makefile and headers plugin builds need (see
+// app_paths.h). Builds run as `make -C <dir>`, so src_dir/cache_dir must then
+// be absolute or relative to it
+// Empty (default) builds in current directory, as before
+void catalog_set_sdk(plugin_catalog_t *c, const char *sdk_dir);
+
 // (Re)scan src_dir. New sources are appended in alphabetical order; known
 // entries keep their state and index. Returns number of entries
 int catalog_scan(plugin_catalog_t *c);
+
+// Add ready-made plugin libraries found in dir. A library with no source
+// becomes a PC_READY entry that can be loaded but not rebuilt; one whose source
+// is known but has no cached build is pointed at the prebuilt file, so no
+// compiler is needed. Call after catalog_scan; safe to repeat. Returns the
+// number of entries
+int catalog_add_prebuilt(plugin_catalog_t *c, const char *dir);
 
 // Index of entry called name, or -1
 int catalog_find(const plugin_catalog_t *c, const char *name);

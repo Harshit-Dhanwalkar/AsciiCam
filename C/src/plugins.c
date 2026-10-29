@@ -16,14 +16,19 @@ int plugin_log_stderr = 1;
 static int copy_file(const char *src, const char *dst) {
   int fd_src = open(src, O_RDONLY | O_BINARY);
   if (fd_src < 0) {
-    nl_perror("[plugin] open src");
+    if (plugin_log_stderr) {
+      nl_perror("[plugin] open src");
+    }
 
     return -1;
   }
 
   int fd_dst = open(dst, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0755);
   if (fd_dst < 0) {
-    nl_perror("[plugin] open dst");
+    if (plugin_log_stderr) {
+      nl_perror("[plugin] open dst");
+    }
+
     close(fd_src);
 
     return -1;
@@ -33,7 +38,10 @@ static int copy_file(const char *src, const char *dst) {
   ssize_t n;
   while ((n = read(fd_src, buf, sizeof(buf))) > 0) {
     if (write(fd_dst, buf, (size_t)n) != n) {
-      nl_perror("[plugin] write");
+      if (plugin_log_stderr) {
+        nl_perror("[plugin] write");
+      }
+
       close(fd_src);
       close(fd_dst);
       unlink(dst);
@@ -48,6 +56,43 @@ static int copy_file(const char *src, const char *dst) {
   return 0;
 }
 
+static const char *base_name(const char *p) {
+  const char *b = p;
+  for (; *p; p++) {
+    if (*p == '/' || *p == '\\') {
+      b = p + 1;
+    }
+  }
+
+  return b;
+}
+
+// Library is loaded from a private copy so that rebuilding it never changes
+// file mapped by running process and a fresh dlopen sees new code
+// Preferred spot is next to library (where hot-reload watch is); a shipped
+// library under a read-only prefix is copied to /tmp instead. If neither works
+// tmp_path stays empty and original is loaded directly (works, but without hot
+// reload)
+static void make_private_copy(plugin_loader_t *pl, const char *path) {
+  nl_snprintf(pl->tmp_path, sizeof(pl->tmp_path), "%s.%ld.tmp", path,
+              (long)time(NULL));
+  if (copy_file(path, pl->tmp_path) == 0) {
+    return;
+  }
+
+#ifndef PLATFORM_WINDOWS
+  nl_snprintf(pl->tmp_path, sizeof(pl->tmp_path), "/tmp/asciicam-%ld-%lx-%s",
+              (long)time(NULL), (unsigned long)(size_t)pl, base_name(path));
+  if (copy_file(path, pl->tmp_path) == 0) {
+    return;
+  }
+#else
+  (void)base_name;
+#endif
+
+  pl->tmp_path[0] = '\0';
+}
+
 int plugin_load(plugin_loader_t *pl, const char *path) {
   // Close old handle
   if (pl->dl_handle) {
@@ -56,33 +101,29 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
     pl->plugin = NULL;
   }
 
-  // Delete the previous temp copy
+  // Delete previous temp copy
   if (pl->tmp_path[0] != '\0') {
     unlink(pl->tmp_path);
     pl->tmp_path[0] = '\0';
   }
 
-  nl_snprintf(pl->tmp_path, sizeof(pl->tmp_path), "%s.%ld.tmp", path,
-              (long)time(NULL));
+  make_private_copy(pl, path);
+  const char *load_path = pl->tmp_path[0] ? pl->tmp_path : path;
 
-  if (copy_file(path, pl->tmp_path) < 0) {
+  pl->dl_handle = dlopen(load_path, RTLD_NOW | RTLD_LOCAL);
+  if (!pl->dl_handle) {
+    const char *derr = dlerror();
     if (plugin_log_stderr) {
-      fprintf(stderr, "[plugin] could not copy %s to %s\n", path, pl->tmp_path);
+      fprintf(stderr, "[plugin] dlopen: %s\n", derr);
     }
 
-    nl_snprintf(pl->status_msg, sizeof(pl->status_msg), "could not copy %s",
-                path);
-    pl->tmp_path[0] = '\0';
+    nl_snprintf(pl->status_msg, sizeof(pl->status_msg), "dlopen: %s",
+                derr ? derr : "failed");
 
-    return -1;
-  }
-
-  pl->dl_handle = dlopen(pl->tmp_path, RTLD_NOW | RTLD_LOCAL);
-  if (!pl->dl_handle) {
-    fprintf(stderr, "[plugin] dlopen: %s\n", dlerror());
-
-    unlink(pl->tmp_path);
-    pl->tmp_path[0] = '\0';
+    if (pl->tmp_path[0]) {
+      unlink(pl->tmp_path);
+      pl->tmp_path[0] = '\0';
+    }
 
     return -1;
   }
@@ -99,8 +140,31 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
 
     dlclose(pl->dl_handle);
     pl->dl_handle = NULL;
-    unlink(pl->tmp_path);
-    pl->tmp_path[0] = '\0';
+    if (pl->tmp_path[0]) {
+      unlink(pl->tmp_path);
+      pl->tmp_path[0] = '\0';
+    }
+
+    return -1;
+  }
+
+  // A library built against another version of plugin interface would crash
+  // host: refuse it. One without symbol predates check
+  const int *abi = (const int *)dlsym(pl->dl_handle, "asciicam_plugin_abi");
+  if (abi && *abi != PLUGIN_ABI) {
+    nl_snprintf(pl->status_msg, sizeof(pl->status_msg),
+                "plugin built for interface v%d, this build is v%d: rebuild it",
+                *abi, PLUGIN_ABI);
+    if (plugin_log_stderr) {
+      fprintf(stderr, "[plugin] %s\n", pl->status_msg);
+    }
+
+    dlclose(pl->dl_handle);
+    pl->dl_handle = NULL;
+    if (pl->tmp_path[0]) {
+      unlink(pl->tmp_path);
+      pl->tmp_path[0] = '\0';
+    }
 
     return -1;
   }
@@ -139,7 +203,7 @@ void plugin_check_reload(plugin_loader_t *pl) {
     return;
   }
 
-  // Read all available events from the non-blocking queue
+  // Read all available events from non-blocking queue
   char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
   ssize_t n = read(pl->inotify_fd, buf, sizeof(buf));
   if (n <= 0) {
