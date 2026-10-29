@@ -142,11 +142,17 @@ static void put_raw(char *buf, size_t size, size_t *pos, const char *s) {
   }
 }
 
+// Column picker and toasts start at: left edge of frame, which can be anywhere
+// in terminal
+static int g_column = 1;
+
+void picker_set_column(int col) { g_column = col < 1 ? 1 : col; }
+
 static void put_row(char *buf, size_t size, size_t *pos, int row,
                     const char *style, const char *text) {
   char head[40];
 
-  nl_snprintf(head, sizeof(head), "\033[%d;1H", row);
+  nl_snprintf(head, sizeof(head), "\033[%d;%dH", row, g_column);
 
   put_raw(buf, size, pos, head);
   put_raw(buf, size, pos, style);
