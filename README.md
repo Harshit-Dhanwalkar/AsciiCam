@@ -217,6 +217,54 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 
 **Hot-reload:** Linux: the binary watches the `.so` with `inotify`. Recompile the plugin while the viewer is running and it reloads automatically within $\approx$100 ms.
 
+### Shipping plugins
+
+The program binary contains **no plugin code** (static binary ≈ 86 KB, each
+filter ≈ 15 KB), so plugins are separate files and have to be shipped with it.
+Which files depends on what you want the user to be able to do:
+
+| You ship                   | User can                                         | Needs on the target   |
+| -------------------------- | ------------------------------------------------ | --------------------- |
+| binary + `plugins/*.so`    | load every shipped plugin instantly with `/`     | nothing (no compiler) |
+| + SDK (`make install-sdk`) | also compile new plugins from `.c` while running | `make` + `gcc`        |
+
+Lookup is relative to the running binary, not the current directory, so the same
+build works from a checkout, from an unpacked release and from an installed
+prefix:
+
+```text
+checkout    build/webcam_ascii             sources filters/, cache .cache/plugins
+release     asciicam  plugins/*.so         (zip these two, unpack anywhere)
+installed   <prefix>/bin/asciicam          <prefix>/share/asciicam/{plugins,charsets,sdk}
+```
+
+```bash
+make install PREFIX=/usr/local        # binary + prebuilt plugins + charsets
+make install-sdk PREFIX=/usr/local    # ... plus Makefile, headers, plugin sources
+```
+
+Prebuilt libraries are preferred; a plugin is only compiled when the picker is
+asked to load one that has no prebuilt library, an SDK is present and `make`
+and a compiler are found. Runtime builds go to `.cache/plugins` in a checkout,
+otherwise to `$XDG_CACHE_HOME/asciicam/plugins` (`~/.cache/asciicam/plugins`),
+so a read-only install prefix is fine. A plugin built from other headers is
+refused with a message instead of crashing: put `PLUGIN_ABI_EXPORT;` next to
+`plugin_get()` in your plugin so it carries the interface version
+(`PLUGIN_ABI` in `include/plugins.h`; plugins without it still load).
+`-L` / `plugin_dir`, `plugin_cache` and `-k` / `charset_dir` override the
+automatic locations.
+
+### Mouse
+
+| Mouse                                  | Action                                                      |
+| -------------------------------------- | ----------------------------------------------------------- |
+| drag any of the four corners (◤ ◥ ◣ ◢) | resize the frame; the opposite corner stays where it is     |
+| drag inside the frame                  | move it anywhere in the terminal                            |
+| `a`                                    | back to automatic fit (top-left, follows the terminal size) |
+
+An outline shows where the frame will end up and nothing is changed until you
+release the button. The status panel stays at the bottom of the terminal.
+
 **Runtime controls:**
 | Key | Action |
 |---|---|
@@ -253,10 +301,12 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 - [x] Sobel / Sobel-direction / Laplacian edge detection
 - [x] SIMD YUYV to grayscale (SSE2)
 - [x] Hot-reload plugin system
+- [x] Relocatable plugin lookup, prebuilt-first loading, `make install` / `install-sdk`
 - [x] Config file (`./.asciicamrc`)
 - [x] Capture frame resizing
   - [x] Auto resize on terminal `SIGWINCH`
-  - [x] Manual resize with cursor drag
+  - [x] Manual resize with cursor drag (all four corners)
+  - [x] Move the frame anywhere in the terminal by dragging it
 - [x] Custom charset via config file
 - [x] Hardware camera controls (Linux V4L2)
 - [x] macOS support
