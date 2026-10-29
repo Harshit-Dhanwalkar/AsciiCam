@@ -241,7 +241,7 @@ static void test_drag(void) {
   e = E(1, 1, 2, 0, 0);
   DRAG(d, e);
   CHECK(d.dragging, "right release leaves left drag alone");
-
+  e = E(60, 30, 0, 0, 0);
   CHECK(DRAG(d, e) == MOUSE_APPLY && !d.dragging && rect_is(r, 11, 6, 50, 25),
         "release applies last preview");
   e = E(60, 30, 0, 0, 0);
