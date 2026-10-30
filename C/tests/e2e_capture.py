@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end check of real main loop against software camera.
+"""End-to-end check of real main loop against software camera
 
 Usage: e2e_capture.py <asciicam-fake-binary>
 
@@ -14,6 +14,7 @@ capture thread and once with -T, and checks:
 import fcntl
 import os
 import pty
+import re
 import select
 import struct
 import sys
@@ -106,13 +107,13 @@ check(lat["threaded"] is not None and lat["threaded"] < 0.6,
       f"threaded: quits promptly with a stalled camera ({lat['threaded']})")
 
 
-# Mouse: move and resize the frame in a live session
+# Mouse: move and resize frame in a live session
 def session(args, steps, settle=0.6):
     """steps: list of (bytes_to_send, seconds_to_wait). Returns all output."""
     pid, fd = pty.fork()
     if pid == 0:
-        # size the terminal before the program starts: setting it from the
-        # parent races with startup and can trigger a SIGWINCH auto-fit
+        # size terminal before program starts: setting it from   parent races
+        # with startup and can trigger a SIGWINCH auto-fit
         fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 120, 0, 0))
         os.execv(BIN, [BIN] + args)
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 120, 0, 0))
@@ -173,7 +174,7 @@ for label, extra in (("threaded", []), ("inline -T", ["-T"])):
     out, marks = session(
         ARGS + extra,
         [
-            (mouse(0, 10, 5), 0.15),            # grab the frame body
+            (mouse(0, 10, 5), 0.15),            # grab frame body
             (mouse(32, 30, 15), 0.3),           # drag +20,+10
             (mouse(0, 30, 15, True), 0.5),      # release
         ],
@@ -181,12 +182,12 @@ for label, extra in (("threaded", []), ("inline -T", ["-T"])):
     during = out[marks[1]:marks[3]]
     check(b"MOVING frame (1,1) -> (21,11)" in during, f"{label}: move shows pending position")
     check(b"\x1b[11;21H+-" in during,
-          f"{label}: outline drawn at the pending position")
+          f"{label}: outline drawn at pending position")
     after = out[marks[-3]:]
     check(last_origin(after) == (21, 11), f"{label}: frame redrawn at (21,11), got {last_origin(after)}")
     check(last_frame(after) == (40, 20), f"{label}: size unchanged by a move ({last_frame(after)})")
 
-    # then resize from the bottom-right corner (60,30) and the top-left (21,11)
+    # then resize from bottom-right corner (60,30) and top-left (21,11)
     out, marks = session(
         ARGS + extra,
         [
@@ -218,9 +219,9 @@ for label, extra in (("threaded", []), ("inline -T", ["-T"])):
             (b"a", 0.6),
         ],
     )
-    check(last_origin(out[marks[0]:marks[2]]) == (1, 1), f"{label}: plain click does not move the frame")
-    check(last_origin(out[marks[-3]:marks[-2]]) == (1, 1), f"{label}: 'a' returns frame to the top-left")
-    check(last_frame(out[marks[-3]:marks[-2]]) == (120, 46), f"{label}: 'a' fits the terminal ({last_frame(out[marks[-3]:marks[-2]])})")
+    check(last_origin(out[marks[0]:marks[2]]) == (1, 1), f"{label}: plain click does not move frame")
+    check(last_origin(out[marks[-3]:marks[-2]]) == (1, 1), f"{label}: 'a' returns frame to top-left")
+    check(last_frame(out[marks[-3]:marks[-2]]) == (120, 46), f"{label}: 'a' fits terminal ({last_frame(out[marks[-3]:marks[-2]])})")
 
 
 print("e2e:", "FAILED" if failures else "all passed")

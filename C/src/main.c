@@ -20,11 +20,10 @@
 
 #define DEFAULT_CONFIG_PATH ".asciicamrc"
 #define DEFAULT_CHARSET_DIR "./charsets"
-#define DEFAULT_PLUGIN_DIR "./filters"          // plugin sources to browse
+#define DEFAULT_PLUGIN_DIR "<sdk>/filters"      // plugin sources to browse
 #define DEFAULT_PLUGIN_CACHE "./.cache/plugins" // where runtime builds land
 // Plugin sources, build cache, prebuilt libraries and charsets are located
 // relative to binary as well as current directory (app_paths.h)
-#define DEFAULT_PLUGIN_DIR "<sdk>/filters"
 
 #define TOAST_SECONDS 3
 #define CONFIG_MAX_BYTES 4096
@@ -467,8 +466,6 @@ static void overlay_panel(int panel_row, const frame_rect_t *frame,
                       base_row, pv);
     } else {
       n = nl_snprintf(buf, sizeof(buf),
-                      "\033[%d;1H RESIZING frame %dx%d -> %dx%d  |  release "
-                      "to apply\033[K",
                       "\033[%d;1H %s  |  release to apply\033[K", base_row, pv);
     }
   } else if (color) {
