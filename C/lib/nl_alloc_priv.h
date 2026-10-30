@@ -10,7 +10,7 @@
 
 #define NL_ARENA_SIZE ((size_t)(2 * 1024 * 1024))
 
-// Per-block flags
+/* Per-block flags */
 #define NL_BF_GC 1     // owned by collector: freed when unreachable
 #define NL_BF_ATOMIC 2 // GC block that holds no pointers: never scanned
 #define NL_BF_MARK 4   // reached during current collection
@@ -23,7 +23,7 @@ typedef struct block_hdr {
   unsigned char flags;      // NL_BF_*
 } block_hdr_t;
 
-// Each mmap-backed block starts with one of these, then its block_hdr_t
+/* Each mmap-backed block starts with one of these, then its block_hdr_t */
 typedef struct mmap_node {
   struct mmap_node *next;
   struct mmap_node *prev;

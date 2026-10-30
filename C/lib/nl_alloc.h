@@ -21,11 +21,10 @@ void nl_free(void *ptr);
 #define nl_calloc calloc
 #define nl_free free
 
-// No collector off Linux: nl_gc_alloc is a zeroed malloc and nl_gc_release
-// really frees, so code written against nl_gc.h stays leak-free everywhere
-#define nl_gc_alloc(n) calloc(1, (n))
-#define nl_gc_alloc_atomic(n) calloc(1, (n))
-#define nl_gc_release(p) free(p)
+/* GC API (nl_gc_alloc, nl_gc_alloc_atomic, nl_gc_release, ...) lives in nl_gc.h
+ * only
+ * On non-Linux they are zeroed-malloc macros, and redeclaring them as functions
+ * in nl_gc.h would make preprocessor expand declarations */
 #endif
 
 #endif
