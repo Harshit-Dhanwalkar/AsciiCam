@@ -188,6 +188,21 @@ jobs:
           gcc $FLAGS tests/fuzz_nolibc.c lib/nl_getopt.c $LIBS -o /tmp/t_fuzz
           for seed in 1 2 3; do /tmp/t_fuzz 100000 "$seed"; done
 
+      - name: GC / allocator tests (Linux nolibc)
+        if: matrix.platform == 'linux'
+        working-directory: C
+        shell: bash
+        run: |
+          set -euo pipefail
+          FLAGS="-D__LINUX_NOLIBC__ -DPLATFORM_LINUX -nostdinc -isystem $(gcc -print-file-name=include) -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -static -Iinclude -Ilib"
+          LIBS="lib/nl_gc.c lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
+          # conservative collector: which optimiser keeps a pointer in a
+          # register or spill slot varies, so run at both -O0 and -O2
+          for O in -O0 -O2; do
+            gcc $O $FLAGS tests/test_nl_gc.c $LIBS -o /tmp/t_gc
+            /tmp/t_gc
+          done
+
       - name: Smoke test --help (Unix)
         if: matrix.platform != 'windows'
         working-directory: C

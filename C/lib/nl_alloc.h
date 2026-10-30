@@ -3,6 +3,7 @@
 
 #ifdef __LINUX_NOLIBC__
 
+#include "nl_gc.h"
 #include "nl_types.h"
 
 void *nl_malloc(size_t n);
@@ -19,6 +20,11 @@ void nl_free(void *ptr);
 #define nl_malloc malloc
 #define nl_calloc calloc
 #define nl_free free
+
+/* GC API (nl_gc_alloc, nl_gc_alloc_atomic, nl_gc_release, ...) lives in nl_gc.h
+ * only
+ * On non-Linux they are zeroed-malloc macros, and redeclaring them as functions
+ * in nl_gc.h would make preprocessor expand declarations */
 #endif
 
 #endif

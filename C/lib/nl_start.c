@@ -1,5 +1,9 @@
 extern int main(int argc, char *argv[]);
 
+// Initial stack pointer (where argc lives): base collector in nl_gc.c scans
+// main thread's stack up to
+void *nl_stack_top = (void *)0;
+
 #ifdef NL_SANITIZE_BUILD
 /*
  * Under -fsanitize=address,undefined compiler inserts constructor and
@@ -39,27 +43,29 @@ static __attribute__((used, noinline)) void _nl_start_c(int argc, char **argv) {
 }
 
 __attribute__((naked)) void _start(void) {
-  __asm__ volatile("xor   %%rbp, %%rbp  \n"
-                   "pop   %%rdi          \n" /* argc */
-                   "mov   %%rsp, %%rsi   \n" /* argv */
-                   "and   $-16, %%rsp    \n" /* 16-byte align */
-                   "call  _nl_start_c    \n" ::
+  __asm__ volatile("mov   %%rsp, nl_stack_top(%%rip) \n"
+                   "xor   %%rbp, %%rbp               \n"
+                   "pop   %%rdi                      \n" /* argc */
+                   "mov   %%rsp, %%rsi               \n" /* argv */
+                   "and   $-16, %%rsp                \n" /* 16-byte align */
+                   "call  _nl_start_c                \n" ::
                        : "memory");
 }
 
 #else /* normal (non-sanitize) build */
 
 __attribute__((naked)) void _start(void) {
-  __asm__ volatile(
-      "xor   %%rbp, %%rbp  \n"
-      "pop   %%rdi          \n" // rdi = argc
-      "mov   %%rsp, %%rsi   \n" // rsi = argv
-      "and   $-16, %%rsp    \n" // 16-byte align stack
-      "call  main           \n"
-      "mov   %%rax, %%rdi   \n" // exit code = return value of main()
-      "mov   $231, %%rax    \n" // SYS_exit_group
-      "syscall              \n" ::
-          : "memory");
+  __asm__ volatile("mov   %%rsp, nl_stack_top(%%rip) \n"
+                   "xor   %%rbp, %%rbp               \n"
+                   "pop   %%rdi                      \n" // rdi = argc
+                   "mov   %%rsp, %%rsi               \n" // rsi = argv
+                   "and   $-16, %%rsp                \n" // 16-byte align stack
+                   "call  main                       \n"
+                   "mov   %%rax, %%rdi               \n" // exit code = return
+                                                         // value of main()
+                   "mov   $231, %%rax                \n" // SYS_exit_group
+                   "syscall                          \n" ::
+                       : "memory");
 }
 
 #endif /* NL_SANITIZE_BUILD */

@@ -254,6 +254,21 @@ refused with a message instead of crashing: put `PLUGIN_ABI_EXPORT;` next to
 `-L` / `plugin_dir`, `plugin_cache` and `-k` / `charset_dir` override the
 automatic locations.
 
+### Memory: `nl_gc` (Linux)
+
+`lib/nl_gc.h` is an opt-in conservative mark-and-sweep collector on top of the
+nolibc arena. `nl_gc_alloc()` / `nl_gc_alloc_atomic()` (pointer-free data such as
+pixels) return zeroed blocks that are freed once nothing reachable points at
+them, so early-return paths cannot leak or double free. `nl_malloc`/`nl_free`
+behave as before and are never collected, but `nl_free` now checks its argument:
+double frees, interior pointers and wild pointers are ignored and counted
+(`nl_gc_stats`) instead of corrupting the heap. A collection also runs when any
+allocation would fail. Only the first thread to allocate owns the collector;
+blocks from other threads are never collected. Off Linux `nl_gc_alloc` is a
+zeroed `calloc` and `nl_gc_release` is `free`, so release what you allocate and
+the code is leak-free everywhere. Currently used for the per-frame temporaries
+in `ascii.c`.
+
 ### Mouse
 
 | Mouse                                  | Action                                                      |

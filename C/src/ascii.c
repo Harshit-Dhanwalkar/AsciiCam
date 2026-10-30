@@ -6,6 +6,7 @@
 
 #include "nolibc.h"
 
+#include "nl_gc.h"
 #include "nl_inotify.h"
 #include "nl_types.h"
 
@@ -19,7 +20,7 @@ static inline uint8_t clamp_u8(int v) {
 
 static inline int my_abs(int x) { return x < 0 ? -x : x; }
 
-// Quantize a 24-bit RGB color to standard xterm 256-color palette index
+// Quantize a 24-bit rgb color to standard xterm 256-color palette index
 // (16-231 = 6x6x6 color cube, 232-255 = 24-step grayscale ramp), for
 // terminals that support ANSI-256 (\033[38;5;<idx>m) but not truecolor.
 // NOTE: Near-gray inputs go through the finer 24-step grayscale ramp instead
@@ -230,13 +231,14 @@ static void sobel(const uint8_t *in, uint8_t *out, int w, int h) {
     for (int x = 1; x < w - 1; x++) {
       int gx = 0;
       int gy = 0;
-      for (int ky = -1; ky <= 1; ky++)
+      for (int ky = -1; ky <= 1; ky++) {
         for (int kx = -1; kx <= 1; kx++) {
           int p = in[(y + ky) * w + (x + kx)];
 
           gx += Gx[ky + 1][kx + 1] * p;
           gy += Gy[ky + 1][kx + 1] * p;
         }
+      }
 
       int mag = my_abs(gx) + my_abs(gy);
       out[y * w + x] = (uint8_t)(mag > 255 ? 255 : mag);
@@ -252,12 +254,13 @@ static void sobel_dir(const uint8_t *in, uint8_t *out_mag, uint8_t *out_dir,
     for (int x = 1; x < w - 1; x++) {
       int gx = 0;
       int gy = 0;
-      for (int ky = -1; ky <= 1; ky++)
+      for (int ky = -1; ky <= 1; ky++) {
         for (int kx = -1; kx <= 1; kx++) {
           int p = in[(y + ky) * w + (x + kx)];
           gx += Gx[ky + 1][kx + 1] * p;
           gy += Gy[ky + 1][kx + 1] * p;
         }
+      }
 
       int mag = my_abs(gx) + my_abs(gy);
       out_mag[y * w + x] = (uint8_t)(mag > 255 ? 255 : mag);
@@ -645,13 +648,14 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
   double bw = (double)src_w / safe_dst_w;
   double bh = (double)src_h / safe_dst_h;
 
-  uint8_t *subpixel_g = malloc((size_t)(safe_dst_w * safe_dst_h));
+  uint8_t *subpixel_g = nl_gc_alloc_atomic((size_t)(safe_dst_w * safe_dst_h));
   uint8_t *subpixel_rgb =
-      do_color ? malloc((size_t)(safe_dst_w * safe_dst_h * 3)) : NULL;
+      do_color ? nl_gc_alloc_atomic((size_t)(safe_dst_w * safe_dst_h * 3))
+               : NULL;
 
   if (!subpixel_g || (do_color && !subpixel_rgb)) {
-    nl_free(subpixel_g);
-    nl_free(subpixel_rgb);
+    nl_gc_release(subpixel_g);
+    nl_gc_release(subpixel_rgb);
 
     return -1;
   }
@@ -720,9 +724,10 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
   // TEST:
   // Pseudo-3D "pop out" parallax effect
   if (depth_pop > 0) {
-    uint8_t *warped_g = malloc((size_t)(safe_dst_w * safe_dst_h));
+    uint8_t *warped_g = nl_gc_alloc_atomic((size_t)(safe_dst_w * safe_dst_h));
     uint8_t *warped_rgb =
-        do_color ? malloc((size_t)(safe_dst_w * safe_dst_h * 3)) : NULL;
+        do_color ? nl_gc_alloc_atomic((size_t)(safe_dst_w * safe_dst_h * 3))
+                 : NULL;
     if (warped_g && (!do_color || warped_rgb)) {
       double cx = safe_dst_w / 2.0;
       double cy = safe_dst_h / 2.0;
@@ -776,14 +781,14 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
       }
     }
 
-    nl_free(warped_g);
-    nl_free(warped_rgb);
+    nl_gc_release(warped_g);
+    nl_gc_release(warped_rgb);
   }
 
   // Edge detection dispatch
   uint8_t *dir_buf = NULL;
   if (edge_mode != EDGE_OFF) {
-    uint8_t *eb = nl_calloc((size_t)(safe_dst_w * safe_dst_h), 1);
+    uint8_t *eb = nl_gc_alloc_atomic((size_t)(safe_dst_w * safe_dst_h));
     if (eb) {
       switch (edge_mode) {
       case EDGE_SOBEL:
@@ -791,7 +796,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
 
         break;
       case EDGE_SOBEL_DIR:
-        dir_buf = nl_calloc((size_t)(safe_dst_w * safe_dst_h), 1);
+        dir_buf = nl_gc_alloc_atomic((size_t)(safe_dst_w * safe_dst_h));
         if (dir_buf) {
           sobel_dir(subpixel_g, eb, dir_buf, safe_dst_w, safe_dst_h);
         } else {
@@ -809,14 +814,14 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
       }
 
       nl_memcpy(subpixel_g, eb, (size_t)(safe_dst_w * safe_dst_h));
-      nl_free(eb);
+      nl_gc_release(eb);
     }
   }
 
   // Floyd-Steinberg dithering on the subpixel grayscale buffer
   if (do_dither) {
     int16_t *err =
-        nl_calloc((size_t)(safe_dst_w * safe_dst_h), sizeof(int16_t));
+        nl_gc_alloc_atomic((size_t)(safe_dst_w * safe_dst_h) * sizeof(int16_t));
     if (err) {
       for (int i = 0; i < safe_dst_w * safe_dst_h; i++) {
         err[i] = (int16_t)subpixel_g[i];
@@ -854,7 +859,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
         subpixel_g[i] = (v < 0) ? 0 : (v > 255) ? 255 : (uint8_t)v;
       }
 
-      nl_free(err);
+      nl_gc_release(err);
     }
   }
 
@@ -921,9 +926,10 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
     }
 
     out[(size_t)out_idx < out_size ? (size_t)out_idx : out_size - 1] = '\0';
-    nl_free(subpixel_g);
-    nl_free(subpixel_rgb);
-    nl_free(dir_buf);
+
+    nl_gc_release(subpixel_g);
+    nl_gc_release(subpixel_rgb);
+    nl_gc_release(dir_buf);
 
     return out_idx;
   }
@@ -1073,9 +1079,9 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
 
   out[(size_t)out_idx < out_size ? (size_t)out_idx : out_size - 1] = '\0';
 
-  nl_free(subpixel_g);
-  nl_free(subpixel_rgb);
-  nl_free(dir_buf);
+  nl_gc_release(subpixel_g);
+  nl_gc_release(subpixel_rgb);
+  nl_gc_release(dir_buf);
 
   return out_idx;
 }
