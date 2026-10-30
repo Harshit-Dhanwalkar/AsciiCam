@@ -15,7 +15,40 @@
 #include "../lib/nolibc.h"
 
 // Test framework
-static int _pass = 0, _fail = 0;
+static int _pass = 0;
+static int _fail = 0;
+
+// Render a byte string with control characters escaped
+static const char *vis(const char *s, char *buf, size_t bufsz) {
+  static const char hex[] = "0123456789abcdef";
+  size_t j = 0;
+
+  for (size_t i = 0; s[i] && j + 4 < bufsz; i++) {
+    unsigned char c = (unsigned char)s[i];
+
+    if (c == '\n') {
+      buf[j++] = '\\';
+      buf[j++] = 'n';
+    } else if (c == '\t') {
+      buf[j++] = '\\';
+      buf[j++] = 't';
+    } else if (c == '\r') {
+      buf[j++] = '\\';
+      buf[j++] = 'r';
+    } else if (c < 0x20 || c == 0x7f) {
+      buf[j++] = '\\';
+      buf[j++] = 'x';
+      buf[j++] = hex[(c >> 4) & 0xf];
+      buf[j++] = hex[c & 0xf];
+    } else {
+      buf[j++] = (char)c;
+    }
+  }
+
+  buf[j] = '\0';
+
+  return buf;
+}
 
 static void _check_str(const char *got, const char *want, const char *label,
                        int line) {
@@ -23,7 +56,9 @@ static void _check_str(const char *got, const char *want, const char *label,
   int ok = (nl_strcmp(got, want) == 0);
   int n;
   if (ok) {
-    n = nl_snprintf(buf, sizeof(buf), "ok   [%3d] %s\n", line, label);
+    char shown[512];
+    n = nl_snprintf(buf, sizeof(buf), "ok   [%3d] %s\n", line,
+                    vis(label, shown, sizeof shown));
     _pass++;
   } else {
     n = nl_snprintf(buf, sizeof(buf),
@@ -44,7 +79,9 @@ static void _check_int(int got, int want, const char *label, int line) {
   int ok = (got == want);
   int n;
   if (ok) {
-    n = nl_snprintf(buf, sizeof(buf), "ok   [%3d] %s\n", line, label);
+    char shown[512];
+    n = nl_snprintf(buf, sizeof(buf), "ok   [%3d] %s\n", line,
+                    vis(label, shown, sizeof shown));
     _pass++;
   } else {
     n = nl_snprintf(buf, sizeof(buf), "FAIL [%3d] %s: got=%d want=%d\n", line,
