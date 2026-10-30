@@ -56,6 +56,7 @@ ifeq ($(PLATFORM),linux)
     LDFLAGS  += -msse4.1
 
     LIBSRCS  := $(LIBDIR)/nl_alloc.c \
+                $(LIBDIR)/nl_gc.c \
                 $(LIBDIR)/nl_dlfcn.c \
                 $(LIBDIR)/nl_errno.c \
                 $(LIBDIR)/nl_getopt.c \
@@ -263,6 +264,8 @@ test: plugins
 	$(CC) -O2 $(TEST_FLAGS) tests/test_capture_reinit.c $(SRCDIR)/capture_reinit.c $(TEST_LIBS) -o $(TESTDIR)/reinit
 	$(CC) -O2 $(TEST_FLAGS) tests/test_app_paths.c $(SRCDIR)/app_paths.c $(TEST_LIBS) -o $(TESTDIR)/app_paths
 	$(CC) -O2 $(TEST_FLAGS) tests/test_plugin_catalog.c $(SRCDIR)/plugin_catalog.c $(SRCDIR)/plugin_picker.c $(SRCDIR)/plugins.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/catalog
+	$(CC) -O0 $(TEST_FLAGS) tests/test_nl_gc.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/gc_O0
+	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_gc.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/gc_O2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_thread.c $(TEST_LIBS) -o $(TESTDIR)/thread
 	$(CC) -O2 $(TEST_FLAGS) tests/test_capture_pipe.c $(SRCDIR)/thread_sharing.c $(TEST_LIBS) -o $(TESTDIR)/capture_pipe
 	$(CC) -DTESTING $(TEST_FLAGS) tests/security_tests.c $(FILTER_SRC) $(TEST_LIBS) -o $(TESTDIR)/security
@@ -274,6 +277,8 @@ test: plugins
 	$(TESTDIR)/reinit
 	$(TESTDIR)/app_paths
 	$(TESTDIR)/catalog
+	$(TESTDIR)/gc_O0
+	$(TESTDIR)/gc_O2
 	$(TESTDIR)/thread
 	$(TESTDIR)/capture_pipe
 	$(TESTDIR)/security

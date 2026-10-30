@@ -42,6 +42,7 @@ extern int errno;
 #define SYS_mprotect 10
 #define SYS_clone 56
 #define SYS_exit 60
+#define SYS_gettid 186
 #define SYS_rt_sigaction 13
 #define SYS_ioctl 16
 #define SYS_select 23

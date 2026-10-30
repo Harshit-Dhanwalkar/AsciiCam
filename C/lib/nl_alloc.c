@@ -1,4 +1,5 @@
 #include "nl_alloc.h"
+#include "nl_alloc_priv.h"
 #include "nl_io.h"
 #include "nl_syscall.h"
 #include "nl_types.h"
@@ -38,37 +39,71 @@
  * regressions in rendering path
  */
 
-#define ARENA_SIZE ((size_t)(2 * 1024 * 1024))
+#define ARENA_SIZE NL_ARENA_SIZE
 #define ALIGN 16
 #define HDR_MAGIC 0xDEAD
 #define MMAP_THRESHOLD (ARENA_SIZE / 2) // 1 MB
 
-typedef struct block_hdr {
-  size_t size;              // 8
-  int free;                 // 4
-  unsigned short magic;     // 2
-  unsigned char mmap_alloc; // 1  (1 if mmap'ed)
-  unsigned char _pad[1];    // 1
-} block_hdr_t;
+// Every block comes from either arena or an mmap, and nl_free validates a
+// pointer against both before touching it: a pointer that is not start of a
+// live block (never allocated, already freed, interior) is counted and ignored
+// instead of corrupting heap or faulting
+static nl_alloc_stats_t stats;
 
-static unsigned char arena_buf[ARENA_SIZE] __attribute__((aligned(ALIGN)));
-static int arena_init = 0;
+unsigned char nl_arena_buf[ARENA_SIZE] __attribute__((aligned(ALIGN)));
+int nl_arena_init = 0;
+
+// Every mmap-backed block is linked here, so it can be found by collector and
+// so a free of an unknown pointer is never dereferenced
+static mmap_node_t *mmap_head = NULL;
 
 static void arena_boot(void) {
-  block_hdr_t *h = (block_hdr_t *)arena_buf;
+  block_hdr_t *h = (block_hdr_t *)nl_arena_buf;
   h->size = ARENA_SIZE - sizeof(block_hdr_t);
   h->free = 1;
   h->magic = HDR_MAGIC;
   h->mmap_alloc = 0;
-  arena_init = 1;
+  h->flags = 0;
+  nl_arena_init = 1;
 }
+
+void nl_arena_ensure(void) {
+  if (!nl_arena_init) {
+    arena_boot();
+  }
+}
+
+mmap_node_t *nl_mmap_list(void) { return mmap_head; }
 
 static inline size_t align_up(size_t n) {
   return (n + ALIGN - 1) & ~(size_t)(ALIGN - 1);
 }
 
-void *nl_malloc(size_t n) {
-  if (n > SIZE_MAX - ALIGN - sizeof(block_hdr_t)) {
+// Called when an allocation fails, before giving up: collector (nl_gc.c)
+// installs itself here and returns number of bytes it reclaimed
+size_t (*nl_alloc_oom_hook)(void) = NULL;
+
+static void *alloc_once(size_t n, unsigned flags);
+
+void *nl_alloc_flags(size_t n, unsigned flags) {
+  void *p = alloc_once(n, flags);
+  if (!p && nl_alloc_oom_hook) {
+    static int in_hook = 0;
+    if (!in_hook) {
+      in_hook = 1;
+      size_t freed = nl_alloc_oom_hook();
+      in_hook = 0;
+      if (freed > 0) {
+        p = alloc_once(n, flags);
+      }
+    }
+  }
+
+  return p;
+}
+
+static void *alloc_once(size_t n, unsigned flags) {
+  if (n > SIZE_MAX - ALIGN - sizeof(block_hdr_t) - sizeof(mmap_node_t)) {
     return NULL;
   }
 
@@ -80,7 +115,7 @@ void *nl_malloc(size_t n) {
 
   // Large allocation: use mmap
   if (n > MMAP_THRESHOLD) {
-    size_t total = sizeof(block_hdr_t) + n;
+    size_t total = sizeof(mmap_node_t) + sizeof(block_hdr_t) + n;
     void *p = nl_mmap(NULL, total, PROT_READ | PROT_WRITE,
                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     // NOLINTNEXTLINE(performance-no-int-to-ptr)
@@ -88,22 +123,33 @@ void *nl_malloc(size_t n) {
       return NULL;
     }
 
-    block_hdr_t *h = (block_hdr_t *)p;
+    mmap_node_t *node = (mmap_node_t *)p;
+    node->prev = NULL;
+    node->next = mmap_head;
+    if (mmap_head) {
+      mmap_head->prev = node;
+    }
+
+    mmap_head = node;
+
+    block_hdr_t *h = (block_hdr_t *)((char *)p + sizeof(mmap_node_t));
     h->size = n;
     h->free = 0;
     h->magic = HDR_MAGIC;
     h->mmap_alloc = 1;
+    h->flags = (unsigned char)flags;
 
-    return (char *)p + sizeof(block_hdr_t);
+    stats.live_blocks++;
+    stats.live_bytes += n;
+
+    return (char *)h + sizeof(block_hdr_t);
   }
 
   // Else use arena
-  if (!arena_init) {
-    arena_boot();
-  }
+  nl_arena_ensure();
 
-  unsigned char *p = arena_buf;
-  const unsigned char *end = arena_buf + ARENA_SIZE;
+  unsigned char *p = nl_arena_buf;
+  const unsigned char *end = nl_arena_buf + ARENA_SIZE;
 
   while (p + sizeof(block_hdr_t) <= end) {
     block_hdr_t *h = (block_hdr_t *)p;
@@ -119,10 +165,15 @@ void *nl_malloc(size_t n) {
         next->free = 1;
         next->magic = HDR_MAGIC;
         next->mmap_alloc = 0;
+        next->flags = 0;
         h->size = n;
       }
 
       h->free = 0;
+      h->flags = (unsigned char)flags;
+
+      stats.live_blocks++;
+      stats.live_bytes += h->size;
 
       return p + sizeof(block_hdr_t);
     }
@@ -132,6 +183,8 @@ void *nl_malloc(size_t n) {
 
   return (void *)0; // OOM
 }
+
+void *nl_malloc(size_t n) { return nl_alloc_flags(n, 0); }
 
 void *nl_calloc(size_t nmemb, size_t size) {
   if (nmemb != 0 && size > SIZE_MAX / nmemb) {
@@ -151,30 +204,78 @@ void *nl_calloc(size_t nmemb, size_t size) {
   return p;
 }
 
-void nl_free(void *ptr) {
-  if (!ptr) {
-    return;
+void nl_alloc_get_stats(nl_alloc_stats_t *out) { *out = stats; }
+
+// mmap node of block whose payload starts at ptr, or NULL
+static mmap_node_t *mmap_find(const void *ptr) {
+  for (mmap_node_t *n = mmap_head; n; n = n->next) {
+    if ((const char *)n + sizeof(mmap_node_t) + sizeof(block_hdr_t) ==
+        (const char *)ptr) {
+      return n;
+    }
   }
 
-  block_hdr_t *h = (block_hdr_t *)((unsigned char *)ptr - sizeof(block_hdr_t));
-  if (h->magic != HDR_MAGIC) {
-    return; // bad pointer guard
+  return NULL;
+}
+
+void nl_alloc_release_mmap(mmap_node_t *node) {
+  block_hdr_t *h = (block_hdr_t *)((char *)node + sizeof(mmap_node_t));
+  size_t total = sizeof(mmap_node_t) + sizeof(block_hdr_t) + h->size;
+
+  if (node->prev) {
+    node->prev->next = node->next;
+  } else {
+    mmap_head = node->next;
   }
 
-  if (h->mmap_alloc) {
-    // Free mmap'ed block
-    size_t total = sizeof(block_hdr_t) + h->size;
-    nl_munmap(h, total);
-
-    return;
+  if (node->next) {
+    node->next->prev = node->prev;
   }
 
-  // Arena block: mark free and coalesce
+  stats.live_blocks--;
+  stats.live_bytes -= h->size;
+  h->magic = 0;
+  nl_munmap(node, total);
+}
+
+// Checks alignment, header magic, a plausible size and that block
+// that follows also starts with a valid header (or is arena end)
+static block_hdr_t *arena_block_of(const void *ptr) {
+  const unsigned char *c = (const unsigned char *)ptr;
+  if (!nl_arena_init || c < nl_arena_buf + sizeof(block_hdr_t) ||
+      c >= nl_arena_buf + ARENA_SIZE ||
+      ((size_t)(c - nl_arena_buf) & (ALIGN - 1)) != 0) {
+    return NULL;
+  }
+
+  block_hdr_t *h = (block_hdr_t *)(c - sizeof(block_hdr_t));
+  if (h->magic != HDR_MAGIC || h->mmap_alloc || (h->size & (ALIGN - 1)) != 0 ||
+      h->size > (size_t)(nl_arena_buf + ARENA_SIZE - c)) {
+    return NULL;
+  }
+
+  const unsigned char *next = c + h->size;
+  if (next < nl_arena_buf + ARENA_SIZE &&
+      (next + sizeof(block_hdr_t) > nl_arena_buf + ARENA_SIZE ||
+       ((const block_hdr_t *)next)->magic != HDR_MAGIC)) {
+    return NULL;
+  }
+
+  return h;
+}
+
+// Free a validated arena block, merging with free neighbours
+static void arena_release(block_hdr_t *h) {
+  unsigned char *payload = (unsigned char *)h + sizeof(block_hdr_t);
+
+  stats.live_blocks--;
+  stats.live_bytes -= h->size;
   h->free = 1;
+  h->flags = 0;
 
   // Coalesce forward
-  unsigned char *next_p = (unsigned char *)ptr + h->size;
-  const unsigned char *end = arena_buf + ARENA_SIZE;
+  unsigned char *next_p = payload + h->size;
+  const unsigned char *end = nl_arena_buf + ARENA_SIZE;
   if (next_p + sizeof(block_hdr_t) <= end) {
     block_hdr_t *next = (block_hdr_t *)next_p;
     if (next->magic == HDR_MAGIC && next->free) {
@@ -184,7 +285,7 @@ void nl_free(void *ptr) {
   }
 
   // Coalesce backward
-  unsigned char *p = arena_buf;
+  unsigned char *p = nl_arena_buf;
   const unsigned char *target = (unsigned char *)h;
   block_hdr_t *prev = NULL;
   while (p < target) {
@@ -201,4 +302,38 @@ void nl_free(void *ptr) {
     prev->size += sizeof(block_hdr_t) + h->size;
     h->magic = 0; // h is now absorbed into prev
   }
+}
+
+void nl_free(void *ptr) {
+  if (!ptr) {
+    return;
+  }
+
+  mmap_node_t *node = mmap_find(ptr);
+  if (node) {
+    nl_alloc_release_mmap(node);
+
+    return;
+  }
+
+  block_hdr_t *h = arena_block_of(ptr);
+  if (!h) {
+    stats.invalid_frees++; // not ours, or an interior pointer
+    return;
+  }
+
+  if (h->free) {
+    stats.double_frees++;
+
+    return;
+  }
+
+  arena_release(h);
+}
+
+// Free an arena block found by walking arena (collector sweep): no validation
+// needed and caller merges neighbours in one pass
+void nl_alloc_sweep_account(size_t size) {
+  stats.live_blocks--;
+  stats.live_bytes -= size;
 }
