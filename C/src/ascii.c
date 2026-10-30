@@ -788,7 +788,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
   // Edge detection dispatch
   uint8_t *dir_buf = NULL;
   if (edge_mode != EDGE_OFF) {
-    uint8_t *eb = nl_gb_alloc_atomic((size_t)(safe_dst_w * safe_dst_h));
+    uint8_t *eb = nl_gc_alloc_atomic((size_t)(safe_dst_w * safe_dst_h));
     if (eb) {
       switch (edge_mode) {
       case EDGE_SOBEL:
