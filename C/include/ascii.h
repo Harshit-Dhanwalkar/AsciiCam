@@ -8,7 +8,13 @@
 #define CHARSET_NAME_LEN 32
 #define CHARSET_RAMP_LEN 128
 
-// Render mode
+/* Worst case bytes ending one frame row or positioning frame:
+ * colour reset plus a cursor move with 5 digit coordinates
+ * Output buffers include this per row, so a frame can be drawn anywhere in
+ * terminal */
+#define ASCII_ROW_END_MAX 24
+
+/* Render mode */
 typedef enum {
   RENDER_BRAILLE = 0,
   RENDER_BLOCKS,
@@ -18,7 +24,7 @@ typedef enum {
   RENDER_MODE_COUNT
 } render_mode_t;
 
-// Edge detection mode
+/* Edge detection mode */
 typedef enum {
   EDGE_OFF = 0,
   EDGE_SOBEL,
@@ -27,10 +33,10 @@ typedef enum {
   EDGE_MODE_COUNT
 } edge_mode_t;
 
-// Color output mode, used when ascii_opts_t.color is set. Truecolor
-// (24-bit \033[38;2;r;g;bm) for terminals supports it;
-// ANSI-256 (\033[38;5;<idx>m) the standard 256-color palette for terminals that
-// only support that
+/* Color output mode, used when ascii_opts_t.color is set
+ * Truecolor (24-bit \033[38;2;r;g;bm) for terminals supports it
+ * ANSI-256 (\033[38;5;<idx>m) standard 256-color palette for terminals that
+ * only support that */
 typedef enum {
   COLOR_TRUECOLOR = 0,
   COLOR_256,
@@ -41,7 +47,7 @@ typedef struct {
   char ramp[CHARSET_RAMP_LEN];
 } charset_entry_t;
 
-// Registry of loaded charsets, hot-reloadable from directory of .txt files
+/* Registry of loaded charsets, hot-reloadable from directory of .txt files */
 typedef struct {
   charset_entry_t sets[MAX_CHARSETS];
   int count;
@@ -75,41 +81,45 @@ typedef struct {
   render_mode_t render_mode;
 
   // TESTING:
-  /* Pseudo-3D "pop out" parallax effect.
+  /* Pseudo-3D "pop out" parallax effect
    * depth_pop:  0 = off, >0 = effect strength (1..100 suggested range)
    * depth_invert: 0 = brighter is "closer" (pops toward viewer), 1 = darker is
-   * closer
-   */
+   * closer */
   int depth_pop;
   int depth_invert;
+
+  /* Where top-left cell of frame is drawn, 1-based terminal column / row
+   * 0 or 1 = top-left corner of terminal (default) */
+  int origin_x;
+  int origin_y;
 } ascii_opts_t;
 
-// Convert YUYV raw data to grayscale
+/* Convert YUYV raw data to grayscale */
 void yuyv_to_gray(const uint8_t *yuyv, uint8_t *gray, int width, int height);
 void yuyv_to_gray_simd(const uint8_t *yuyv, uint8_t *gray, int width,
                        int height);
 void yuyv_to_rgb(const uint8_t *yuyv, uint8_t *rgb, int width, int height);
 
-// Stride-aware YUYV -> RGB. `luma` (width*height bytes, may be NULL) replaces Y
-// of every pixel while U/V still come from `yuyv`, so colour follows whatever
-// plugins did to grayscale frame
+/* Stride-aware YUYV -> RGB. `luma` (width*height bytes, may be NULL) replaces Y
+ * of every pixel while U/V still come from `yuyv`, so colour follows whatever
+ * plugins did to grayscale frame */
 void yuyv_to_rgb_ex(const uint8_t *yuyv, int stride, const uint8_t *luma,
                     uint8_t *rgb, int width, int height);
 
-// Output buffer sizing
+/* Output buffer sizing */
 size_t ascii_out_size(int dst_w, int dst_h, int color);
 size_t ascii_out_size_for_mode(int dst_w, int dst_h, int color,
                                render_mode_t mode);
 
-// grayscale to ASCII output grid
+/* grayscale to ASCII output grid */
 int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
                        int src_h, int dst_w, int dst_h, char *out,
                        size_t out_size, const ascii_opts_t *opts);
 
-// Overlay FPS box
+/* Overlay FPS box */
 void overlay_fps_box(int dst_w, double fps, int color_enabled);
 
-// Render mode name for UI display
+/* Render mode name for UI display */
 const char *render_mode_name(render_mode_t m);
 const char *edge_mode_name(edge_mode_t m);
 

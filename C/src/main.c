@@ -20,11 +20,10 @@
 
 #define DEFAULT_CONFIG_PATH ".asciicamrc"
 #define DEFAULT_CHARSET_DIR "./charsets"
-#define DEFAULT_PLUGIN_DIR "./filters"          // plugin sources to browse
+#define DEFAULT_PLUGIN_DIR "<sdk>/filters"      // plugin sources to browse
 #define DEFAULT_PLUGIN_CACHE "./.cache/plugins" // where runtime builds land
 // Plugin sources, build cache, prebuilt libraries and charsets are located
 // relative to binary as well as current directory (app_paths.h)
-#define DEFAULT_PLUGIN_DIR "<sdk>/filters"
 
 #define TOAST_SECONDS 3
 #define CONFIG_MAX_BYTES 4096
@@ -210,9 +209,9 @@ static void print_usage(const char *prog) {
       "  /             search plugin sources, enter builds + loads it  \n"
       "                (up/down move, esc closes; compiles in background)\n"
       "  u             unload the selected plugin                      \n"
-      "  mouse         drag bottom-right corner to resize ASCII        \n"
-      "                frame; applied on release                       \n"
-      "  a / A         return frame to terminal auto-fit               \n"
+      "  mouse         drag any corner to resize frame, drag frame     \n"
+      "                itself to move it anywhere; applied on release  \n"
+      "  a / A         return frame to terminal auto-fit (top-left)    \n"
       "  q             quit                                            \n",
       prog, DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT, DEFAULT_FPS,
       DEFAULT_ASCII_WIDTH, DEFAULT_ASCII_HEIGHT, ASCII_CHARS_DEFAULT,
@@ -430,39 +429,50 @@ void term_restore(void) {
   raw_mode_active = 0;
 }
 
-static void overlay_panel(int ascii_h, double fps, plugin_loader_t *plugins,
-                          const int *plugin_params, int count, int selected,
-                          int color, const ascii_opts_t *opts,
+// panel_row: first of PANEL_ROWS rows (1-based) status panel is drawn on
+// drag     : current mouse drag, shown instead of hint bar while one is active
+static void overlay_panel(int panel_row, const frame_rect_t *frame,
+                          const mouse_drag_t *drag, double fps,
+                          plugin_loader_t *plugins, const int *plugin_params,
+                          int count, int selected, int color,
+                          const ascii_opts_t *opts,
                           const charset_registry_t *charsets, int hw_exposure,
                           int hw_contrast, int hw_wb, int cap_w, int cap_h,
-                          int preview_w, int preview_h, int ascii_w_now,
                           int ascii_size_manual) {
   char buf[1024];
   int n;
-  int base_row = ascii_h + 1; // 1-indexed panel row
+  int base_row = panel_row;
+  int ascii_h = frame->h;
+  int ascii_w_now = frame->w;
 
   // FPS + hint bar
   char fpsbuf[10];
   nl_fmt_fps(fpsbuf, sizeof(fpsbuf), fps);
-  if (preview_w > 0) {
-    // mouse drag in progress: preview of the pending frame size
+  if (drag && drag->dragging) {
+    // mouse drag in progress: preview of pending frame
+    char pv[96];
+    if (drag->dragging == GRAB_MOVE) {
+      nl_snprintf(pv, sizeof(pv), "MOVING frame (%d,%d) -> (%d,%d)",
+                  drag->base.x, drag->base.y, drag->pv.x, drag->pv.y);
+    } else {
+      nl_snprintf(pv, sizeof(pv), "RESIZING frame %dx%d -> %dx%d", drag->base.w,
+                  drag->base.h, drag->pv.w, drag->pv.h);
+    }
+
     if (color) {
       n = nl_snprintf(buf, sizeof(buf),
                       "\033[%d;1H\033[38;2;255;60;60m\033[48;2;18;18;18m"
-                      " RESIZING frame %dx%d -> %dx%d  │  release to apply"
-                      "\033[0m\033[K",
-                      base_row, ascii_w_now, ascii_h, preview_w, preview_h);
+                      " %s  │  release to apply\033[0m\033[K",
+                      base_row, pv);
     } else {
       n = nl_snprintf(buf, sizeof(buf),
-                      "\033[%d;1H RESIZING frame %dx%d -> %dx%d  |  release "
-                      "to apply\033[K",
-                      base_row, ascii_w_now, ascii_h, preview_w, preview_h);
+                      "\033[%d;1H %s  |  release to apply\033[K", base_row, pv);
     }
   } else if (color) {
     n = nl_snprintf(buf, sizeof(buf),
                     "\033[%d;1H\033[38;2;0;220;0m\033[48;2;18;18;18m"
                     " FPS: %s  │  / catalog  ↑↓ select  [ ] ±1  { } ±10  "
-                    "r reset  q quit  │  frame: %dx%d%s  cap: %dx%d  ◢ drag"
+                    "r reset  q quit  │  frame: %dx%d%s  cap: %dx%d  ◤◥◣◢ drag"
                     "\033[0m\033[K",
                     base_row, fpsbuf, ascii_w_now, ascii_h,
                     ascii_size_manual ? " [manual]" : "", cap_w, cap_h);
@@ -648,6 +658,7 @@ int handle_term_resize(int *ascii_w, int *ascii_h, char **out_buf,
   if (nl_ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) < 0) {
     return 0;
   }
+
   if (ws.ws_col == 0 || ws.ws_row == 0) {
     return 0;
   }
@@ -665,9 +676,31 @@ int handle_term_resize(int *ascii_w, int *ascii_h, char **out_buf,
                           color);
 }
 
+// Terminal size in cells; left unchanged when it cannot be read
+static void query_term_size(int *w, int *h) {
+  struct winsize ws;
+  nl_memset(&ws, 0, sizeof(ws));
+  if (nl_ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0 &&
+      ws.ws_row > 0) {
+    *w = ws.ws_col;
+    *h = ws.ws_row;
+  }
+}
+
+// Row status panel starts on: bottom of terminal, so it stays put wherever
+// frame is
+// Without a known size it goes under frame as before
+static int panel_row_for(int term_h, int ascii_h) {
+  if (term_h <= 0) {
+    return ascii_h + 1;
+  }
+
+  return term_h - PANEL_ROWS + 1 < 1 ? 1 : term_h - PANEL_ROWS + 1;
+}
+
 // Active-plugin list. plugins[]/params[]/cat[] stay packed, so adding and
-// removing at runtime is just append / shift-down. cat[i] is catalog entry a
-// slot was loaded from, or -1 for plugins given with -p
+// removing at runtime is just append / shift-down
+// cat[i] is catalog entry a was loaded from, or -1 for plugins given with -p
 static int plugin_slot_add(plugin_loader_t *plugins, int *params, int *cat,
                            int *count, const char *path, int cat_idx, char *err,
                            size_t errsz) {
@@ -1103,8 +1136,17 @@ int main(int argc, char *argv[]) {
   mouse_enable();
 
   mouse_parser_t mouse_parser = {0, {0, 0, 0}, 0};
-  mouse_drag_t mouse_drag = {0, 0, 0, 0, 0, 0, 0, 0, 0};
-  int preview_w = 0, preview_h = 0; // pending frame size while dragging
+  mouse_drag_t mouse_drag = {0};
+  // Frame placement: top-left cell, and the terminal it has to stay inside
+  int frame_x = 1;
+  int frame_y = 1;
+  int term_w = 0;
+  int term_h = 0;
+  query_term_size(&term_w, &term_h);
+  // Outline of the pending rectangle while a drag is in progress
+  frame_rect_t outline = {0, 0, 0, 0};
+  int outline_on = 0;
+
   // 0 = frame follows terminal width (SIGWINCH); 1 = user dragged it
   int ascii_size_manual = 0;
 
@@ -1133,13 +1175,35 @@ int main(int argc, char *argv[]) {
     if (term_resized) {
       term_resized = 0;
 
+      query_term_size(&term_w, &term_h);
+
       // a mid-drag SIGWINCH would corrupt drag's frame-base snapshot
       if (mouse_drag.dragging) {
         mouse_drag.dragging = 0;
-        preview_w = preview_h = 0;
       }
 
-      if (!ascii_size_manual) {
+      outline_on = 0;
+      (void)write(STDOUT_FILENO, "\033[2J", 4);
+
+      if (ascii_size_manual) {
+        // keep the chosen frame, but not outside the (smaller) terminal
+        int avail_h = term_h - PANEL_ROWS;
+        int fw = (term_w > 0 && ascii_w > term_w) ? term_w : ascii_w;
+        int fh = (term_h > 0 && ascii_h > avail_h) ? avail_h : ascii_h;
+        apply_ascii_size(fw, fh, &ascii_w, &ascii_h, &out_buf, &out_size,
+                         opts.color);
+        if (term_w > 0 && frame_x + ascii_w - 1 > term_w) {
+          frame_x = term_w - ascii_w + 1;
+        }
+
+        if (term_h > 0 && frame_y + ascii_h - 1 > avail_h) {
+          frame_y = avail_h - ascii_h + 1;
+        }
+
+        frame_x = frame_x < 1 ? 1 : frame_x;
+        frame_y = frame_y < 1 ? 1 : frame_y;
+      } else {
+        frame_x = frame_y = 1;
         int rc = handle_term_resize(&ascii_w, &ascii_h, &out_buf, &out_size,
                                     opts.color);
         if (rc > 0) {
@@ -1180,25 +1244,40 @@ int main(int argc, char *argv[]) {
         }
 
         if (prc == MOUSE_PARSE_DONE) {
-          int nw = 0;
-          int nh = 0;
-          // Drag resizes ASCII frame 1:1 in cells. Capture resolution is
-          // controlled only by -w/-h at startup and is not touched here, so
-          // frame's aspect and camera's aspect stay independent
-          int act =
-              mouse_drag_event(&mouse_drag, &mev, ascii_w, ascii_h, ascii_w,
-                               ascii_h, MIN_ASCII_W, MIN_ASCII_H,
-                               DRAG_MAX_ASCII_W, DRAG_MAX_ASCII_H, &nw, &nh);
-          if (act == MOUSE_GRAB || act == MOUSE_RESIZE) {
-            preview_w = nw; // shown in panel; buffer untouched
-            preview_h = nh;
-          } else if (act == MOUSE_RELEASE) {
-            preview_w = preview_h = 0;
-          } else if (act == MOUSE_APPLY) {
-            preview_w = preview_h = 0;
-            ascii_size_manual = 1;
-            if (apply_ascii_size(nw, nh, &ascii_w, &ascii_h, &out_buf,
-                                 &out_size, opts.color) > 0) {
+          // Corners resize the ASCII frame 1:1 in cells, dragging the body
+          // moves it. Capture resolution is controlled only by -w/-h at
+          // startup and is not touched here, so frame's aspect and camera's
+          // aspect stay independent. Nothing changes until release: meanwhile
+          // an outline shows where the frame will go
+          frame_rect_t cur = {frame_x, frame_y, ascii_w, ascii_h};
+          mouse_limits_t lim = {term_w,          term_h,      PANEL_ROWS,
+                                MIN_ASCII_W,     MIN_ASCII_H, DRAG_MAX_ASCII_W,
+                                DRAG_MAX_ASCII_H};
+          frame_rect_t nr = cur;
+          int act = mouse_drag_event(&mouse_drag, &mev, &cur, &lim, &nr);
+          if (act == MOUSE_RESIZE) {
+            if (outline_on) {
+              draw_drag_outline(&outline, opts.color, 1);
+            }
+
+            outline = nr;
+            outline_on = 1;
+            draw_drag_outline(&outline, opts.color, 0);
+          } else if (act == MOUSE_RELEASE || act == MOUSE_APPLY) {
+            if (outline_on) {
+              draw_drag_outline(&outline, opts.color, 1);
+              outline_on = 0;
+            }
+
+            if (act == MOUSE_APPLY) {
+              ascii_size_manual = 1;
+              apply_ascii_size(nr.w, nr.h, &ascii_w, &ascii_h, &out_buf,
+                               &out_size, opts.color);
+              if (ascii_w == nr.w && ascii_h == nr.h) { // else: out of memory
+                frame_x = nr.x;
+                frame_y = nr.y;
+              }
+
               (void)write(STDOUT_FILENO, "\033[2J", 4);
             }
           }
@@ -1569,6 +1648,8 @@ int main(int argc, char *argv[]) {
       break;
     }
 
+    opts.origin_x = frame_x;
+    opts.origin_y = frame_y;
     int len = grayscale_to_ascii(frame, rgb, cam.width, cam.height, subpixel_w,
                                  subpixel_h, out_buf, out_size, &opts);
     if (len > (int)out_size) {
@@ -1579,23 +1660,30 @@ int main(int argc, char *argv[]) {
       write_all(STDOUT_FILENO, SYNC_BEGIN, sizeof(SYNC_BEGIN) - 1);
       write_all(STDOUT_FILENO, out_buf, (size_t)len);
 
-      overlay_panel(ascii_h, current_fps, plugins, plugin_params, plugin_count,
-                    selected, opts.color, &opts, &charsets, hw_exposure,
-                    hw_contrast, hw_wb, cam.width, cam.height, preview_w,
-                    preview_h, ascii_w, ascii_size_manual);
-      draw_corner_indicator(ascii_w, ascii_h, opts.color, &mouse_drag);
+      frame_rect_t shown = {frame_x, frame_y, ascii_w, ascii_h};
+      overlay_panel(panel_row_for(term_h, ascii_h), &shown, &mouse_drag,
+                    current_fps, plugins, plugin_params, plugin_count, selected,
+                    opts.color, &opts, &charsets, hw_exposure, hw_contrast,
+                    hw_wb, cam.width, cam.height, ascii_size_manual);
+      draw_corner_indicators(&shown, opts.color, &mouse_drag);
+      if (outline_on && mouse_drag.dragging) {
+        draw_drag_outline(&outline, opts.color, 0);
+      }
 
       write_all(STDOUT_FILENO, SYNC_END, sizeof(SYNC_END) - 1);
 
       // Picker box, or a toast / build indicator, over bottom frame rows
       char ovl[2048];
       int on = 0;
+      picker_set_column(frame_x);
+      int frame_bottom = frame_y + ascii_h - 1;
       if (picker.active) {
-        on = picker_render(&picker, &catalog, ascii_h, opts.color, ovl,
+        on = picker_render(&picker, &catalog, frame_bottom, opts.color, ovl,
                            sizeof(ovl));
       } else if (toast_frames > 0) {
         toast_frames--;
-        on = toast_render(toast_msg, ascii_h, opts.color, ovl, sizeof(ovl));
+        on =
+            toast_render(toast_msg, frame_bottom, opts.color, ovl, sizeof(ovl));
       } else {
         char bmsg[128];
         size_t bl = 0;
@@ -1615,7 +1703,7 @@ int main(int argc, char *argv[]) {
         }
 
         if (bl > 0) {
-          on = toast_render(bmsg, ascii_h, opts.color, ovl, sizeof(ovl));
+          on = toast_render(bmsg, frame_bottom, opts.color, ovl, sizeof(ovl));
         }
       }
 

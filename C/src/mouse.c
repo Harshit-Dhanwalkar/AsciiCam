@@ -62,12 +62,7 @@ int mouse_parser_feed(mouse_parser_t *p, char c, mouse_event_t *ev) {
   return MOUSE_PARSE_FAIL;
 }
 
-// Resize handle state machine
-static int in_corner(const mouse_event_t *ev, int fw, int fh) {
-  return ev->x >= fw - CORNER_DRAG_MARGIN && ev->x <= fw &&
-         ev->y >= fh - CORNER_DRAG_MARGIN && ev->y <= fh;
-}
-
+// Drag state machine
 static int clamp_int(int v, int lo, int hi) {
   if (hi < lo) {
     hi = lo;
@@ -76,54 +71,117 @@ static int clamp_int(int v, int lo, int hi) {
   return v < lo ? lo : (v > hi ? hi : v);
 }
 
-// new = base * (frame + delta) / frame, even, clamped
-static int scale_dim(int base_cap, int base_frame, int delta, int lo, int hi) {
-  if (base_frame < 1) {
-    base_frame = 1;
+static int min_int(int a, int b) { return a < b ? a : b; }
+
+static int max_int(int a, int b) { return a > b ? a : b; }
+
+// Part of frame is at pointer
+static int hit_test(const mouse_event_t *ev, const frame_rect_t *r) {
+  int x0 = r->x, x1 = r->x + r->w - 1;
+  int y0 = r->y, y1 = r->y + r->h - 1;
+  if (ev->x < x0 || ev->x > x1 || ev->y < y0 || ev->y > y1) {
+    return GRAB_NONE;
   }
 
-  int cells = base_frame + delta;
-  if (cells < 0) {
-    cells = 0;
+  int left = ev->x - x0 <= CORNER_DRAG_MARGIN;
+  int right = x1 - ev->x <= CORNER_DRAG_MARGIN;
+  int top = ev->y - y0 <= CORNER_DRAG_MARGIN;
+  int bottom = y1 - ev->y <= CORNER_DRAG_MARGIN;
+
+  if (bottom && right) {
+    return GRAB_BR;
   }
 
-  int v = (int)((long)base_cap * (long)cells / (long)base_frame);
-  v &= ~1; // capture sizes are rounded to even by camera layer anyway
+  if (bottom && left) {
+    return GRAB_BL;
+  }
 
-  return clamp_int(v, lo, hi);
+  if (top && right) {
+    return GRAB_TR;
+  }
+
+  if (top && left) {
+    return GRAB_TL;
+  }
+
+  return GRAB_MOVE;
 }
 
-int mouse_drag_event(mouse_drag_t *d, const mouse_event_t *ev, int frame_w,
-                     int frame_h, int cap_w, int cap_h, int min_w, int min_h,
-                     int max_w, int max_h, int *out_w, int *out_h) {
+// Right/bottom limits of area frame may occupy (huge when unknown)
+static int area_right(const mouse_limits_t *l) {
+  return l->term_w > 0 ? l->term_w : 1 << 20;
+}
+
+static int area_bottom(const mouse_limits_t *l) {
+  return l->term_h > 0 ? l->term_h - l->reserved_rows : 1 << 20;
+}
+
+// Pending frame for pointer at (px, py)
+static frame_rect_t drag_rect(const mouse_drag_t *d, int px, int py,
+                              const mouse_limits_t *l) {
+  frame_rect_t r = d->base;
+  int dx = px - d->start_x;
+  int dy = py - d->start_y;
+
+  if (d->dragging == GRAB_MOVE) {
+    r.x = clamp_int(d->base.x + dx, 1, area_right(l) - r.w + 1);
+    r.y = clamp_int(d->base.y + dy, 1, area_bottom(l) - r.h + 1);
+
+    return r;
+  }
+
+  int right_edge = d->base.x + d->base.w - 1;
+  int bottom_edge = d->base.y + d->base.h - 1;
+
+  // Corner opposite grabbed one never moves
+  if (d->dragging == GRAB_TR || d->dragging == GRAB_BR) {
+    r.w = clamp_int(d->base.w + dx, l->min_w,
+                    min_int(l->max_w, area_right(l) - d->base.x + 1));
+  } else {
+    r.w = clamp_int(d->base.w - dx, l->min_w, min_int(l->max_w, right_edge));
+    r.x = max_int(1, right_edge - r.w + 1);
+  }
+
+  if (d->dragging == GRAB_BL || d->dragging == GRAB_BR) {
+    r.h = clamp_int(d->base.h + dy, l->min_h,
+                    min_int(l->max_h, area_bottom(l) - d->base.y + 1));
+  } else {
+    r.h = clamp_int(d->base.h - dy, l->min_h, min_int(l->max_h, bottom_edge));
+    r.y = max_int(1, bottom_edge - r.h + 1);
+  }
+
+  return r;
+}
+
+static int rect_eq(const frame_rect_t *a, const frame_rect_t *b) {
+  return a->x == b->x && a->y == b->y && a->w == b->w && a->h == b->h;
+}
+
+int mouse_drag_event(mouse_drag_t *d, const mouse_event_t *ev,
+                     const frame_rect_t *cur, const mouse_limits_t *lim,
+                     frame_rect_t *out) {
   if (ev->wheel) {
     return MOUSE_NONE;
   }
 
   int left = (ev->button == 0);
 
-  // Press on handle starts a drag (a second press means release was
-  // lost, e.g. focus change: just start over)
+  // A press on frame starts a drag (a second press means release was lost, e.g.
+  // focus change: start over)
   if (ev->pressed && !ev->motion && left) {
-    if (in_corner(ev, frame_w, frame_h)) {
-      d->dragging = 1;
-      d->start_x = ev->x;
-      d->start_y = ev->y;
-      d->base_fw = frame_w;
-      d->base_fh = frame_h;
-      d->base_cw = cap_w;
-      d->base_ch = cap_h;
-      d->pv_w = cap_w;
-      d->pv_h = cap_h;
-      *out_w = cap_w;
-      *out_h = cap_h;
-
-      return MOUSE_GRAB;
+    int part = hit_test(ev, cur);
+    d->dragging = part;
+    if (part == GRAB_NONE) {
+      return MOUSE_NONE;
     }
 
-    d->dragging = 0;
+    d->start_x = ev->x;
+    d->start_y = ev->y;
+    d->base = *cur;
+    d->pv = *cur;
+    *out = *cur;
 
-    return MOUSE_NONE;
+    return MOUSE_GRAB;
   }
 
   if (!d->dragging) {
@@ -131,25 +189,21 @@ int mouse_drag_event(mouse_drag_t *d, const mouse_event_t *ev, int frame_w,
   }
 
   if (ev->pressed && ev->motion && left) {
-    int w = scale_dim(d->base_cw, d->base_fw, ev->x - d->start_x, min_w, max_w);
-    int h = scale_dim(d->base_ch, d->base_fh, ev->y - d->start_y, min_h, max_h);
-    if (w == d->pv_w && h == d->pv_h) {
+    frame_rect_t r = drag_rect(d, ev->x, ev->y, lim);
+    if (rect_eq(&r, &d->pv)) {
       return MOUSE_NONE;
     }
 
-    d->pv_w = w;
-    d->pv_h = h;
-    *out_w = w;
-    *out_h = h;
+    d->pv = r;
+    *out = r;
 
     return MOUSE_RESIZE;
   }
 
   if (!ev->pressed && left) {
-    d->dragging = 0;
-    if (d->pv_w != d->base_cw || d->pv_h != d->base_ch) {
-      *out_w = d->pv_w;
-      *out_h = d->pv_h;
+    d->dragging = GRAB_NONE;
+    if (!rect_eq(&d->pv, &d->base)) {
+      *out = d->pv;
 
       return MOUSE_APPLY;
     }
@@ -179,27 +233,124 @@ void mouse_disable(void) {
   (void)write(STDOUT_FILENO, OFF, sizeof(OFF) - 1);
 }
 
-void draw_corner_indicator(int ascii_w, int ascii_h, int color,
-                           const mouse_drag_t *d) {
-  if (!MOUSE_TTY || ascii_w < 4 || ascii_h < 2) {
+void draw_corner_indicators(const frame_rect_t *r, int color,
+                            const mouse_drag_t *d) {
+  if (!MOUSE_TTY || r->w < 4 || r->h < 2) {
     return;
   }
 
-  int active = d && d->dragging;
-  char buf[96];
-  int n;
+  // U+25E4 / U+25E5 / U+25E3 / U+25E2: triangle with its right angle in corner
+  // it marks Orange; red while being dragged
+  static const char *const GLYPH[4] = {"\342\227\244", "\342\227\245",
+                                       "\342\227\243", "\342\227\242"};
+  const int grab[4] = {GRAB_TL, GRAB_TR, GRAB_BL, GRAB_BR};
+  int col[4] = {r->x, r->x + r->w - 1, r->x, r->x + r->w - 1};
+  int row[4] = {r->y, r->y, r->y + r->h - 1, r->y + r->h - 1};
 
-  if (color) {
-    // U+25E2 lower-right triangle = \342\227\242, orange; red while dragging
-    n = nl_snprintf(buf, sizeof(buf),
-                    "\033[%d;%dH\033[38;2;%sm\342\227\242\033[0m", ascii_h,
-                    ascii_w, active ? "255;60;60" : "255;140;0");
-  } else {
-    n = nl_snprintf(buf, sizeof(buf), "\033[%d;%dH\033[%sm+\033[0m", ascii_h,
-                    ascii_w, active ? "7;5" : "7");
+  char buf[512];
+  size_t len = 0;
+  for (int i = 0; i < 4; i++) {
+    int active = d && d->dragging == grab[i];
+    int n;
+    if (color) {
+      n = nl_snprintf(buf + len, sizeof(buf) - len,
+                      "\033[%d;%dH\033[38;2;%sm%s\033[0m", row[i], col[i],
+                      active ? "255;60;60" : "255;140;0", GLYPH[i]);
+    } else {
+      n = nl_snprintf(buf + len, sizeof(buf) - len,
+                      "\033[%d;%dH\033[%sm+\033[0m", row[i], col[i],
+                      active ? "7;5" : "7");
+    }
+
+    if (n <= 0 || len + (size_t)n >= sizeof(buf)) {
+      break;
+    }
+
+    len += (size_t)n;
   }
 
-  if (n > 0 && n < (int)sizeof(buf)) {
-    (void)write(STDOUT_FILENO, buf, (size_t)n);
+  if (len > 0) {
+    (void)write(STDOUT_FILENO, buf, len);
   }
+}
+
+// Buffered writer so a big outline is a few writes, not hundreds
+typedef struct {
+  char buf[2048];
+  size_t len;
+} outbuf_t;
+
+static void ob_flush(outbuf_t *o) {
+  if (o->len > 0) {
+    (void)write(STDOUT_FILENO, o->buf, o->len);
+    o->len = 0;
+  }
+}
+
+static void ob_put(outbuf_t *o, const char *s, size_t n) {
+  if (o->len + n > sizeof(o->buf)) {
+    ob_flush(o);
+  }
+
+  if (n > sizeof(o->buf)) {
+    return;
+  }
+
+  nl_memcpy(o->buf + o->len, s, n);
+  o->len += n;
+}
+
+static void ob_str(outbuf_t *o, const char *s) { ob_put(o, s, nl_strlen(s)); }
+
+static void ob_move(outbuf_t *o, int row, int col) {
+  char t[24];
+  int n = nl_snprintf(t, sizeof(t), "\033[%d;%dH", row, col);
+  if (n > 0) {
+    ob_put(o, t, (size_t)n);
+  }
+}
+
+void draw_drag_outline(const frame_rect_t *r, int color, int erase) {
+  if (!MOUSE_TTY || r->w < 2 || r->h < 2) {
+    return;
+  }
+
+  const char *h = color ? "\342\224\200" : "-";  // ─
+  const char *v = color ? "\342\224\202" : "|";  // │
+  const char *tl = color ? "\342\224\214" : "+"; // ┌
+  const char *tr = color ? "\342\224\220" : "+"; // ┐
+  const char *bl = color ? "\342\224\224" : "+"; // └
+  const char *br = color ? "\342\224\230" : "+"; // ┘
+  if (erase) {
+    h = v = tl = tr = bl = br = " ";
+  }
+
+  outbuf_t o;
+  o.len = 0;
+  if (!erase && color) {
+    ob_str(&o, "\033[1;38;2;255;60;60m");
+  } else if (!erase) {
+    ob_str(&o, "\033[7m");
+  }
+
+  for (int k = 0; k < 2; k++) {
+    int row = k == 0 ? r->y : r->y + r->h - 1;
+    ob_move(&o, row, r->x);
+    ob_str(&o, k == 0 ? tl : bl);
+    for (int i = 1; i < r->w - 1; i++) {
+      ob_str(&o, h);
+    }
+
+    ob_str(&o, k == 0 ? tr : br);
+  }
+
+  for (int y = r->y + 1; y < r->y + r->h - 1; y++) {
+    ob_move(&o, y, r->x);
+    ob_str(&o, v);
+    ob_move(&o, y, r->x + r->w - 1);
+    ob_str(&o, v);
+  }
+
+  ob_str(&o, "\033[0m");
+  ob_flush(&o);
 }

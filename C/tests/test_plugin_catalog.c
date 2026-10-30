@@ -8,7 +8,7 @@
  *   LIBS="lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
  *   gcc $FLAGS tests/test_plugin_catalog.c src/plugin_catalog.c \
  *     src/plugin_picker.c src/plugins.c lib/nl_dlfcn.c $LIBS -o /tmp/t_cat
- * /tmp/t_cat
+ *     /tmp/t_cat
  *
  * Also builds against system libc (macOS, Windows, or a Linux host to exercise
  * POSIX code path; there pass -DPLATFORM_MACOS -DPC_SO_EXT=\"so\" so Makefile's
@@ -278,7 +278,7 @@ static void test_picker_render(void) {
         "failure reason shown");
   CHECK(contains(buf, "[active]"), "active state shown");
   CHECK(contains(buf, "\033[31;1H"),
-        "header is at ascii_h + 1 (below the frame)");
+        "header is at ascii_h + 1 (below frame)");
 
   // no ANSI cursor-position escape in output should land on a frame row
   // (i.e. row <= frame_rows)
@@ -585,7 +585,7 @@ static void test_prebuilt_and_abi(char **envp) {
         "cannot rebuild a source-less plugin, stays usable");
   int n = c.count;
   catalog_add_prebuilt(&c, "build");
-  CHECK(c.count == n, "adding the same directory twice adds nothing");
+  CHECK(c.count == n, "adding same directory twice adds nothing");
   CHECK(catalog_add_prebuilt(&c, ".cache/no_such_dir") == c.count,
         "missing prebuilt dir is harmless");
 
@@ -597,7 +597,7 @@ static void test_prebuilt_and_abi(char **envp) {
         "prebuilt library loads without compiling");
   plugin_cleanup(&pl);
 
-  // sources known + prebuilt available: use the library, no compiler needed
+  // sources known + prebuilt available: use library, no compiler needed
   plugin_catalog_t s;
   catalog_init(&s, "filters", CACHE_DIR, envp);
   catalog_scan(&s);
@@ -616,8 +616,7 @@ static void test_prebuilt_and_abi(char **envp) {
   CHECK(ni >= 0 && catalog_start_build(&nosdk, ni) == -1 &&
             nosdk.e[ni].state == PC_FAILED,
         "missing SDK fails fast");
-  CHECK(ni >= 0 && nl_strstr_ok(nosdk.e[ni].err, "SDK"),
-        "error mentions the SDK");
+  CHECK(ni >= 0 && nl_strstr_ok(nosdk.e[ni].err, "SDK"), "error mentions SDK");
 
   // library built for another plugin interface version is refused
   write_file(SRC_DIR "/abi99.c",

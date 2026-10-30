@@ -1,10 +1,11 @@
 /*
  * Plugin catalog: shared logic on top of five per-platform primitives
  *
- *   pc_list_files    names of files in a directory (Windows: matching
- * *.ext) pc_make_dirs     mkdir -p pc_spawn         start `make` on plugin
- * rule, output to a log file pc_reap          non-blocking (or blocking) wait
- * for that child pc_kill          terminate and reap child
+ * pc_list_files    names of files in a directory (Windows: matching *.ext)
+ * pc_make_dirs     mkdir -p
+ * pc_spawn         start `make` on plugin rule, output to a log file
+ * pc_reap          non-blocking (or blocking) wait for that child
+ * pc_kill          terminate and reap child
  *
  * System headers must come before nolibc.h on libc platforms: nolibc redirects
  * names like strlen/signal with macros that would rewrite their declarations
@@ -370,6 +371,7 @@ static int pc_reap(pc_proc_t h, int block, int *code) {
 
 static void pc_kill(pc_proc_t h) {
   int code;
+
   kill((pid_t)h, 15 /* SIGTERM */);
   pc_reap(h, 1, &code);
 }
@@ -395,6 +397,7 @@ static int pc_list_files(const char *dir, const char *ext,
       cat_copy(names[count++], PC_FILE_LEN, fd.cFileName);
     }
   } while (FindNextFileA(h, &fd));
+
   FindClose(h);
 
   return count;
@@ -412,6 +415,7 @@ static void pc_make_dirs(const char *path) {
       *p = sep;
     }
   }
+
   CreateDirectoryA(tmp, NULL);
 }
 
@@ -432,6 +436,7 @@ static int pc_spawn(const plugin_catalog_t *c, const catalog_entry_t *e,
 
     return -1;
   }
+  
   HANDLE hnul =
       CreateFileA("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
                   OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -504,6 +509,7 @@ static int pc_reap(pc_proc_t h, int block, int *code) {
 static void pc_kill(pc_proc_t h) {
   HANDLE p = (HANDLE)(size_t)h;
   int code;
+
   TerminateProcess(p, 1);
   if (pc_reap(h, 1, &code) < 0) {
     CloseHandle(p);

@@ -4,14 +4,20 @@
 #include "nl_types.h"
 
 /*
- * Mouse support for changing capture resolution by dragging  bottom-right
- * corner of ASCII frame
+ * Mouse support: place and resize ASCII frame with mouse
  *
- * NOTE: Uses xterm "button-event tracking" (?1002) with SGR encoding (?1006).
+ *   - drag any of 4 corners to resize; opposite corner stays put
+ *   - drag anywhere else inside frame to move it
+ *
+ * Nothing is applied while button is down: caller shows an outline of pending
+ * rectangle and only release (MOUSE_APPLY) changes frame, so buffers are not
+ * reallocated and screen not cleared on every motion event
+ *
+ * NOTE: Uses xterm "button-event tracking" (?1002) with SGR encoding (?1006)
  * SGR reports look like  ESC [ < b ; x ; y M  (press / drag)  and  ... m
  * (release) with decimal coordinates, so unlike legacy X10 encoding there is no
  * column/row limit (legacy bytes overflow past column 223 and are mangled by
- * UTF-8 terminals) and a release says which button was released.
+ * UTF-8 terminals) and a release says which button was released
  */
 
 typedef struct {
@@ -38,38 +44,59 @@ void mouse_parser_begin(mouse_parser_t *p); /* call after seeing ESC [ < */
 int mouse_parser_active(const mouse_parser_t *p);
 int mouse_parser_feed(mouse_parser_t *p, char c, mouse_event_t *ev);
 
-/*
- * Drag state of bottom-right handle. Dragging resizes CAPTURE resolution
- * proportionally: dragging corner to 1.5x frame size asks for 1.5x capture
- * size. Frame itself does not move, so new capture size is only a preview until
- * button is released (reopening camera is expensive and must happen once, not
- * per mouse-motion event)
- */
+/* Frame position and size in terminal cells; x, y are 1-based column and row of
+ * its top-left cell */
 typedef struct {
-  int dragging;
+  int x, y, w, h;
+} frame_rect_t;
+
+/* TL/TR/BL/BR resize, MOVE moves */
+#define GRAB_NONE 0
+#define GRAB_TL 1
+#define GRAB_TR 2
+#define GRAB_BL 3
+#define GRAB_BR 4
+#define GRAB_MOVE 5
+
+typedef struct {
+  int dragging;         /* GRAB_* while a button is held, else GRAB_NONE */
   int start_x, start_y; /* pointer position at grab */
-  int base_fw, base_fh; /* frame size in cells at grab */
-  int base_cw, base_ch; /* capture size in pixels at grab */
-  int pv_w, pv_h;       /* last preview size */
+  frame_rect_t base;    /* frame at grab */
+  frame_rect_t pv;      /* pending (previewed) frame */
 } mouse_drag_t;
 
-#define CORNER_DRAG_MARGIN 2 /* hit area: corner cell plus 2 cells left/up */
+/* term_w/term_h are terminal size in cells (0 = unknown: only top/left edge is
+ * enforced); reserved_rows at bottom belong to status panel and stay out of
+ * reach */
+typedef struct {
+  int term_w, term_h;
+  int reserved_rows;
+  int min_w, min_h;
+  int max_w, max_h;
+} mouse_limits_t;
 
-#define MOUSE_NONE 0   /* nothing to do */
-#define MOUSE_GRAB 1   /* handle grabbed; preview starts at current size */
-#define MOUSE_RESIZE 2 /* preview changed: *out_w / *out_h hold it */
-#define MOUSE_APPLY                                                            \
-  3 /* released with a changed size: reopen camera at *out_w x *out_h */
-#define MOUSE_RELEASE 4 /* released, size unchanged */
+#define CORNER_DRAG_MARGIN 2 /* hit area: corner cell plus 2 cells inwards */
 
-int mouse_drag_event(mouse_drag_t *d, const mouse_event_t *ev, int frame_w,
-                     int frame_h, int cap_w, int cap_h, int min_w, int min_h,
-                     int max_w, int max_h, int *out_w, int *out_h);
+#define MOUSE_NONE 0    /* nothing to do */
+#define MOUSE_GRAB 1    /* grabbed; *out is current frame */
+#define MOUSE_RESIZE 2  /* pending frame changed: *out holds it */
+#define MOUSE_APPLY 3   /* released with a changed frame: adopt *out */
+#define MOUSE_RELEASE 4 /* released, frame unchanged */
 
-/* tty side effects. mouse_disable is async-signal-safe (a single write). */
+/* Feed one mouse event. cur is frame as drawn now */
+int mouse_drag_event(mouse_drag_t *d, const mouse_event_t *ev,
+                     const frame_rect_t *cur, const mouse_limits_t *lim,
+                     frame_rect_t *out);
+
+/* tty side effects. mouse_disable is async-signal-safe (a single write) */
 void mouse_enable(void);
 void mouse_disable(void);
-void draw_corner_indicator(int ascii_w, int ascii_h, int color,
-                           const mouse_drag_t *d);
+/* Four corner handles of r; one being dragged is highlighted */
+void draw_corner_indicators(const frame_rect_t *r, int color,
+                            const mouse_drag_t *d);
+
+/* Outline of r, drawn over whatever is there, or erased with spaces
+ * Frame is redrawn every cycle, so erasing only matters outside it */
+void draw_drag_outline(const frame_rect_t *r, int color, int erase);
 
 #endif

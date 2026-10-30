@@ -22,10 +22,6 @@
 
 #include "app_paths.h"
 
-#ifndef O_BINARY
-#define O_BINARY 0
-#endif
-
 #if defined(__LINUX_NOLIBC__)
 #ifndef SYS_readlink
 #define SYS_readlink 89
@@ -37,7 +33,7 @@ int app_path_exists(const char *path) {
   return GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES;
 #else
   // open(2) accepts directories read-only, so this covers files and dirs
-  int fd = open(path, O_RDONLY | O_BINARY, 0);
+  int fd = open(path, O_RDONLY, 0);
   if (fd < 0) {
     return 0;
   }
@@ -222,9 +218,9 @@ void app_paths_resolve(app_paths_t *p, const app_env_t *env,
     // Default fallback
     const char *cset = "./charsets";
 
-    if (ex("./charsets")) {
+    if (!exe || ex("./charsets")) {
       cset = "./charsets";
-    } else if (exe) {
+    } else {
       join3(cand, exe, "../share", "asciicam/charsets");
       if (ex(cand)) {
         cset = cand;

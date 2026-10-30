@@ -5,7 +5,8 @@
  * -print-file-name=include) \
  *     -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -static \
  *     test_mouse.c ../src/mouse.c ../lib/nl_printf.c ../lib/nl_errno.c \
- *     ../lib/nl_alloc.c ../lib/nl_start.c -I../include -I../lib -o /tmp/test_mouse
+ *     ../lib/nl_alloc.c ../lib/nl_start.c -I../include -I../lib -o
+ *     /tmp/test_mouse
  */
 #include "../lib/nolibc.h"
 #include "mouse.h"
@@ -116,136 +117,187 @@ static mouse_event_t E(int x, int y, int button, int motion, int pressed) {
   return e;
 }
 
-// frame 80x40 cells showing a 640x480 capture; limits 160x120 .. 1280x720
-#define DRAG(d, ev)                                                            \
-  mouse_drag_event(&(d), &(ev), 80, 40, 640, 480, 160, 120, 1280, 720, &w, &h)
+// Frame at column 11, row 6, 40x20 cells: spans columns 11..50, rows 6..25
+// Terminal 120x50 with 4 rows kept for status panel: usable rows 1..46
+static const frame_rect_t FR = {11, 6, 40, 20};
+static const mouse_limits_t LIM = {120, 50, 4, 10, 5, 500, 200};
+
+#define DRAG(d, ev) mouse_drag_event(&(d), &(ev), &FR, &LIM, &r)
+
+static int rect_is(frame_rect_t r, int x, int y, int w, int h) {
+  return r.x == x && r.y == y && r.w == w && r.h == h;
+}
+
+// Press at (gx, gy), drag to (tx, ty); returns pending rectangle
+static frame_rect_t drag_from(int gx, int gy, int tx, int ty, int *grab) {
+  mouse_drag_t d = {0};
+  frame_rect_t r = FR;
+  mouse_event_t e = E(gx, gy, 0, 0, 1);
+  mouse_drag_event(&d, &e, &FR, &LIM, &r);
+  *grab = d.dragging;
+  e = E(tx, ty, 0, 1, 1);
+  r = d.pv;
+  mouse_drag_event(&d, &e, &FR, &LIM, &r);
+
+  return d.pv;
+}
 
 static void test_drag(void) {
   mouse_drag_t d = {0};
-  int w = 0, h = 0;
+  frame_rect_t r = {0, 0, 0, 0};
   mouse_event_t e;
+  int g;
 
-  // a press away from corner does nothing
+  // A press off frame does nothing
   e = E(5, 5, 0, 0, 1);
   CHECK(DRAG(d, e) == MOUSE_NONE && !d.dragging, "press elsewhere");
+  e = E(51, 10, 0, 0, 1);
+  CHECK(DRAG(d, e) == MOUSE_NONE, "just right of frame");
+  e = E(30, 26, 0, 0, 1);
+  CHECK(DRAG(d, e) == MOUSE_NONE, "just below frame");
 
-  // grab at corner: preview starts at current capture size
-  e = E(79, 39, 0, 0, 1);
-  CHECK(DRAG(d, e) == MOUSE_GRAB && d.dragging && w == 640 && h == 480,
-        "grab corner (w=%d h=%d)", w, h);
+  // every corner is a handle, each grabs a different one
+  struct {
+    int x, y, grab;
+  } corners[] = {
+      {11, 6, GRAB_TL}, {50, 6, GRAB_TR}, {11, 25, GRAB_BL}, {50, 25, GRAB_BR}};
+  for (int i = 0; i < 4; i++) {
+    mouse_drag_t dc = {0};
+    e = E(corners[i].x, corners[i].y, 0, 0, 1);
+    CHECK(DRAG(dc, e) == MOUSE_GRAB && dc.dragging == corners[i].grab &&
+              rect_is(r, 11, 6, 40, 20),
+          "corner %d grabbed (got grab %d)", i, dc.dragging);
+  }
 
-  // dragging +40 cells right (80 -> 120 cells = 1.5x) => 960 wide;
-  // +20 cells down (40 -> 60 = 1.5x) => 720 high
-  e = E(79 + 40, 39 + 20, 0, 1, 1);
-  CHECK(DRAG(d, e) == MOUSE_RESIZE && w == 960 && h == 720,
-        "1.5x drag => %dx%d", w, h);
+  // Hit area: margin cells count, one beyond is the body (move)
+  e = E(11 + CORNER_DRAG_MARGIN, 6 + CORNER_DRAG_MARGIN, 0, 0, 1);
+  CHECK(DRAG(d, e) == MOUSE_GRAB && d.dragging == GRAB_TL, "inside TL margin");
+  e = E(11 + CORNER_DRAG_MARGIN + 1, 6, 0, 0, 1);
+  CHECK(DRAG(d, e) == MOUSE_GRAB && d.dragging == GRAB_MOVE,
+        "top edge beyond margin moves");
+  e = E(30, 15, 0, 0, 1);
+  CHECK(DRAG(d, e) == MOUSE_GRAB && d.dragging == GRAB_MOVE,
+        "centre grabs the frame");
 
-  // same position again: no new preview
+  // Resize from each corner: opposite corner stays where it is
+  frame_rect_t p = drag_from(50, 25, 60, 30, &g); // BR +10,+5
+  CHECK(g == GRAB_BR && rect_is(p, 11, 6, 50, 25), "BR resize");
+  p = drag_from(11, 6, 6, 3, &g); // TL -5,-3
+  CHECK(g == GRAB_TL && rect_is(p, 6, 3, 45, 23) && p.x + p.w - 1 == 50 &&
+            p.y + p.h - 1 == 25,
+        "TL resize keeps bottom-right fixed");
+  p = drag_from(50, 6, 60, 4, &g); // TR +10,-2
+  CHECK(g == GRAB_TR && rect_is(p, 11, 4, 50, 22) && p.y + p.h - 1 == 25,
+        "TR resize keeps bottom-left fixed");
+  p = drag_from(11, 25, 7, 31, &g); // BL -4,+6
+  CHECK(g == GRAB_BL && rect_is(p, 7, 6, 44, 26) && p.x + p.w - 1 == 50,
+        "BL resize keeps top-right fixed");
+
+  // Shrinking stops at the minimum, anchored to the opposite corner
+  p = drag_from(11, 6, 200, 200, &g);
+  CHECK(rect_is(p, 41, 21, 10, 5), "TL min clamp %d,%d %dx%d", p.x, p.y, p.w,
+        p.h);
+  p = drag_from(50, 25, 1, 1, &g);
+  CHECK(rect_is(p, 11, 6, 10, 5), "BR min clamp");
+
+  // Growing stops at the screen edge (and the status panel rows)
+  p = drag_from(50, 25, 900, 900, &g);
+  CHECK(rect_is(p, 11, 6, 110, 41),
+        "BR stops at terminal edge, got %d,%d %dx%d", p.x, p.y, p.w, p.h);
+  p = drag_from(11, 6, -50, -50, &g);
+  CHECK(rect_is(p, 1, 1, 50, 25), "TL stops at top-left of terminal");
+
+  // Move
+  p = drag_from(30, 15, 50, 25, &g);
+  CHECK(g == GRAB_MOVE && rect_is(p, 31, 16, 40, 20), "move by +20,+10");
+  p = drag_from(30, 15, 900, 900, &g);
+  CHECK(rect_is(p, 81, 27, 40, 20), "move stops at right/bottom edge (%d,%d)",
+        p.x, p.y);
+  p = drag_from(30, 15, -900, -900, &g);
+  CHECK(rect_is(p, 1, 1, 40, 20), "move stops at top-left");
+
+  // No terminal size known: only the top-left edge is enforced
+  mouse_limits_t unk = {0, 0, 0, 10, 5, 500, 200};
+  mouse_drag_t du = {0};
+  e = E(30, 15, 0, 0, 1);
+  mouse_drag_event(&du, &e, &FR, &unk, &r);
+  e = E(930, 915, 0, 1, 1);
+  mouse_drag_event(&du, &e, &FR, &unk, &r);
+  CHECK(r.x == 911 && r.y == 906, "unknown terminal: no upper bound (%d,%d)",
+        r.x, r.y);
+
+  // Rest of the protocol
+  e = E(50, 25, 0, 0, 1);
+  DRAG(d, e);
+  e = E(60, 30, 0, 1, 1);
+  CHECK(DRAG(d, e) == MOUSE_RESIZE && rect_is(r, 11, 6, 50, 25), "preview");
   CHECK(DRAG(d, e) == MOUSE_NONE, "unchanged preview is not re-reported");
 
-  // a small move: -10 cells => 70/80 of 640 = 560
-  e = E(79 - 10, 39, 0, 1, 1);
-  CHECK(DRAG(d, e) == MOUSE_RESIZE && w == 560 && h == 480, "shrink => %dx%d",
-        w, h);
-
-  // clamps to min and max
-  e = E(1, 1, 0, 1, 1);
-  CHECK(DRAG(d, e) == MOUSE_RESIZE && w == 160 && h == 120, "min clamp %dx%d",
-        w, h);
-  e = E(900, 900, 0, 1, 1);
-  CHECK(DRAG(d, e) == MOUSE_RESIZE && w == 1280 && h == 720, "max clamp %dx%d",
-        w, h);
-
-  // wheel and right-button events are ignored mid-drag
   e = E(50, 20, 3, 0, 1);
   e.wheel = 1;
   CHECK(DRAG(d, e) == MOUSE_NONE && d.dragging, "wheel ignored");
-
   e = E(50, 20, 2, 1, 1);
   CHECK(DRAG(d, e) == MOUSE_NONE, "right-button drag ignored");
-
-  // release applies last preview exactly once
-  e = E(900, 900, 0, 0, 0);
-  CHECK(DRAG(d, e) == MOUSE_APPLY && !d.dragging && w == 1280 && h == 720,
-        "release => APPLY %dx%d", w, h);
-
-  e = E(900, 900, 0, 0, 0);
-  CHECK(DRAG(d, e) == MOUSE_NONE, "second release does nothing");
-
-  e = E(60, 30, 0, 1, 1);
-  CHECK(DRAG(d, e) == MOUSE_NONE, "stray motion after release");
-
-  // click on handle without moving: no reinit
-  e = E(80, 40, 0, 0, 1);
-  CHECK(DRAG(d, e) == MOUSE_GRAB, "click handle");
-
-  e = E(80, 40, 0, 0, 0);
-  CHECK(DRAG(d, e) == MOUSE_RELEASE, "click without movement => RELEASE");
-
-  // drag out and back to start: net change zero => RELEASE, no reinit
-  e = E(80, 40, 0, 0, 1);
-  DRAG(d, e);
-
-  e = E(100, 50, 0, 1, 1);
-  CHECK(DRAG(d, e) == MOUSE_RESIZE, "move out");
-
-  e = E(80, 40, 0, 1, 1);
-  CHECK(DRAG(d, e) == MOUSE_RESIZE && w == 640 && h == 480, "move back");
-
-  e = E(80, 40, 0, 0, 0);
-  CHECK(DRAG(d, e) == MOUSE_RELEASE, "back at start => no reinit");
-
-  // a right-button release never ends a left drag
-  e = E(80, 40, 0, 0, 1);
-  DRAG(d, e);
-
   e = E(1, 1, 2, 0, 0);
   DRAG(d, e);
   CHECK(d.dragging, "right release leaves left drag alone");
+  e = E(60, 30, 0, 0, 0);
+  CHECK(DRAG(d, e) == MOUSE_APPLY && !d.dragging && rect_is(r, 11, 6, 50, 25),
+        "release applies last preview");
+  e = E(60, 30, 0, 0, 0);
+  CHECK(DRAG(d, e) == MOUSE_NONE, "second release does nothing");
+  e = E(60, 30, 0, 1, 1);
+  CHECK(DRAG(d, e) == MOUSE_NONE, "stray motion after release");
 
-  // lost release: a fresh press elsewhere cancels stale drag
+  // click without moving, or moving back to start: nothing to apply
+  e = E(30, 15, 0, 0, 1);
+  CHECK(DRAG(d, e) == MOUSE_GRAB, "click inside");
+  e = E(30, 15, 0, 0, 0);
+  CHECK(DRAG(d, e) == MOUSE_RELEASE, "click without movement => RELEASE");
+
+  e = E(30, 15, 0, 0, 1);
+  DRAG(d, e);
+
+  e = E(40, 20, 0, 1, 1);
+  CHECK(DRAG(d, e) == MOUSE_RESIZE, "move out");
+  e = E(30, 15, 0, 1, 1);
+  CHECK(DRAG(d, e) == MOUSE_RESIZE && rect_is(r, 11, 6, 40, 20), "move back");
+  e = E(30, 15, 0, 0, 0);
+  CHECK(DRAG(d, e) == MOUSE_RELEASE, "back at start => nothing applied");
+
+  // Lost release: a fresh press elsewhere cancels, one on frame restarts
+  e = E(50, 25, 0, 0, 1);
+  DRAG(d, e);
+
   e = E(3, 3, 0, 0, 1);
   DRAG(d, e);
   CHECK(!d.dragging, "new press elsewhere cancels stale drag");
 
-  // hit area edges: margin cells count, one beyond does not
-  e = E(80 - CORNER_DRAG_MARGIN, 40 - CORNER_DRAG_MARGIN, 0, 0, 1);
-  CHECK(DRAG(d, e) == MOUSE_GRAB, "inside hit margin");
+  e = E(50, 25, 0, 0, 1);
+  DRAG(d, e);
+  e = E(30, 15, 0, 0, 1);
+  CHECK(DRAG(d, e) == MOUSE_GRAB && d.dragging == GRAB_MOVE,
+        "new press restarts drag");
 
-  d.dragging = 0;
-  e = E(80 - CORNER_DRAG_MARGIN - 1, 40, 0, 0, 1);
-  CHECK(DRAG(d, e) == MOUSE_NONE, "just outside hit margin");
+  // Max below min must not invert clamp
+  mouse_limits_t odd = {120, 50, 4, 40, 20, 10, 10};
+  mouse_drag_t dd = {0};
+  e = E(50, 25, 0, 0, 1);
+  mouse_drag_event(&dd, &e, &FR, &odd, &r);
+  e = E(70, 35, 0, 1, 1);
+  mouse_drag_event(&dd, &e, &FR, &odd, &r);
+  CHECK(r.w == 40 && r.h == 20, "max<min falls back to min: %dx%d", r.w, r.h);
 
-  e = E(81, 40, 0, 0, 1);
-  CHECK(DRAG(d, e) == MOUSE_NONE, "right of frame");
-
-  // results are always even, whatever ratio (odd base size too)
-  mouse_drag_t d2 = {0};
-  e = E(80, 40, 0, 0, 1);
-  mouse_drag_event(&d2, &e, 80, 40, 641, 479, 160, 120, 1280, 720, &w, &h);
-
-  e = E(87, 43, 0, 1, 1);
-  mouse_drag_event(&d2, &e, 80, 40, 641, 479, 160, 120, 1280, 720, &w, &h);
-  CHECK(w % 2 == 0 && h % 2 == 0, "even dims, got %dx%d", w, h);
-
-  // degenerate frame (1 cell): must not divide by zero
-  mouse_drag_t d3 = {0};
-  e = E(1, 1, 0, 0, 1);
-  CHECK(mouse_drag_event(&d3, &e, 1, 1, 640, 480, 160, 120, 1280, 720, &w,
-                         &h) == MOUSE_GRAB,
-        "1x1 frame grab");
-
-  e = E(5, 5, 0, 1, 1);
-  mouse_drag_event(&d3, &e, 1, 1, 640, 480, 160, 120, 1280, 720, &w, &h);
-  CHECK(w >= 160 && w <= 1280, "1x1 frame stays in limits (%d)", w);
-
-  // max below min must not invert clamp
-  mouse_drag_t d4 = {0};
-  e = E(80, 40, 0, 0, 1);
-  mouse_drag_event(&d4, &e, 80, 40, 640, 480, 400, 300, 200, 100, &w, &h);
-  e = E(200, 100, 0, 1, 1);
-  mouse_drag_event(&d4, &e, 80, 40, 640, 480, 400, 300, 200, 100, &w, &h);
-  CHECK(w == 400 && h == 300, "max<min falls back to min: %dx%d", w, h);
+  // Frame size of minimum, in far corner: still sane
+  frame_rect_t tiny = {111, 42, 10, 5};
+  mouse_drag_t dt = {0};
+  e = E(120, 46, 0, 0, 1);
+  CHECK(mouse_drag_event(&dt, &e, &tiny, &LIM, &r) == MOUSE_GRAB &&
+            dt.dragging == GRAB_BR,
+        "tiny frame grab");
+  e = E(130, 55, 0, 1, 1);
+  mouse_drag_event(&dt, &e, &tiny, &LIM, &r);
+  CHECK(rect_is(dt.pv, 111, 42, 10, 5), "tiny frame cannot grow past the edge");
 }
 
 int main(void) {

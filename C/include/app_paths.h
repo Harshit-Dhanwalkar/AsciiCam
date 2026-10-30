@@ -10,16 +10,15 @@
  * same program works from a checkout, from an unpacked release directory and
  * from an installed prefix (`make install`):
  *
- *   checkout        <C>/build/webcam_ascii     sources <C>/filters
- *   release dir     <dir>/asciicam             plugins <dir>/plugins
- *   installed       <prefix>/bin/asciicam      plugins
- * <prefix>/share/asciicam/plugins
+ *  checkout     <C>/build/webcam_ascii  sources <C>/filters
+ *  release dir  <dir>/asciicam          plugins <dir>/plugins
+ *  installed    <prefix>/bin/asciicam   plugins <prefix>/share/asciicam/plugins
  *
  * Three kinds of plugin location are involved:
- *   prebuilt   ready-made shared objects: load instantly, need no compiler
- *   sources    *.c files picker can build on demand (needs make + a
- *              compiler and "SDK": Makefile + headers)
- *   cache      writable directory runtime builds are written to
+ *  prebuilt   ready-made shared objects: load instantly, need no compiler
+ *  sources    *.c files picker can build on demand (needs make + a
+ *             compiler and "SDK": Makefile + headers)
+ *  cache      writable directory runtime builds are written to
  * A shipped application normally carries only `prebuilt`
  */
 

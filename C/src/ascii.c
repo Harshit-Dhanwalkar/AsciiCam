@@ -194,7 +194,8 @@ size_t ascii_out_size_for_mode(int dst_w, int dst_h, int color,
     int th = dst_h / 2;
     size_t per_cell = color ? 41 : 3;
 
-    return 3 + (size_t)th * ((size_t)tw * per_cell + 5) + 1;
+    return ASCII_ROW_END_MAX +
+           (size_t)th * ((size_t)tw * per_cell + ASCII_ROW_END_MAX) + 1;
   }
   case RENDER_BLOCKS:
   case RENDER_ASCII_RAMP:
@@ -203,17 +204,20 @@ size_t ascii_out_size_for_mode(int dst_w, int dst_h, int color,
     int th = braille_term_h;
     size_t per_cell = color ? 22 : 3; // worst case: 3-byte glyph
 
-    return 3 + (size_t)th * ((size_t)tw * per_cell + 5) + 1;
+    return ASCII_ROW_END_MAX +
+           (size_t)th * ((size_t)tw * per_cell + ASCII_ROW_END_MAX) + 1;
   }
   case RENDER_BRAILLE:
   default: {
     int tw = braille_term_w;
     int th = braille_term_h;
     if (color) {
-      return 3 + (size_t)th * ((size_t)tw * 22 + 5) + 1;
+      return ASCII_ROW_END_MAX +
+             (size_t)th * ((size_t)tw * 22 + ASCII_ROW_END_MAX) + 1;
     }
 
-    return 3 + (size_t)th * ((size_t)tw * 3 + 1) + 1;
+    return ASCII_ROW_END_MAX +
+           (size_t)th * ((size_t)tw * 3 + ASCII_ROW_END_MAX) + 1;
   }
   }
 }
@@ -490,6 +494,34 @@ static inline uint8_t adjust_chan(int v, int contrast, int brightness,
   uint8_t c = clamp_u8(v);
 
   return gamma_lut ? gamma_lut[c] : c;
+}
+
+// End of one frame row
+// NOTE: A frame at left edge relies on newline returning to column 1
+// one placed elsewhere (origin_x > 1) must move cursor explicitly to first
+// column of next row
+static int emit_row_end(char *out, size_t out_size, int out_idx, int do_color,
+                        int origin_x, int origin_y, int row_done) {
+  char tmp[ASCII_ROW_END_MAX];
+  int n = 0;
+
+  if (do_color) {
+    n = nl_snprintf(tmp, sizeof(tmp), "\033[0m");
+  }
+
+  if (origin_x > 1) {
+    n += nl_snprintf(tmp + n, sizeof(tmp) - (size_t)n, "\033[%d;%dH",
+                     origin_y + row_done, origin_x);
+  } else {
+    n += nl_snprintf(tmp + n, sizeof(tmp) - (size_t)n, "\n");
+  }
+
+  if (n > 0 && (size_t)(out_idx + n) < out_size) {
+    nl_memcpy(out + out_idx, tmp, (size_t)n);
+    out_idx += n;
+  }
+
+  return out_idx;
 }
 
 static int emit_glyph(char *out, size_t out_size, int out_idx,
@@ -827,11 +859,16 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
   }
 
   int out_idx = 0;
-  static const char HOME[] = "\033[H";
-  if (out_size > sizeof(HOME)) {
-    nl_memcpy(out, HOME, sizeof(HOME) - 1);
-
-    out_idx = sizeof(HOME) - 1;
+  // Frame origin, 1-based terminal cell (NOTE: see ascii_opts_t.origin_x)
+  int origin_x = (opts && opts->origin_x > 1) ? opts->origin_x : 1;
+  int origin_y = (opts && opts->origin_y > 1) ? opts->origin_y : 1;
+  if (out_size > ASCII_ROW_END_MAX) {
+    int n = (origin_x > 1 || origin_y > 1)
+                ? nl_snprintf(out, out_size, "\033[%d;%dH", origin_y, origin_x)
+                : nl_snprintf(out, out_size, "\033[H");
+    if (n > 0) {
+      out_idx = n;
+    }
   }
 
   if (render_mode == RENDER_HALF_BLOCK) {
@@ -879,17 +916,8 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
         }
       }
 
-      if (do_color) {
-        int written =
-            nl_snprintf(out + out_idx, out_size - (size_t)out_idx, "\033[0m\n");
-        if (written > 0 && (size_t)(out_idx + written) < out_size) {
-          out_idx += written;
-        }
-      } else {
-        if ((size_t)(out_idx + 1) < out_size) {
-          out[out_idx++] = '\n';
-        }
-      }
+      out_idx = emit_row_end(out, out_size, out_idx, do_color, origin_x,
+                             origin_y, ty + 1);
     }
 
     out[(size_t)out_idx < out_size ? (size_t)out_idx : out_size - 1] = '\0';
@@ -1039,17 +1067,8 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
       }
     }
 
-    if (do_color) {
-      int written =
-          nl_snprintf(out + out_idx, out_size - (size_t)out_idx, "\033[0m\n");
-      if (written > 0 && (size_t)(out_idx + written) < out_size) {
-        out_idx += written;
-      }
-    } else {
-      if ((size_t)(out_idx + 1) < out_size) {
-        out[out_idx++] = '\n';
-      }
-    }
+    out_idx = emit_row_end(out, out_size, out_idx, do_color, origin_x, origin_y,
+                           ty + 1);
   }
 
   out[(size_t)out_idx < out_size ? (size_t)out_idx : out_size - 1] = '\0';
