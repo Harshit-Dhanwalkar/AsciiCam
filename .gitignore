@@ -60,3 +60,7 @@ dkms.conf
 # LSP
 C/compile_commands.json
 C/.cache/
+
+# No build
+nb
+C/nb
