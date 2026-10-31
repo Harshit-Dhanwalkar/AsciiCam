@@ -223,6 +223,22 @@ for label, extra in (("threaded", []), ("inline -T", ["-T"])):
     check(last_origin(out[marks[-3]:marks[-2]]) == (1, 1), f"{label}: 'a' returns frame to top-left")
     check(last_frame(out[marks[-3]:marks[-2]]) == (120, 46), f"{label}: 'a' fits terminal ({last_frame(out[marks[-3]:marks[-2]])})")
 
+# Real binary with built-in picture: no camera, no fake
+REAL = sys.argv[2] if len(sys.argv) > 2 else None
+if REAL and os.access(REAL, os.X_OK):
+    BIN_SAVE = BIN
+    BIN = REAL
+    for flag in (["--demo"], ["-d", "demo"]):
+        frames, code, out, _ = run(flag + ["-f", "20", "-C"], 1.5)
+        check(frames >= 15 and code == 0, f"real binary {' '.join(flag)}: picture drawn ({frames} frames, exit {code})")
+        check(b"\x1b[38;2;" in out, f"real binary {' '.join(flag)}: colour")
+    frames, code, out, latency = run(["--demo", "-f", "20"], 1.0)
+    check(len(set(re.findall(rb"\x1b\[\?2026h(.{200})", out, re.DOTALL))) > 3,
+          "real binary --demo: picture animates")
+    # a missing camera explains how to get a picture
+    frames, code, out, _ = run(["-d", "/dev/definitely-not-a-camera"], 0.3)
+    check(code != 0 and b"--demo" in out, "missing camera: error mentions --demo")
+    BIN = BIN_SAVE
 
 print("e2e:", "FAILED" if failures else "all passed")
 sys.exit(1 if failures else 0)

@@ -308,6 +308,22 @@ Other targets: `plugins`, `test` (core subset), `install`, `install-sdk`,
 `clean`. Linux and macOS; the Makefile stays the reference build until
 this covers everything.
 
+## Try it without installing
+
+No camera, no compiler, no download of a release:
+
+```sh
+docker run -it --rm ghcr.io/harshit-dhanwalkar/asciicam      # animated built-in picture
+docker run -it --rm --device /dev/video0 ghcr.io/harshit-dhanwalkar/asciicam -d /dev/video0
+```
+
+The image is `FROM scratch`: one static binary plus the prebuilt plugins
+(about 200 KB, no libc). Build it with `docker build -t asciicam .`.
+
+`asciicam --demo` runs the same procedural picture natively when it have no webcam
+(`-d demo`). Prebuilt plugins load from the picker (`/`) without a compiler or sources.
+
+
 ## TODO
 
 - [x] Reduce remaining libc/runtime dependencies

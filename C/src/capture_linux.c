@@ -7,6 +7,7 @@
 
 #include "ascii.h"
 #include "capture.h"
+#include "demo.h"
 #include "platform.h"
 
 typedef struct webcam_impl webcam_impl_t;
@@ -24,7 +25,17 @@ struct webcam_impl {
   int auto_wb_disabled;
   int ae_prio_changed; // cleared AUTO_PRIORITY, restore it on cleanup
   int ae_prio_saved;
+
+  // built-in picture source (-d demo): no camera, a /dev/null fd stands in
+  int demo;
+  long demo_frame;
+  struct timespec demo_next;
 };
+
+#define DEMO_MAX_W 1280
+#define DEMO_MAX_H 720
+#define DEMO_FRAME_NS 33333333L // 30 fps
+static uint8_t demo_raw[DEMO_MAX_W * 2 * DEMO_MAX_H];
 
 static webcam_impl_t _impl_storage;
 
@@ -58,6 +69,30 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
   cam->impl = &_impl_storage;
   cam->buffer = MAP_FAILED;
   cam->stride = 0;
+
+  if (demo_is_device(device)) {
+    if (width > DEMO_MAX_W) {
+      width = DEMO_MAX_W;
+    }
+
+    if (height > DEMO_MAX_H) {
+      height = DEMO_MAX_H;
+    }
+
+    width &= ~1;
+    cam->fd = open("/dev/null", O_RDONLY, 0);
+    if (cam->fd < 0) {
+      return -1;
+    }
+
+    cam->width = width;
+    cam->height = height;
+    cam->stride = width * 2;
+    cam->impl->demo = 1;
+    clock_gettime(CLOCK_MONOTONIC, &cam->impl->demo_next);
+
+    return 0;
+  }
 
   // Open device non-blocking (for select)
   cam->fd = open(device ? device : "/dev/video0", O_RDWR | O_NONBLOCK, 0);
@@ -149,6 +184,24 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
 }
 
 int webcam_wait_frame(const webcam_t *cam, int timeout_ms) {
+  if (cam->impl && cam->impl->demo) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    long wait_ns = (cam->impl->demo_next.tv_sec - now.tv_sec) * 1000000000L +
+                   (cam->impl->demo_next.tv_nsec - now.tv_nsec);
+    if (wait_ns > (long)timeout_ms * 1000000L) {
+      nl_usleep((unsigned)timeout_ms * 1000u);
+
+      return -1;
+    }
+
+    if (wait_ns > 0) {
+      nl_usleep((unsigned)(wait_ns / 1000));
+    }
+
+    return 0;
+  }
+
   nl_fd_set fds;
   struct nl_timeval tv;
 
@@ -174,6 +227,22 @@ static int dq(const webcam_t *cam, struct v4l2_buffer *buf) {
 
 int webcam_capture_frame(webcam_t *cam, uint8_t *gray_buffer) {
   webcam_impl_t *im = cam->impl;
+
+  if (im->demo) {
+    struct timespec *n = &im->demo_next;
+    n->tv_nsec += DEMO_FRAME_NS;
+    if (n->tv_nsec >= 1000000000L) {
+      n->tv_nsec -= 1000000000L;
+      n->tv_sec++;
+    }
+
+    demo_fill_yuyv(demo_raw, cam->width, cam->height, cam->stride,
+                   im->demo_frame++);
+    cam->buffer = demo_raw;
+    yuyv_to_gray_simd(demo_raw, gray_buffer, cam->width, cam->height);
+
+    return 0;
+  }
 
   struct v4l2_buffer buf;
   if (dq(cam, &buf) < 0) {
@@ -218,6 +287,10 @@ int webcam_capture_frame(webcam_t *cam, uint8_t *gray_buffer) {
 }
 
 int webcam_requeue_buffer(webcam_t *cam) {
+  if (cam->impl->demo) {
+    return 0;
+  }
+
   return (ioctl(cam->fd, VIDIOC_QBUF, &cam->impl->buf_info) < 0) ? -1 : 0;
 }
 

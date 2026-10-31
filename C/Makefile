@@ -127,7 +127,8 @@ CORE_SRCS := $(SRCDIR)/app_paths.c \
              $(SRCDIR)/plugin_catalog.c \
              $(SRCDIR)/plugin_picker.c \
              $(SRCDIR)/thread_sharing.c \
-             $(SRCDIR)/timing.c
+             $(SRCDIR)/timing.c \
+             $(SRCDIR)/capture_demo.c \
 
 ALL_C_SRCS := $(CORE_SRCS) $(PLAT_SRC) $(LIBSRCS)
 
@@ -263,6 +264,7 @@ test: plugins
 	$(CC) $(TEST_FLAGS) tests/test_mouse.c $(SRCDIR)/mouse.c $(TEST_LIBS) -o $(TESTDIR)/mouse
 	$(CC) -O2 $(TEST_FLAGS) tests/test_capture_reinit.c $(SRCDIR)/capture_reinit.c $(TEST_LIBS) -o $(TESTDIR)/reinit
 	$(CC) -O2 $(TEST_FLAGS) tests/test_app_paths.c $(SRCDIR)/app_paths.c $(TEST_LIBS) -o $(TESTDIR)/app_paths
+	$(CC) -O2 $(TEST_FLAGS) tests/test_demo.c $(SRCDIR)/capture_demo.c $(TEST_LIBS) -o $(TESTDIR)/demo
 	$(CC) -O2 $(TEST_FLAGS) tests/test_plugin_catalog.c $(SRCDIR)/plugin_catalog.c $(SRCDIR)/plugin_picker.c $(SRCDIR)/plugins.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/catalog
 	$(CC) -O0 $(TEST_FLAGS) tests/test_nl_gc.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/gc_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_gc.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/gc_O2
@@ -277,6 +279,7 @@ test: plugins
 	$(TESTDIR)/reinit
 	$(TESTDIR)/app_paths
 	$(TESTDIR)/catalog
+	$(TESTDIR)/demo
 	$(TESTDIR)/gc_O0
 	$(TESTDIR)/gc_O2
 	$(TESTDIR)/thread
@@ -288,10 +291,10 @@ test: plugins
 # driven through a pty (NOTE: Require python3)
 E2E_BIN := $(TESTDIR)/asciicam_fake
 
-e2e:
+e2e: all
 	@mkdir -p $(TESTDIR)
 	$(CC) $(CFLAGS) $(CORE_SRCS) tests/fake_capture.c $(LIBSRCS) -o $(E2E_BIN) $(LDFLAGS)
-	python3 tests/e2e_capture.py $(E2E_BIN)
+	python3 tests/e2e_capture.py $(E2E_BIN) $(TARGET)
 
 .PHONY: test e2e
 endif
