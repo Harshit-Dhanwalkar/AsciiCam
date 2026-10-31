@@ -82,6 +82,7 @@ typedef struct {
 #define DT_HASH 4
 #define DT_STRTAB 5
 #define DT_SYMTAB 6
+#define DT_STRSZ 10
 #define DT_RELA 7
 #define DT_RELASZ 8
 #define DT_RELAENT 9
