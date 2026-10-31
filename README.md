@@ -1,9 +1,9 @@
 # AsciiCam
 
-[![CI](https://github.com/Harshit-Dhanwalkar/AsciiCam/actions/workflows/ci.yml/badge.svg)](https://github.com/Harshit-Dhanwalkar/AsciiCam/actions/workflows/ci.yml)
-[![License: PolyForm NC](https://img.shields.io/badge/License-PolyForm_Noncommercial-red.svg)](https://polyformproject.org/licenses/noncommercial/1.0.0/)
-![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue)
-![Language](https://img.shields.io/badge/language-C99-orange)
+[![CI](https://github.com/Harshit-Dhanwalkar/AsciiCam/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Harshit-Dhanwalkar/AsciiCam/actions/workflows/ci.yml)
+[![License: PolyForm NC](https://img.shields.io/badge/License-PolyForm_Noncommercial-gray.svg?v=1)](https://polyformproject.org/licenses/noncommercial/1.0.0/)
+![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue.svg?v=1)
+![Language](https://img.shields.io/badge/language-C99-orange.svg?v=1)
 
 Real-time webcam video rendered as ASCII art directly in the terminal
 
@@ -307,6 +307,22 @@ rebuilds only what changed and rebuilds itself when `build.c` changes.
 Other targets: `plugins`, `test` (core subset), `install`, `install-sdk`,
 `clean`. Linux and macOS; the Makefile stays the reference build until
 this covers everything.
+
+## Try it without installing
+
+No camera, no compiler, no download of a release:
+
+```sh
+docker run -it --rm ghcr.io/harshit-dhanwalkar/asciicam      # animated built-in picture
+docker run -it --rm --device /dev/video0 ghcr.io/harshit-dhanwalkar/asciicam -d /dev/video0
+```
+
+The image is `FROM scratch`: one static binary plus the prebuilt plugins
+(about 200 KB, no libc). Build it with `docker build -t asciicam .`.
+
+`asciicam --demo` runs the same procedural picture natively when it have no webcam
+(`-d demo`). Prebuilt plugins load from the picker (`/`) without a compiler or sources.
+
 
 ## TODO
 

@@ -3,6 +3,7 @@
 #include "app_paths.h"
 #include "ascii.h"
 #include "capture.h"
+#include "demo.h"
 #include "mouse.h"
 #include "plugin_catalog.h"
 #include "plugin_picker.h"
@@ -164,6 +165,8 @@ static void print_usage(const char *prog) {
       "\n"
       "Capture options:\n"
       "  -d <device>   video device             (default: /dev/video0)\n"
+      "  --demo        built-in animated picture, no camera needed    \n"
+      "                (same as -d demo)                              \n"
       "  -w <width>    capture width            (default: %d)         \n"
       "  -h <height>   capture height           (default: %d)         \n"
       "  -f <fps>      target framerate         (default: %d)         \n"
@@ -174,7 +177,7 @@ static void print_usage(const char *prog) {
       "  -W <width>    ASCII output columns     (default: %d)          \n"
       "  -H <height>   ASCII output rows        (default: %d)          \n"
       "  -s <chars>    custom charset string    (default: \"%s\")      \n"
-      "  -p <path>     filter plugin .so path (repeatable)             \n"
+      "  -p <path>     filter plugin .so path   (repeatable)           \n"
       "  -L <dir>      plugin source dir for live picker (default: %s) \n"
       "  -m <mode>     render mode: braille|blocks|ascii|halfblock|dots\n"
       "  -k <dir>      charset directory (hot-reloadable .txt ramps)   \n"
@@ -182,7 +185,7 @@ static void print_usage(const char *prog) {
       "Image adjustments:\n"
       "  -b <val>      brightness offset        -128..128  (default: 0)\n"
       "  -c <val>      contrast in percent      >0; 100=none (default: 100)\n"
-      "  -g <val>      gamma percent          10..400; 100=none (default: "
+      "  -g <val>      gamma percent            10..400; 100=none (default: "
       "100)\n"
       "  -i            invert mapping                                  \n"
       "  -E <mode>     edge mode                off|sobel|sobel-dir|laplacian\n"
@@ -789,6 +792,13 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  // getopt only knows short options: --demo is -d demo
+  for (int i = 1; i < argc; i++) {
+    if (nl_strcmp(argv[i], "--demo") == 0) {
+      argv[i] = (char *)"-d" DEMO_DEVICE;
+    }
+  }
+
   nl_signal(SIGINT, handle_signal);
   nl_signal(SIGTERM, handle_signal);
   nl_signal(SIGHUP, handle_signal);
@@ -1048,10 +1058,22 @@ int main(int argc, char *argv[]) {
 
   int selected = 0;
 
+  // NOTE: built-in picture is bright everywhere: default dots mode would fill
+  // screen, unless a mode was chosen, show it as an ASCII ramp
+  if (demo_is_device(device) && opts.render_mode == RENDER_DOTS) {
+    opts.render_mode = RENDER_ASCII_RAMP;
+  }
+
   // Open webcam
   webcam_t cam = {.fd = -1, .buffer = MAP_FAILED};
   if (webcam_init(&cam, device, cap_w, cap_h) < 0) {
     nl_perror("webcam_init");
+    if (!demo_is_device(device)) {
+      fprintf(stderr,
+              "no usable camera at %s. To try AsciiCam without one: "
+              "%s --demo\n",
+              device, argv[0]);
+    }
 
     return 1;
   }
@@ -1150,13 +1172,25 @@ int main(int argc, char *argv[]) {
   // 0 = frame follows terminal width (SIGWINCH); 1 = user dragged it
   int ascii_size_manual = 0;
 
-  struct timespec frame_start, last_frame_time;
-  clock_gettime(CLOCK_MONOTONIC, &frame_start);
+  struct timespec frame_start = {0};
+  struct timespec last_frame_time = {0};
+  if (clock_gettime(CLOCK_MONOTONIC, &frame_start) != 0) {
+    nl_perror("clock_gettime");
+
+    return 1;
+  }
+
   last_frame_time = frame_start;
 
   // Main loop
   while (keep_running) {
-    clock_gettime(CLOCK_MONOTONIC, &frame_start);
+    struct timespec now = {0};
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+      // Skip this frame; timing would be garbage
+      continue;
+    }
+
+    frame_start = now;
 
     long frame_diff_ns =
         (frame_start.tv_sec - last_frame_time.tv_sec) * 1000000000L + // Seconds
@@ -1360,6 +1394,12 @@ int main(int argc, char *argv[]) {
           } else if (ce->state == PC_COMPILING) {
             ce->want_load = 1;
             TOAST("%s is already compiling", ce->name);
+          } else if (ce->state == PC_READY) {
+            // Already built (or shipped prebuilt): load it, no compiler needed
+            char lmsg[128];
+            plugin_activate(&catalog, load_idx, plugins, plugin_params,
+                            plugin_cat, &plugin_count, lmsg, sizeof(lmsg));
+            TOAST("%s", lmsg);
           } else {
             ce->want_load = 1;
             if (catalog_start_build(&catalog, load_idx) == 0) {

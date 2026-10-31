@@ -124,7 +124,6 @@ static void test_percent_d(void) {
   // Width: right-aligned with spaces
   FMT_EQ("   42", "%5d", 42);
   FMT_EQ("-   42", "%5d", -42); // minus emitted first, then (width-n) spaces
-  FMT_EQ("-   42", "%5d", -42);
   // Width smaller than value: no truncation
   FMT_EQ("12345", "%3d", 12345);
   // Zero-flag parsed but IGNORED

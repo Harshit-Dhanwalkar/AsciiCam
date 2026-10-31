@@ -160,7 +160,14 @@ static inline int nl_select(int nfds, nl_fd_set *r, nl_fd_set *w, nl_fd_set *e,
 
 // clock / sleep
 static inline int nl_clock_gettime(int id, struct timespec *ts) {
-  return (int)__sc2(SYS_clock_gettime, id, (long)ts);
+  long ret = __sc2(SYS_clock_gettime, id, (long)ts);
+  if (ret < 0) {
+    errno = (int)-ret;
+
+    return -1;
+  }
+
+  return 0;
 }
 
 static inline int nl_nanosleep(const struct timespec *req,

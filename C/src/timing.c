@@ -8,7 +8,13 @@ void timing_init(int fps) { frame_duration_ns = 1000000000L / fps; }
 
 void timing_sleep(const struct timespec *start_time) {
   struct timespec end_time = {0, 0};
-  clock_gettime(CLOCK_MONOTONIC, &end_time);
+  if (clock_gettime(CLOCK_MONOTONIC, &end_time) != 0) {
+    struct timespec ts = {frame_duration_ns / 1000000000L,
+                          frame_duration_ns % 1000000000L};
+    nl_nanosleep(&ts, NULL);
+
+    return;
+  }
 
   long elapsed_ns = (end_time.tv_sec - start_time->tv_sec) * 1000000000L +
                     (end_time.tv_nsec - start_time->tv_nsec);
