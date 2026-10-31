@@ -299,6 +299,15 @@ release the button. The status panel stays at the bottom of the terminal.
 
 ---
 
+## Building without make (experimental)
+
+`C/build.c` + `C/nb.h` are a small build system written in C,
+`cc -o nb build.c && ./nb` builds the binary and plugins in parallel (`-j8`),
+rebuilds only what changed and rebuilds itself when `build.c` changes.
+Other targets: `plugins`, `test` (core subset), `install`, `install-sdk`,
+`clean`. Linux and macOS; the Makefile stays the reference build until
+this covers everything.
+
 ## TODO
 
 - [x] Reduce remaining libc/runtime dependencies
