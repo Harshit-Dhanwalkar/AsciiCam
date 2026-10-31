@@ -249,8 +249,10 @@ fail:
 
 int webcam_wait_frame(const webcam_t *cam, int timeout_ms) {
   struct webcam_impl *im = cam->impl;
-  struct timespec ts;
-  clock_gettime(CLOCK_REALTIME, &ts);
+  struct timespec ts = {0};
+  if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+    return -1;
+  }
 
   ts.tv_sec += timeout_ms / 1000;
   ts.tv_nsec += (timeout_ms % 1000) * 1000000L;
@@ -369,7 +371,8 @@ int webcam_adjust_contrast(const webcam_t *cam, int delta, int *out_value) {
   return -1;
 }
 
-int webcam_adjust_white_balance(const webcam_t *cam, int delta, int *out_value) {
+int webcam_adjust_white_balance(const webcam_t *cam, int delta,
+                                int *out_value) {
   (void)cam;
   (void)delta;
   (void)out_value;

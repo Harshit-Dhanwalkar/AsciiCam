@@ -89,7 +89,10 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
     cam->height = height;
     cam->stride = width * 2;
     cam->impl->demo = 1;
-    clock_gettime(CLOCK_MONOTONIC, &cam->impl->demo_next);
+    if (clock_gettime(CLOCK_MONOTONIC, &cam->impl->demo_next) != 0) {
+      cam->impl->demo_next.tv_sec = 0;
+      cam->impl->demo_next.tv_nsec = 0;
+    }
 
     return 0;
   }
@@ -185,8 +188,15 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
 
 int webcam_wait_frame(const webcam_t *cam, int timeout_ms) {
   if (cam->impl && cam->impl->demo) {
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
+    struct timespec now = {0};
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+      // Can't time demo; sleep caller's timeout and signal "no frame"
+      // so don't spin or compute with garbage
+      nl_usleep((unsigned)timeout_ms * 1000u);
+
+      return -1;
+    }
+
     long wait_ns = (cam->impl->demo_next.tv_sec - now.tv_sec) * 1000000000L +
                    (cam->impl->demo_next.tv_nsec - now.tv_nsec);
     if (wait_ns > (long)timeout_ms * 1000000L) {

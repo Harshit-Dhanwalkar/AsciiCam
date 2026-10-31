@@ -57,9 +57,12 @@ dkms.conf
 # debug information files
 *.dwo
 
+# clang --analyze output
+*.plist
+
 # LSP
-C/compile_commands.json
-C/.cache/
+*compile_commands.json
+*.cache
 
 # No build
 nb

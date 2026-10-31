@@ -1172,13 +1172,25 @@ int main(int argc, char *argv[]) {
   // 0 = frame follows terminal width (SIGWINCH); 1 = user dragged it
   int ascii_size_manual = 0;
 
-  struct timespec frame_start, last_frame_time;
-  clock_gettime(CLOCK_MONOTONIC, &frame_start);
+  struct timespec frame_start = {0};
+  struct timespec last_frame_time = {0};
+  if (clock_gettime(CLOCK_MONOTONIC, &frame_start) != 0) {
+    nl_perror("clock_gettime");
+
+    return 1;
+  }
+
   last_frame_time = frame_start;
 
   // Main loop
   while (keep_running) {
-    clock_gettime(CLOCK_MONOTONIC, &frame_start);
+    struct timespec now = {0};
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+      // Skip this frame; timing would be garbage
+      continue;
+    }
+
+    frame_start = now;
 
     long frame_diff_ns =
         (frame_start.tv_sec - last_frame_time.tv_sec) * 1000000000L + // Seconds
