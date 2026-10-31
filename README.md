@@ -1,9 +1,9 @@
 # AsciiCam
 
 [![CI](https://github.com/Harshit-Dhanwalkar/AsciiCam/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Harshit-Dhanwalkar/AsciiCam/actions/workflows/ci.yml)
-[![License: PolyForm NC](https://img.shields.io/badge/License-PolyForm_Noncommercial-gray.svg?v=1)](https://polyformproject.org/licenses/noncommercial/1.0.0/)
-![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue.svg?v=1)
-![Language](https://img.shields.io/badge/language-C99-orange.svg?v=1)
+[![License: PolyForm NC](https://badgen.net/badge/License/PolyForm%20NC/gray)](https://polyformproject.org/licenses/noncommercial/1.0.0/)
+![Platforms](https://badgen.net/badge/platform/Linux%20%7C%20macOS%20%7C%20Windows/blue)
+![Language](https://badgen.net/badge/language/C99/orange)
 
 Real-time webcam video rendered as ASCII art directly in the terminal
 
@@ -299,6 +299,19 @@ release the button. The status panel stays at the bottom of the terminal.
 
 ---
 
+### Loader hardening
+
+`nl_dlopen` reads a file from disk and then writes to addresses computed from it,
+so it treats the file as untrusted: program headers, segment sizes, `PT_DYNAMIC`,
+symbol/string/hash tables and every relocation target are bounds-checked before
+use, overlapping or writable+executable segments and unresolved non-weak symbols
+are refused, and a failed load unmaps everything. `tests/fuzz_elf.c` (part of
+`make test`) feeds it crafted and randomly damaged copies of the real plugins,
+each in a forked child with a canary mapping next to the reservation and fails
+on any crash, hang or write outside the mapping.
+
+---
+
 ## Building without make (experimental)
 
 `C/build.c` + `C/nb.h` are a small build system written in C,
@@ -322,7 +335,6 @@ The image is `FROM scratch`: one static binary plus the prebuilt plugins
 
 `asciicam --demo` runs the same procedural picture natively when it have no webcam
 (`-d demo`). Prebuilt plugins load from the picker (`/`) without a compiler or sources.
-
 
 ## TODO
 
