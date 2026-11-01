@@ -259,6 +259,8 @@ test: plugins
 	@mkdir -p $(TESTDIR)
 	$(CC) $(TEST_FLAGS) tests/test_nl_alloc.c $(TEST_LIBS) -o $(TESTDIR)/alloc
 	$(CC) $(TEST_FLAGS) tests/test_nl_printf.c $(TEST_LIBS) -o $(TESTDIR)/printf
+	$(CC) $(TEST_FLAGS) tests/test_nl_slice.c $(TEST_LIBS) -o $(TESTDIR)/slice
+	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_slice.c $(TEST_LIBS) -o $(TESTDIR)/slice_O2
 	$(CC) $(TEST_FLAGS) tests/test_nl_dlfcn.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/dlfcn
 	$(CC) $(TEST_FLAGS) tests/fuzz_nolibc.c $(LIBDIR)/nl_getopt.c $(TEST_LIBS) -o $(TESTDIR)/fuzz
 	$(CC) -O2 $(TEST_FLAGS) tests/fuzz_elf.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/fuzz_elf
@@ -274,6 +276,8 @@ test: plugins
 	$(CC) -DTESTING $(TEST_FLAGS) tests/security_tests.c $(FILTER_SRC) $(TEST_LIBS) -o $(TESTDIR)/security
 	$(TESTDIR)/alloc
 	$(TESTDIR)/printf
+	$(TESTDIR)/slice
+	$(TESTDIR)/slice_O2
 	$(TESTDIR)/dlfcn build
 	for seed in 1 2 3; do $(TESTDIR)/fuzz 100000 $$seed || exit 1; done
 	for so in edge_detect invert threshold; do $(TESTDIR)/fuzz_elf $(BUILDDIR)/$$so.so 2000 1 $(TESTDIR)/fuzz_elf.tmp || exit 1; done

@@ -1,5 +1,6 @@
 #include "nl_alloc.h"
 #include "nl_alloc_priv.h"
+#include "nl_checked.h"
 #include "nl_io.h"
 #include "nl_syscall.h"
 #include "nl_types.h"
@@ -22,7 +23,7 @@
  *     pointer end because those land in next block's header, which will have an
  *     unexpected magic value
  *
- * To get per-block redzone checking inside arena in future, poison
+ * TODO: To get per-block redzone checking inside arena in future, poison
  * each free block's header region via ASAN_POISON_MEMORY_REGION on free and
  * unpoison on allocation:
  *
@@ -35,8 +36,8 @@
  *   #define ARENA_UNPOISON(p, n) ((void)0)
  *   #endif
  *
- * TODO: Implement above; current build is sufficient for catching stack/UB/heap
- * regressions in rendering path
+ * TODO: note: Implement above; current build is sufficient for catching
+ * stack/UB/heap regressions in rendering path
  */
 
 #define ARENA_SIZE NL_ARENA_SIZE
@@ -187,11 +188,11 @@ static void *alloc_once(size_t n, unsigned flags) {
 void *nl_malloc(size_t n) { return nl_alloc_flags(n, 0); }
 
 void *nl_calloc(size_t nmemb, size_t size) {
-  if (nmemb != 0 && size > SIZE_MAX / nmemb) {
+  size_t total;
+  if (nl_size_mul(nmemb, size, &total) < 0) {
     return NULL;
   }
 
-  size_t total = nmemb * size;
   void *p = nl_malloc(total);
   if (p) {
     uint8_t *b = (uint8_t *)p;
