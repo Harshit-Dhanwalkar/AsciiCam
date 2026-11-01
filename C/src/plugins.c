@@ -2,6 +2,7 @@
 
 #include "plugins.h"
 
+#include "nl_defer.h"
 #include "nl_dlfcn.h"
 #include "nl_inotify.h"
 
@@ -14,7 +15,7 @@
 int plugin_log_stderr = 1;
 
 static int copy_file(const char *src, const char *dst) {
-  int fd_src = open(src, O_RDONLY | O_BINARY);
+  NL_AUTOCLOSE int fd_src = open(src, O_RDONLY | O_BINARY);
   if (fd_src < 0) {
     if (plugin_log_stderr) {
       nl_perror("[plugin] open src");
@@ -23,13 +24,12 @@ static int copy_file(const char *src, const char *dst) {
     return -1;
   }
 
-  int fd_dst = open(dst, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0755);
+  NL_AUTOCLOSE int fd_dst =
+      open(dst, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0755);
   if (fd_dst < 0) {
     if (plugin_log_stderr) {
       nl_perror("[plugin] open dst");
     }
-
-    close(fd_src);
 
     return -1;
   }
@@ -42,16 +42,23 @@ static int copy_file(const char *src, const char *dst) {
         nl_perror("[plugin] write");
       }
 
-      close(fd_src);
-      close(fd_dst);
       unlink(dst);
 
       return -1;
     }
   }
 
-  close(fd_src);
-  close(fd_dst);
+  // A failed read used to fall out of loop and report success, leaving a
+  // truncated library that loader then tried to map
+  if (n < 0) {
+    if (plugin_log_stderr) {
+      nl_perror("[plugin] read");
+    }
+
+    unlink(dst);
+
+    return -1;
+  }
 
   return 0;
 }
