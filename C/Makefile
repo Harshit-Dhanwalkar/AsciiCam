@@ -255,7 +255,7 @@ TEST_LIBS  := $(LIBDIR)/nl_printf.c $(LIBDIR)/nl_errno.c $(LIBDIR)/nl_alloc.c \
 FILTER_SRC := $(FILTERDIR)/edge_detect.c $(FILTERDIR)/invert.c \
               $(FILTERDIR)/threshold.c
 
-test: plugins
+test: all
 	@mkdir -p $(TESTDIR)
 	$(CC) $(TEST_FLAGS) tests/test_nl_alloc.c $(TEST_LIBS) -o $(TESTDIR)/alloc
 	$(CC) $(TEST_FLAGS) tests/test_nl_printf.c $(TEST_LIBS) -o $(TESTDIR)/printf

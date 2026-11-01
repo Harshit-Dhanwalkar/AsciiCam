@@ -103,6 +103,7 @@ jobs:
       # - name: Install make (Windows)
       #   if: matrix.platform == 'windows'
       #   run: choco install make -y
+
       - name: Verify make (Windows)
         if: matrix.platform == 'windows'
         shell: bash
@@ -131,6 +132,13 @@ jobs:
           make clean
           make -j4 CC="${{ matrix.cc }}" ${{ matrix.extra-make-args }} all
 
+      - name: Unit + fuzz + GC + security + plugin tests (Linux nolibc)
+        if: matrix.platform == 'linux'
+        working-directory: C
+        timeout-minutes: 20
+        shell: bash
+        run: make test CC="${{ matrix.cc }}"
+
       - name: Thread tests (Linux nolibc)
         if: matrix.platform == 'linux'
         working-directory: C
@@ -146,62 +154,11 @@ jobs:
             /tmp/t_thread
           done
 
-      - name: Verify zero libc dependency (Linux nolibc build)
+      - name: Static-link / plugin symbol check (Linux nolibc build)
         if: matrix.platform == 'linux'
         working-directory: C
         shell: bash
-        run: |
-          set -euo pipefail
-          # 1. binary is fully static: no PT_INTERP, no DT_NEEDED, no dynamic symbols
-          if readelf -lW build/webcam_ascii | grep -q INTERP; then
-            echo "FAIL: webcam_ascii has PT_INTERP (dynamically linked)"; exit 1
-          fi
-          if readelf -d build/webcam_ascii 2>/dev/null | grep -q NEEDED; then
-            echo "FAIL: webcam_ascii has DT_NEEDED entries"; exit 1
-          fi
-          # 2. plugins: no DT_NEEDED, and every undefined non-weak symbol must
-          #    be one nl_dlopen() can resolve (listed in lib/nl_dlfcn.c's table)
-          for so in build/*.so; do
-            if readelf -d "$so" | grep -q NEEDED; then
-              echo "FAIL: $so has DT_NEEDED entries"; exit 1
-            fi
-            for sym in $(nm -u "$so" | awk '$1=="U"{print $2}' | sed 's/@.*//'); do
-              if ! grep -q "\"$sym\"" lib/nl_dlfcn.c; then
-                echo "FAIL: $so needs '$sym' which nl_dlopen cannot resolve"; exit 1
-              fi
-            done
-          done
-          echo "OK: static binary, dependency-free plugins, all plugin symbols resolvable."
-
-      - name: Unit tests (Linux nolibc)
-        if: matrix.platform == 'linux'
-        working-directory: C
-        shell: bash
-        run: |
-          set -euo pipefail
-          FLAGS="-D__LINUX_NOLIBC__ -DPLATFORM_LINUX -nostdinc -isystem $(gcc -print-file-name=include) -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -static -Iinclude -Ilib"
-          LIBS="lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
-          gcc $FLAGS tests/test_nl_alloc.c  $LIBS -o /tmp/t_alloc  && /tmp/t_alloc
-          gcc $FLAGS tests/test_nl_printf.c $LIBS -o /tmp/t_printf && /tmp/t_printf
-          gcc $FLAGS tests/test_nl_dlfcn.c lib/nl_dlfcn.c $LIBS -o /tmp/t_dlfcn && /tmp/t_dlfcn build
-          # randomized stress test (fixed seeds => reproducible failures)
-          gcc $FLAGS tests/fuzz_nolibc.c lib/nl_getopt.c $LIBS -o /tmp/t_fuzz
-          for seed in 1 2 3; do /tmp/t_fuzz 100000 "$seed"; done
-
-      - name: GC / allocator tests (Linux nolibc)
-        if: matrix.platform == 'linux'
-        working-directory: C
-        shell: bash
-        run: |
-          set -euo pipefail
-          FLAGS="-D__LINUX_NOLIBC__ -DPLATFORM_LINUX -nostdinc -isystem $(gcc -print-file-name=include) -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -static -Iinclude -Ilib"
-          LIBS="lib/nl_gc.c lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
-          # conservative collector: which optimiser keeps a pointer in a
-          # register or spill slot varies, so run at both -O0 and -O2
-          for O in -O0 -O2; do
-            gcc $O $FLAGS tests/test_nl_gc.c $LIBS -o /tmp/t_gc
-            /tmp/t_gc
-          done
+        run: bash scripts/check_static.sh
 
       - name: Smoke test --help (Unix)
         if: matrix.platform != 'windows'
@@ -224,17 +181,6 @@ jobs:
             gcc $O $FLAGS tests/test_capture_reinit.c src/capture_reinit.c $LIBS -o /tmp/t_reinit
             /tmp/t_reinit
           done
-
-      - name: Filter security tests (Linux nolibc)
-        if: matrix.platform == 'linux'
-        working-directory: C
-        shell: bash
-        run: |
-          set -euo pipefail
-          FLAGS="-DTESTING -D__LINUX_NOLIBC__ -DPLATFORM_LINUX -nostdinc -isystem $(gcc -print-file-name=include) -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -static -msse4.1 -Iinclude -Ilib"
-          LIBS="lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
-          gcc $FLAGS tests/security_tests.c filters/edge_detect.c filters/invert.c filters/threshold.c $LIBS -o /tmp/t_security
-          /tmp/t_security
 
       - name: Plugin catalog tests (Linux nolibc)
         if: matrix.platform == 'linux'
