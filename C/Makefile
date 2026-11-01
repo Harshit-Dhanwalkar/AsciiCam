@@ -141,7 +141,13 @@ OBJECTS += $(patsubst $(SRCDIR)/%.c,  $(OBJDIR)/%.o,   $(filter $(SRCDIR)/%.c,  
 OBJECTS += $(patsubst $(SRCDIR)/%.m,  $(OBJDIR)/%.o,   $(filter $(SRCDIR)/%.m,  $(PLAT_SRC)))
 OBJECTS += $(patsubst $(LIBDIR)/%.c,  $(OBJDIR)/lib_%.o, $(LIBSRCS))
 
-TARGET := $(BUILDDIR)/webcam_ascii
+ifeq ($(PLATFORM),windows)
+    TARGET := $(BUILDDIR)/webcam_ascii.exe
+    INSTALL_NAME := asciicam.exe
+else
+    TARGET := $(BUILDDIR)/webcam_ascii
+    INSTALL_NAME := asciicam
+endif
 
 # Plugins
 PLUGIN_SRCS    := $(wildcard $(FILTERDIR)/*.c)
@@ -198,7 +204,7 @@ ifeq ($(PLATFORM),linux)
 ASAN_OBJDIR  := $(BUILDDIR)/obj_asan
 ASAN_TARGET  := $(BUILDDIR)/webcam_ascii_asan
 
-ASAN_CFLAGS  := $(CFLAGS_COMMON) \
+ASAN_CFLAGS  := $(CFLAGS_COMMON) $(CFLAGS_EXTRA) \
                 -DPLATFORM_LINUX -D__LINUX_NOLIBC__ -msse4.1 \
                 -DNL_SANITIZE_BUILD \
                 $(NOSTDINC) \
@@ -347,7 +353,7 @@ SHAREDIR = $(DESTDIR)$(PREFIX)/share/asciicam
 
 install: all plugins
 	install -d $(DESTDIR)$(PREFIX)/bin $(SHAREDIR)/plugins $(SHAREDIR)/charsets
-	install -m 755 $(TARGET) $(DESTDIR)$(PREFIX)/bin/asciicam
+	install -m 755 $(TARGET) $(DESTDIR)$(PREFIX)/bin/$(INSTALL_NAME)
 	install -m 755 $(PLUGIN_TARGETS) $(SHAREDIR)/plugins
 	install -m 644 charsets/* $(SHAREDIR)/charsets
 
