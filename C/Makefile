@@ -5,6 +5,8 @@
 #   macOS    x86_64  (clang, system libc, AVFoundation)
 #   Windows          (gcc,   ststem libc, MinGW-w64)
 
+.DELETE_ON_ERROR:
+
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 
@@ -34,7 +36,9 @@ FILTERDIR := filters
 BUILDDIR  := build
 OBJDIR    := $(BUILDDIR)/obj
 
-CFLAGS_COMMON := -Wall -Wextra -O2 -Iinclude -I$(LIBDIR) -fno-stack-protector -fno-builtin -ffreestanding
+CFLAGS_COMMON := -Wall -Wextra -O2 -Iinclude -I$(LIBDIR) \
+                 -fno-stack-protector -fno-builtin -ffreestanding \
+                 -MMD -MP
 CFLAGS_EXTRA  ?=
 LDFLAGS_EXTRA ?=
 
@@ -173,9 +177,9 @@ $(BUILDDIR)/%.$(SO_EXT): $(FILTERDIR)/%.c | $(BUILDDIR)
 ifeq ($(PLATFORM),linux)
 	$(CC) $(CFLAGS) $(SO_FLAGS) $< -o $@.tmp && mv $@.tmp $@
 else ifeq ($(PLATFORM),macos)
-	$(CC) $(CFLAGS) $(SO_FLAGS) $< -o $@ -undefined dynamic_lookup
+	$(CC) $(CFLAGS) $(SO_FLAGS) $< -o $@.tmp -undefined dynamic_lookup && mv $@.tmp $@
 else
-	$(CC) $(CFLAGS) $(SO_FLAGS) $< -o $@
+	$(CC) $(CFLAGS) $(SO_FLAGS) $< -o $@.tmp && mv $@.tmp $@
 endif
 
 $(OBJDIR):
@@ -227,7 +231,6 @@ $(ASAN_OBJDIR)/lib_%.o: $(LIBDIR)/%.c | $(ASAN_OBJDIR)
 	$(CC) $(ASAN_CFLAGS) -c $< -o $@
 
 $(ASAN_TARGET): $(ASAN_OBJECTS) | $(BUILDDIR)
-	# $(LD) $(ASAN_OBJECTS) -o $@ $(ASAN_LDFLAGS)
 	PATH=/usr/bin:/bin $(LD) $(ASAN_OBJECTS) -o $@ $(ASAN_LDFLAGS)
 	@echo "  LD [sanitize] $@"
 
@@ -309,6 +312,11 @@ e2e: all
 	python3 tests/e2e_capture.py $(E2E_BIN) $(TARGET)
 
 .PHONY: test e2e
+else
+test e2e:
+	@echo "error: 'make $@' is Linux-only (nolibc build); platform is $(PLATFORM)" >&2; exit 1
+
+.PHONY: test e2e
 endif
 
 info:
@@ -332,6 +340,8 @@ info:
 PREFIX  ?= /usr/local
 DESTDIR ?=
 SHAREDIR = $(DESTDIR)$(PREFIX)/share/asciicam
+
+-include $(OBJECTS:.o=.d) $(ASAN_OBJECTS:.o=.d)
 
 .PHONY: install install-sdk
 
