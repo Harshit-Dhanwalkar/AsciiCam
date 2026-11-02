@@ -6,9 +6,10 @@
  *
  * Everything used to be relative to current directory (./filters,
  * ./.cache/plugins, ./charsets), which only works when started from a source
- * checkout. Resolution is now relative to running binary as well, so
- * same program works from a checkout, from an unpacked release directory and
- * from an installed prefix (`make install`):
+ * checkout
+ * Resolution is now relative to running binary as well, so same program works
+ * from a checkout, from an unpacked release directory and from an installed
+ * prefix (`make install`):
  *
  *  checkout     <C>/build/webcam_ascii  sources <C>/filters
  *  release dir  <dir>/asciicam          plugins <dir>/plugins
@@ -16,8 +17,8 @@
  *
  * Three kinds of plugin location are involved:
  *  prebuilt   ready-made shared objects: load instantly, need no compiler
- *  sources    *.c files picker can build on demand (needs make + a
- *             compiler and "SDK": Makefile + headers)
+ * sources    *.c files picker can build on demand (needs a C compiler and the
+ *             "SDK": the headers)
  *  cache      writable directory runtime builds are written to
  * A shipped application normally carries only `prebuilt`
  */
@@ -28,7 +29,7 @@
 #define AP_PREBUILT_MAX 4
 
 typedef struct {
-  char sdk_dir[AP_LEN];   // holds Makefile + include/plugins.h; "" if none
+  char sdk_dir[AP_LEN];   // holds include/plugins.h (+ lib/*.h); "" if none
   char src_dir[AP_LEN];   // plugin sources
   char cache_dir[AP_LEN]; // writable: runtime builds land here
   char charset_dir[AP_LEN];
