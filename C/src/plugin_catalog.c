@@ -7,8 +7,9 @@
  * file pc_reap     non-blocking (or blocking) wait for that child pc_kill
  *                  terminate and reap child
  *
- * System headers must come before nolibc.h on libc platforms: nolibc redirects
- * names like strlen/signal with macros that would rewrite their declarations
+ * WARN: System headers must come before nolibc.h on libc platforms: nolibc
+ * redirects names like strlen/signal with macros that would rewrite their
+ * declarations
  */
 
 #include "platform.h"
@@ -31,6 +32,7 @@
 
 #include "nolibc.h"
 
+#include "nl_hash.h"
 #include "plugin_build.h"
 #include "plugin_catalog.h"
 
@@ -565,6 +567,135 @@ static int file_exists(const char *path) {
   return 1;
 }
 
+// NOTE: Content stamp: which source a cached library was built from
+// Bump when how plugins are built changes in a way the inputs don't show
+#define PC_STAMP_TAG "asciicam-plugin-stamp-1\n"
+#define PC_STAMP_PATH_LEN (CATALOG_PATH_LEN + 8)
+
+static int pc_hash_file(nl_sha256_t *h, const char *path) {
+  int fd = open(path, O_RDONLY | O_BINARY, 0);
+  if (fd < 0) {
+    return -1;
+  }
+
+  uint8_t buf[4096];
+  int rc = 0;
+  for (;;) {
+    ssize_t n = read(fd, buf, sizeof(buf));
+    if (n < 0) {
+      rc = -1;
+
+      break;
+    }
+
+    if (n == 0) {
+      break;
+    }
+
+    nl_sha256_update(h, buf, (size_t)n);
+  }
+
+  close(fd);
+
+  return rc;
+}
+
+// Hash of everything a build reads: source + plugin interface header
+// 0 on success; -1 when source can't be read (nothing to stamp)
+static int pc_inputs_hash(const plugin_catalog_t *c, const catalog_entry_t *e,
+                          char hex[NL_SHA256_HEX_LEN]) {
+  nl_sha256_t h;
+  nl_sha256_init(&h);
+  nl_sha256_update(&h, PC_STAMP_TAG, sizeof(PC_STAMP_TAG) - 1);
+  if (pc_hash_file(&h, e->src_path) < 0) {
+    return -1;
+  }
+
+  // Header decides ABI: new plugins.h means old libraries are suspect
+  char hdr[CATALOG_PATH_LEN + 24];
+  nl_snprintf(hdr, sizeof(hdr), "%s%sinclude/plugins.h", c->sdk_dir,
+              c->sdk_dir[0] ? "/" : "");
+  nl_sha256_update(&h, "\0hdr\0", 5);
+  if (pc_hash_file(&h, hdr) < 0) {
+    nl_sha256_update(&h, "none", 4); // unreadable is a state too, not a skip
+  }
+
+  uint8_t d[NL_SHA256_LEN];
+  nl_sha256_final(&h, d);
+  nl_sha256_hex(d, hex);
+
+  return 0;
+}
+
+static void pc_stamp_path(const plugin_catalog_t *c, const catalog_entry_t *e,
+                          char *out, size_t outsz) {
+  nl_snprintf(out, outsz, "%s/%s.stamp", c->cache_dir, e->name);
+}
+
+static int pc_stamp_matches(const char *stamp, const char *hex) {
+  int fd = open(stamp, O_RDONLY | O_BINARY, 0);
+  if (fd < 0) {
+    return 0;
+  }
+
+  char buf[NL_SHA256_HEX_LEN + 1];
+  ssize_t n = read(fd, buf, sizeof(buf) - 1);
+  close(fd);
+  if (n < NL_SHA256_HEX_LEN - 1) {
+    return 0;
+  }
+
+  for (int i = 0; i < NL_SHA256_HEX_LEN - 1; i++) {
+    if (buf[i] != hex[i]) {
+      return 0;
+    }
+  }
+
+  return 1;
+}
+
+// Write temp file then rename, so a crash never leaves half a stamp
+static void pc_stamp_write(const char *stamp, const char *hex) {
+  char tmp[PC_STAMP_PATH_LEN + 8];
+  nl_snprintf(tmp, sizeof(tmp), "%s.tmp", stamp);
+
+  int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0644);
+  if (fd < 0) {
+    return;
+  }
+
+  char line[NL_SHA256_HEX_LEN + 1];
+  nl_snprintf(line, sizeof(line), "%s\n", hex);
+  ssize_t n = write(fd, line, nl_strlen(line));
+  close(fd);
+  if (n != (ssize_t)nl_strlen(line)) {
+    unlink(tmp);
+
+    return;
+  }
+
+#if defined(PC_WINDOWS)
+  unlink(stamp); // rename() won't replace an existing file there
+#endif
+  if (rename(tmp, stamp) < 0) {
+    unlink(tmp);
+  }
+}
+
+// Cached library for e, and does its stamp vouch for current source
+static int pc_cache_current(const plugin_catalog_t *c, const catalog_entry_t *e,
+                            char hex[NL_SHA256_HEX_LEN]) {
+  hex[0] = '\0';
+  if (!e->src_path[0] || pc_inputs_hash(c, e, hex) < 0) {
+    return 0;
+  }
+
+  char stamp[PC_STAMP_PATH_LEN];
+  pc_stamp_path(c, e, stamp, sizeof(stamp));
+
+  return pc_stamp_matches(stamp, hex);
+}
+
 // Plugin stems (file name minus ".c") in dir that look like plugins, sorted
 static int list_sources(const char *dir, char names[][CATALOG_NAME_LEN],
                         int max) {
@@ -644,7 +775,11 @@ int catalog_scan(plugin_catalog_t *c) {
     nl_snprintf(e->log_path, sizeof(e->log_path), "%s/%s.log", c->cache_dir,
                 names[i]);
 
-    e->state = file_exists(e->so_path) ? PC_READY : PC_AVAILABLE;
+    // a cached library counts only when its stamp matches today's source
+    char hex[NL_SHA256_HEX_LEN];
+    e->state = file_exists(e->so_path) && pc_cache_current(c, e, hex)
+                   ? PC_READY
+                   : PC_AVAILABLE;
   }
 
   return c->count;
@@ -759,6 +894,25 @@ int catalog_start_build(plugin_catalog_t *c, int idx) {
   }
 
   pc_make_dirs(c->cache_dir);
+
+  // make compares file times: a source that went back in time (git checkout,
+  // restore) looks older than its library
+  // Drop a library that doesn't match its source so make really rebuilds it
+  // Only ever our own cache file, never a shipped prebuilt library
+  char stamp[PC_STAMP_PATH_LEN];
+  pc_stamp_path(c, e, stamp, sizeof(stamp));
+  e->hash[0] = '\0';
+  if (pc_inputs_hash(c, e, e->hash) < 0) {
+    e->hash[0] = '\0';
+  } else if (!pc_stamp_matches(stamp, e->hash)) {
+    char own[CATALOG_PATH_LEN];
+    nl_snprintf(own, sizeof(own), "%s/%s.%s", c->cache_dir, e->name, PC_SO_EXT);
+    if (nl_strcmp(own, e->so_path) == 0) {
+      unlink(own);
+    }
+
+    unlink(stamp);
+  }
 
   char err[CATALOG_ERR_LEN];
   pc_proc_t pid = 0;
@@ -888,6 +1042,11 @@ int catalog_poll(plugin_catalog_t *c, int *idx) {
     } else if (code == 0 && file_exists(e->so_path)) {
       e->state = PC_READY;
       e->err[0] = '\0';
+      if (e->hash[0]) {
+        char stamp[PC_STAMP_PATH_LEN];
+        pc_stamp_path(c, e, stamp, sizeof(stamp));
+        pc_stamp_write(stamp, e->hash);
+      }
     } else {
       e->state = PC_FAILED;
       log_first_error(e->log_path, code, e->err, sizeof(e->err));

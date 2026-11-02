@@ -43,6 +43,7 @@ typedef struct {
   pc_proc_t pid;             // build child, valid while PC_COMPILING
   int want_load;             // load as soon as build succeeds
   char err[CATALOG_ERR_LEN]; // first error line of last failed build
+  char hash[65];             // SHA-256 (hex) of running build reads
 } catalog_entry_t;
 
 typedef struct {
@@ -63,20 +64,29 @@ int catalog_supported(void);
 void catalog_init(plugin_catalog_t *c, const char *src_dir,
                   const char *cache_dir, char **envp);
 
-// Directory that holds the headers plugin builds need (see app_paths.h)
+// Directory that holds headers plugin builds need (see app_paths.h)
 // Include paths for builds are <dir>/include and <dir>/lib
 // Empty (default) builds in current directory
 void catalog_set_sdk(plugin_catalog_t *c, const char *sdk_dir);
 
-// (Re)scan src_dir. New sources are appended in alphabetical order; known
-// entries keep their state and index. Returns number of entries
+// NOTE: A cached build counts as up to date (PC_READY) only when
+// <cache>/<name>.stamp holds SHA-256 of source it was built from plus
+// include/plugins.h, so editing, reverting or swapping a source (whatever file
+// times say) makes entry PC_AVAILABLE again and next build starts from scratch
+// A cache with no stamp is rebuilt once
+//
+// (Re)scan src_dir
+// New sources are appended in alphabetical order; known entries keep their
+// state and index
+// Returns number of entries
 int catalog_scan(plugin_catalog_t *c);
 
-// Add ready-made plugin libraries found in dir. A library with no source
-// becomes a PC_READY entry that can be loaded but not rebuilt; one whose source
-// is known but has no cached build is pointed at the prebuilt file, so no
-// compiler is needed. Call after catalog_scan; safe to repeat. Returns the
-// number of entries
+// Add ready-made plugin libraries found in dir
+// A library with no source becomes a PC_READY entry that can be loaded but not
+// rebuilt; one whose source is known but has no cached build is pointed at
+// prebuilt file, so no compiler is needed
+// Call after catalog_scan; safe to repeat
+// Returns number of entries
 int catalog_add_prebuilt(plugin_catalog_t *c, const char *dir);
 
 // Index of entry called name, or -1
@@ -86,8 +96,9 @@ int catalog_find(const plugin_catalog_t *c, const char *name);
 // -1 on failure, with c->e[idx].err filled in
 int catalog_start_build(plugin_catalog_t *c, int idx);
 
-// Reap finished builds without blocking. Returns 1 and sets *idx when a build
-// just finished (state is now PC_READY or PC_FAILED), 0 when none did
+// Reap finished builds without blocking
+// Returns 1 and sets *idx when a build just finished (state is now PC_READY or
+// PC_FAILED), 0 when none did
 int catalog_poll(plugin_catalog_t *c, int *idx);
 
 // Kill and reap outstanding build children
