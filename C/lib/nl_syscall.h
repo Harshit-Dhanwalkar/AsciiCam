@@ -49,6 +49,8 @@ extern int errno;
 #define SYS_select 23
 #define SYS_nanosleep 35
 #define SYS_unlink 87
+#define SYS_rename 82
+#define SYS_getpid 39
 #define SYS_pread64 17
 #define SYS_futex 202
 #define SYS_clock_gettime 228

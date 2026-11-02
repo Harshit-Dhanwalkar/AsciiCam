@@ -254,6 +254,37 @@ refused with a message instead of crashing: put `PLUGIN_ABI_EXPORT;` next to
 `-L` / `plugin_dir`, `plugin_cache` and `-k` / `charset_dir` override the
 automatic locations.
 
+### Plugin cache validation
+
+Runtime builds land under `.cache/plugins` (in a checkout) or
+`$XDG_CACHE_HOME/asciicam/plugins` (installed). A cached `.so` is trusted only
+while a sidecar `<name>.stamp` matches the SHA-256 of **everything the build read**:
+
+- the plugin source file
+- `include/plugins.h` (the plugin ABI)
+- every other `.h` under `<sdk>/include` and `<sdk>/lib` (nolibc, platform, timing, etc.)
+- the compiler invocation itself — `PB_SCRIPT` from `include/plugin_build.h`,
+  so bumping `-O2` to `-O3` or adding a flag invalidates the whole cache
+
+Consequences:
+
+| Action                                          | Result                                |
+| ----------------------------------------------- | ------------------------------------- |
+| Edit the source                                 | stale, rebuilds                       |
+| Edit any header                                 | stale, rebuilds                       |
+| Change a flag in `plugin_build.h`               | stale, rebuilds                       |
+| Revert the source                               | **still valid** — no rebuild          |
+| `git checkout` an older revision                | stale (content differs), rebuilds     |
+| Source swapped mid-build                        | discarded, entry marked failed, retry |
+| Delete `<name>.stamp`                           | rebuilds once                         |
+| Two AsciiCam instances building the same plugin | safe — temp names carry a PID         |
+
+
+No manual pruning of `~/.cache` is ever needed; the cache is self-invalidating.
+Note that the compiler's own identity (`$CC`, its version) is **not** part of
+the hash, so switching `gcc` → `clang` without couching source or headers reuses
+the old `.so`; that is the one case where deleting the `.stamp` by hand is the fix.
+
 ### Memory: `nl_gc` (Linux)
 
 `lib/nl_gc.h` is an opt-in conservative mark-and-sweep collector on top of the
@@ -314,8 +345,8 @@ and fails on any crash, hang or write outside the mapping.
 
 ## Building without make
 
-C/build.c` + `C/nb.h` are a small build system written in C. Bootstrap once,
-then it rebuilds itself whenever `build.c` or `nb.h` change:
+C/build.c`+`C/nb.h`are a small build system written in C. Bootstrap once,
+then it rebuilds itself whenever`build.c`or`nb.h` change:
 
 ```sh
 cd C

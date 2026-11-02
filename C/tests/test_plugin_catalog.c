@@ -277,8 +277,7 @@ static void test_picker_render(void) {
   CHECK(contains(buf, "[failed: t.c:3:1: error: boom]"),
         "failure reason shown");
   CHECK(contains(buf, "[active]"), "active state shown");
-  CHECK(contains(buf, "\033[31;1H"),
-        "header is at ascii_h + 1 (below frame)");
+  CHECK(contains(buf, "\033[31;1H"), "header is at ascii_h + 1 (below frame)");
 
   // no ANSI cursor-position escape in output should land on a frame row
   // (i.e. row <= frame_rows)
@@ -648,6 +647,142 @@ static void test_prebuilt_and_abi(char **envp) {
   rm(CACHE_DIR "/abi99." PC_SO_EXT);
 }
 
+static int file_has(const char *path, const char *needle) {
+  static char buf[1 << 17];
+  int fd = open(path, O_RDONLY | O_BINARY, 0);
+  if (fd < 0) {
+    return 0;
+  }
+
+  ssize_t n = read(fd, buf, sizeof(buf) - 1);
+  close(fd);
+  if (n <= 0) {
+    return 0;
+  }
+
+  size_t nl = nl_strlen(needle);
+  for (ssize_t i = 0; i + (ssize_t)nl <= n; i++) {
+    size_t k = 0;
+    while (k < nl && buf[i + k] == needle[k]) {
+      k++;
+    }
+
+    if (k == nl) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+static int file_present(const char *path) {
+  int fd = open(path, O_RDONLY | O_BINARY, 0);
+  if (fd < 0) {
+    return 0;
+  }
+
+  close(fd);
+
+  return 1;
+}
+
+#define STAMP_SRC(tag)                                                         \
+  "#include \"nolibc.h\"\n#include \"plugins.h\"\n"                            \
+  "static void p(uint8_t *g, int w, int h, void *x) "                          \
+  "{ (void)g; (void)w; (void)h; (void)x; }\n"                                  \
+  "static filter_plugin_t self = {p, \"" tag "\"};\n"                          \
+  "filter_plugin_t *plugin_get(void) { return &self; }\n"
+
+// A cached library is current only while its source is what it was built from
+static void test_cache_stamp(char **envp) {
+  mkdirs();
+  rm(SRC_DIR "/stampy.c");
+  rm(CACHE_DIR "/stampy." PC_SO_EXT);
+  rm(CACHE_DIR "/stampy.stamp");
+
+  write_file(SRC_DIR "/stampy.c", STAMP_SRC("stamp-one"));
+  plugin_catalog_t c;
+  catalog_init(&c, SRC_DIR, CACHE_DIR, envp);
+  catalog_scan(&c);
+  int i = catalog_find(&c, "stampy");
+  CHECK(i >= 0 && c.e[i].state == PC_AVAILABLE, "fresh source: available");
+  if (i < 0) {
+    return;
+  }
+
+  CHECK(catalog_start_build(&c, i) == 0 && wait_build(&c, i, 60) &&
+            c.e[i].state == PC_READY,
+        "build ok");
+  CHECK(file_present(CACHE_DIR "/stampy.stamp"), "stamp written after build");
+  CHECK(file_has(CACHE_DIR "/stampy." PC_SO_EXT, "stamp-one"), "built v1");
+
+  plugin_catalog_t d;
+  catalog_init(&d, SRC_DIR, CACHE_DIR, envp);
+  catalog_scan(&d);
+  int di = catalog_find(&d, "stampy");
+  CHECK(di >= 0 && d.e[di].state == PC_READY, "same source: still ready");
+
+  // edit: library is there but no longer matches
+  write_file(SRC_DIR "/stampy.c", STAMP_SRC("stamp-two"));
+  plugin_catalog_t e;
+  catalog_init(&e, SRC_DIR, CACHE_DIR, envp);
+  catalog_scan(&e);
+  int ei = catalog_find(&e, "stampy");
+  CHECK(ei >= 0 && e.e[ei].state == PC_AVAILABLE,
+        "edited source: library is stale");
+  CHECK(file_present(CACHE_DIR "/stampy." PC_SO_EXT),
+        "scan leaves files alone");
+
+  // revert: the old library is valid again, no rebuild needed
+  write_file(SRC_DIR "/stampy.c", STAMP_SRC("stamp-one"));
+  plugin_catalog_t r;
+  catalog_init(&r, SRC_DIR, CACHE_DIR, envp);
+  catalog_scan(&r);
+  int ri = catalog_find(&r, "stampy");
+  CHECK(ri >= 0 && r.e[ri].state == PC_READY, "reverted source: ready again");
+
+  // missing stamp (old cache, copied by hand): rebuild once
+  rm(CACHE_DIR "/stampy.stamp");
+  plugin_catalog_t m;
+  catalog_init(&m, SRC_DIR, CACHE_DIR, envp);
+  catalog_scan(&m);
+  int mi = catalog_find(&m, "stampy");
+  CHECK(mi >= 0 && m.e[mi].state == PC_AVAILABLE, "no stamp: not trusted");
+
+  // a stale library is dropped before building, so a failing build can't
+  // leave the old one behind, and make can't call it up to date
+  write_file(SRC_DIR "/stampy.c", STAMP_SRC("stamp-three"));
+  catalog_scan(&c);
+  CHECK(c.e[i].state == PC_READY, "known entry keeps its state on rescan");
+  c.e[i].state = PC_AVAILABLE;
+  write_file(SRC_DIR "/stampy.c", "this is not C;\n");
+  CHECK(catalog_start_build(&c, i) == 0, "stale build starts");
+  CHECK(!file_present(CACHE_DIR "/stampy." PC_SO_EXT),
+        "stale library removed before build");
+  CHECK(!file_present(CACHE_DIR "/stampy.stamp"), "stale stamp removed");
+  CHECK(wait_build(&c, i, 60) && c.e[i].state == PC_FAILED,
+        "broken edit fails");
+  CHECK(!file_present(CACHE_DIR "/stampy.stamp"),
+        "failed build writes no stamp");
+
+  // fixed v2 builds and gets its own stamp
+  write_file(SRC_DIR "/stampy.c", STAMP_SRC("stamp-two"));
+  CHECK(catalog_start_build(&c, i) == 0 && wait_build(&c, i, 60) &&
+            c.e[i].state == PC_READY,
+        "rebuild ok");
+  CHECK(file_has(CACHE_DIR "/stampy." PC_SO_EXT, "stamp-two"), "built v2");
+  plugin_catalog_t f;
+  catalog_init(&f, SRC_DIR, CACHE_DIR, envp);
+  catalog_scan(&f);
+  int fi = catalog_find(&f, "stampy");
+  CHECK(fi >= 0 && f.e[fi].state == PC_READY, "new stamp vouches for v2");
+
+  rm(SRC_DIR "/stampy.c");
+  rm(CACHE_DIR "/stampy." PC_SO_EXT);
+  rm(CACHE_DIR "/stampy.stamp");
+  rm(CACHE_DIR "/stampy.log");
+}
+
 int main(int argc, char **argv) {
 #if defined(__LINUX_NOLIBC__)
   char **envp = argv + argc + 1;
@@ -664,6 +799,7 @@ int main(int argc, char **argv) {
   test_build_and_load(envp);
   test_failure_and_cancel(envp);
   test_prebuilt_and_abi(envp);
+  test_cache_stamp(envp);
 
   fprintf(stderr, "%d/%d checks passed\n", total - fails, total);
 
