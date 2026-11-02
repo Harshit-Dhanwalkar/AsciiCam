@@ -133,11 +133,6 @@ typedef int (*exists_fn)(const char *);
 static int is_sdk(exists_fn ex, const char *dir) {
   char p[AP_LEN];
 
-  join(p, dir, "Makefile");
-  if (!ex(p)) {
-    return 0;
-  }
-
   join3(p, dir, "include", "plugins.h");
 
   return ex(p);

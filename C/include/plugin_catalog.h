@@ -6,8 +6,8 @@
  *
  * NOTE: Lazy loading/evaluation: Catalog lists every plugin SOURCE (*.c with a
  * plugin_get() in it) found in a directory. Nothing is compiled until user asks
- * for it: a build runs as a child process (`make` on existing plugin rule) so
- * render loop never blocks
+ * for it: a build runs as a child process (the C compiler, flags from
+ * plugin_build.h) so render loop never blocks
  *
  * Platform layer (src/plugin_catalog.c), five small primitives:
  *   Linux nolibc  raw getdents64 / fork / execve / wait4
@@ -50,8 +50,9 @@ typedef struct {
   int count;
   char src_dir[CATALOG_PATH_LEN];
   char cache_dir[CATALOG_PATH_LEN];
-  char sdk_dir[CATALOG_PATH_LEN]; // where `make` runs (-C); "" = current dir
-  char **envp; // build child environment: NULL = empty on Linux nolibc,
+  char sdk_dir[CATALOG_PATH_LEN]; // holds include/ and lib/ headers; "" = //
+                                  // current dir
+  char **envp; // build child environment: NULL = empty on Linux nolibc, //
                // inherited on macOS/Windows
 } plugin_catalog_t;
 
@@ -62,10 +63,9 @@ int catalog_supported(void);
 void catalog_init(plugin_catalog_t *c, const char *src_dir,
                   const char *cache_dir, char **envp);
 
-// Directory that holds Makefile and headers plugin builds need (see
-// app_paths.h). Builds run as `make -C <dir>`, so src_dir/cache_dir must then
-// be absolute or relative to it
-// Empty (default) builds in current directory, as before
+// Directory that holds the headers plugin builds need (see app_paths.h)
+// Include paths for builds are <dir>/include and <dir>/lib
+// Empty (default) builds in current directory
 void catalog_set_sdk(plugin_catalog_t *c, const char *sdk_dir);
 
 // (Re)scan src_dir. New sources are appended in alphabetical order; known

@@ -42,11 +42,11 @@ static int streq(const char *a, const char *b) { return nl_strcmp(a, b) == 0; }
 int main(void) {
   app_paths_t p;
 
-  // source checkout, started from inside it (historic behaviour)
+  // source checkout, started from inside it
   {
-    const char *l[] = {"./Makefile", "./include/plugins.h", "./filters",
-                       "./charsets", "/co/build"};
-    fs_set(l, 5);
+    const char *l[] = {"./include/plugins.h", "./filters", "./charsets",
+                       "/co/build"};
+    fs_set(l, 4);
     app_env_t e = {"/co/build", "/home/u", NULL, fake_exists};
     app_paths_resolve(&p, &e, NULL, NULL, NULL);
     CHECK(streq(p.sdk_dir, "."), "checkout: sdk is cwd");
@@ -59,9 +59,8 @@ int main(void) {
 
   // checkout binary run from elsewhere
   {
-    const char *l[] = {"/co/build/../Makefile",
-                       "/co/build/../include/plugins.h", "/co/build"};
-    fs_set(l, 3);
+    const char *l[] = {"/co/build/../include/plugins.h", "/co/build"};
+    fs_set(l, 2);
     app_env_t e = {"/co/build", "/home/u", NULL, fake_exists};
     app_paths_resolve(&p, &e, NULL, NULL, NULL);
     CHECK(streq(p.sdk_dir, "/co/build/.."), "exe in checkout: sdk found");
@@ -70,13 +69,21 @@ int main(void) {
           "exe in checkout: cache in tree");
   }
 
+  // Makefile without plugin headers is not an SDK; headers alone are
+  {
+    const char *l[] = {"./Makefile", "./filters", "./charsets"};
+    fs_set(l, 3);
+    app_env_t e = {"/co/build", "/home/u", NULL, fake_exists};
+    app_paths_resolve(&p, &e, NULL, NULL, NULL);
+    CHECK(p.sdk_dir[0] == '\0', "Makefile alone is not an SDK");
+  }
+
   // installed prefix with SDK: cache must go to user, not /usr
   {
-    const char *l[] = {"/usr/bin/../share/asciicam/sdk/Makefile",
-                       "/usr/bin/../share/asciicam/sdk/include/plugins.h",
+    const char *l[] = {"/usr/bin/../share/asciicam/sdk/include/plugins.h",
                        "/usr/bin/../share/asciicam/plugins",
                        "/usr/bin/../share/asciicam/charsets"};
-    fs_set(l, 4);
+    fs_set(l, 3);
     app_env_t e = {"/usr/bin", "/home/u", NULL, fake_exists};
     app_paths_resolve(&p, &e, NULL, NULL, NULL);
     CHECK(streq(p.sdk_dir, "/usr/bin/../share/asciicam/sdk"), "installed: sdk");

@@ -47,9 +47,39 @@ static void nb_push(nb_cmd *c, const char *s) {
 #define nb_cmd_add(c, ...)                                                     \
   do {                                                                         \
     const char *nb_a_[] = {__VA_ARGS__};                                       \
-    for (size_t nb_i_ = 0; nb_i_ < sizeof(nb_a_) / sizeof(*nb_a_); nb_i_++)    \
+    for (size_t nb_i_ = 0; nb_i_ < sizeof(nb_a_) / sizeof(*nb_a_); nb_i_++) {  \
       nb_push((c), nb_a_[nb_i_]);                                              \
+    }                                                                          \
   } while (0)
+
+// Add each space-separated word of `words` as its own argument (strings in
+// include/plugin_build.h are written that way)
+static void nb_add_words(nb_cmd *c, const char *words) {
+  const char *p = words;
+  while (*p) {
+    while (*p == ' ') {
+      p++;
+    }
+
+    const char *q = p;
+    while (*q && *q != ' ') {
+      q++;
+    }
+
+    if (q > p) {
+      char *w = (char *)malloc((size_t)(q - p) + 1);
+      if (!w) {
+        abort();
+      }
+
+      memcpy(w, p, (size_t)(q - p));
+      w[q - p] = 0;
+      nb_push(c, w);
+    }
+
+    p = q;
+  }
+}
 
 // printf into memory that lives until exit
 static char *nb_fmt(const char *fmt, ...) {
@@ -217,8 +247,9 @@ static int nb_copy(const char *from, const char *to, const char *mode) {
         exit(1);                                                               \
       }                                                                        \
       nb_cmd nb_r_ = {0};                                                      \
-      for (int nb_i_ = 0; nb_i_ < (argc); nb_i_++)                             \
+      for (int nb_i_ = 0; nb_i_ < (argc); nb_i_++) {                           \
         nb_push(&nb_r_, (argv)[nb_i_]);                                        \
+      }                                                                        \
       execv(nb_r_.v[0], (char *const *)nb_r_.v);                               \
       exit(1);                                                                 \
     }                                                                          \

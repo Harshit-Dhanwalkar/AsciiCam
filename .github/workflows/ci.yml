@@ -327,3 +327,31 @@ jobs:
           find "$PWD/src" "$PWD/lib" "$PWD/filters" -name '*.c' \
               -not -path '*/build/*' \
             | xargs clang-tidy -p .
+
+  nb-build:
+    name: Build without make (linux-x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Remove make
+        run: |
+          sudo rm -f /usr/bin/make /usr/bin/gmake
+          ! command -v make
+
+      - name: Bootstrap build program
+        working-directory: C
+        run: cc -o nb build.c
+
+      - name: Build
+        working-directory: C
+        run: ./nb -j4
+
+      - name: Unit tests
+        working-directory: C
+        run: ./nb test
+
+      - name: End-to-end test
+        working-directory: C
+        run: ./nb e2e
+
