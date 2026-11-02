@@ -306,6 +306,8 @@ static int run_tests(void) {
        {"100000 1", "100000 2", "100000 3"}},
       {"slice_O0", "-O0", "", "tests/test_nl_slice.c", {NULL}},
       {"slice_O2", "-O2", "", "tests/test_nl_slice.c", {NULL}},
+      {"defer_O0", "-O0", "", "tests/test_nl_defer.c", {NULL}},
+      {"defer_O2", "-O2", "", "tests/test_nl_defer.c", {NULL}},
       {"fuzz_elf",
        "-O2",
        "",
@@ -331,6 +333,7 @@ static int run_tests(void) {
        "tests/test_plugin_catalog.c src/plugin_catalog.c src/plugin_picker.c "
        "src/plugins.c lib/nl_dlfcn.c",
        {NULL}},
+      {"copy_file", "-O2", "", "tests/test_copy_file.c lib/nl_dlfcn.c", {NULL}},
       {"gc_O0", "-O0", "", "tests/test_nl_gc.c lib/nl_gc.c", {NULL}},
       {"gc_O2", "-O2", "", "tests/test_nl_gc.c lib/nl_gc.c", {NULL}},
       {"thread", "-O2", "", "tests/test_nl_thread.c", {NULL}},
