@@ -23,6 +23,9 @@
 #define CATALOG_PATH_LEN 256
 #define CATALOG_ERR_LEN 96
 
+// SHA-256 hex digest + NUL: must match NL_SHA256_HEX_LEN in nl_hash.h
+#define CATALOG_HASH_LEN 65
+
 // Build child: a pid on POSIX, a process HANDLE on Windows (64-bit wide)
 typedef long long pc_proc_t;
 
@@ -40,10 +43,10 @@ typedef struct {
   char so_path[CATALOG_PATH_LEN];
   char log_path[CATALOG_PATH_LEN];
   pc_state_t state;
-  pc_proc_t pid;             // build child, valid while PC_COMPILING
-  int want_load;             // load as soon as build succeeds
-  char err[CATALOG_ERR_LEN]; // first error line of last failed build
-  char hash[65];             // SHA-256 (hex) of running build reads
+  pc_proc_t pid;               // build child, valid while PC_COMPILING
+  int want_load;               // load as soon as build succeeds
+  char err[CATALOG_ERR_LEN];   // first error line of last failed build
+  char hash[CATALOG_HASH_LEN]; // SHA-256 (hex) of everything build reads
 } catalog_entry_t;
 
 typedef struct {
@@ -70,10 +73,14 @@ void catalog_init(plugin_catalog_t *c, const char *src_dir,
 void catalog_set_sdk(plugin_catalog_t *c, const char *sdk_dir);
 
 // NOTE: A cached build counts as up to date (PC_READY) only when
-// <cache>/<name>.stamp holds SHA-256 of source it was built from plus
-// include/plugins.h, so editing, reverting or swapping a source (whatever file
-// times say) makes entry PC_AVAILABLE again and next build starts from scratch
+// <cache>/<name>.stamp holds SHA-256 of everything build reads: source,
+// include/plugins.h, every other include/*.h and lib/*.h, plus PB_SCRIPT
+// (flags)
+// Editing any of them (or reverting, or swapping sources across mtimes) makes
+// entry PC_AVAILABLE again and next build starts from scratch
 // A cache with no stamp is rebuilt once
+// If include/plugins.h is missing (no SDK), no entry is ever PC_READY
+// from cache alone; prebuilt libraries still work via catalog_add_prebuilt
 //
 // (Re)scan src_dir
 // New sources are appended in alphabetical order; known entries keep their
@@ -97,8 +104,10 @@ int catalog_find(const plugin_catalog_t *c, const char *name);
 int catalog_start_build(plugin_catalog_t *c, int idx);
 
 // Reap finished builds without blocking
-// Returns 1 and sets *idx when a build just finished (state is now PC_READY or
-// PC_FAILED), 0 when none did
+// A successful build is rehashed against current source+headers before it is
+// stamped PC_READY: if they changed mid-build .so is thrown away and ntry
+// marked PC_FAILED (nothing to vouch for cached library)
+// Returns 1 and sets *idx when a build just finished, 0 when none did
 int catalog_poll(plugin_catalog_t *c, int *idx);
 
 // Kill and reap outstanding build children

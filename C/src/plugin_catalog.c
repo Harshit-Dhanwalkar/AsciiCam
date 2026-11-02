@@ -36,6 +36,9 @@
 #include "plugin_build.h"
 #include "plugin_catalog.h"
 
+_Static_assert(CATALOG_HASH_LEN == NL_SHA256_HEX_LEN,
+               "plugin_catalog.h and nl_hash.h must agree on hash length");
+
 // Extension Makefile's plugin rule produces on this platform. Overridable so
 // POSIX code can be exercised on a Linux host: -DPC_SO_EXT=\"so\"
 #ifndef PC_SO_EXT
@@ -570,7 +573,20 @@ static int file_exists(const char *path) {
 // NOTE: Content stamp: which source a cached library was built from
 // Bump when how plugins are built changes in a way the inputs don't show
 #define PC_STAMP_TAG "asciicam-plugin-stamp-1\n"
-#define PC_STAMP_PATH_LEN (CATALOG_PATH_LEN + 8)
+// "cache_dir/name.stamp" (which path_fits(...,6) already guarantees fits
+// CATALOG_PATH_LEN + a few) plus room for a ".PID.tmp" suffix
+#define PC_STAMP_PATH_LEN (CATALOG_PATH_LEN + 64)
+
+// Process id: temp files get a name no concurrent builder will pick
+static long pc_pid(void) {
+#if defined(PC_WINDOWS)
+  return (long)GetCurrentProcessId();
+#elif defined(PC_NOLIBC_LINUX)
+  return __sc1(SYS_getpid, 0);
+#else
+  return (long)getpid();
+#endif
+}
 
 static int pc_hash_file(nl_sha256_t *h, const char *path) {
   int fd = open(path, O_RDONLY | O_BINARY, 0);
@@ -581,7 +597,11 @@ static int pc_hash_file(nl_sha256_t *h, const char *path) {
   uint8_t buf[4096];
   int rc = 0;
   for (;;) {
-    ssize_t n = read(fd, buf, sizeof(buf));
+    ssize_t n;
+    do {
+      n = read(fd, buf, sizeof(buf));
+    } while (n < 0 && errno == EINTR);
+
     if (n < 0) {
       rc = -1;
 
@@ -600,31 +620,126 @@ static int pc_hash_file(nl_sha256_t *h, const char *path) {
   return rc;
 }
 
-// Hash of everything a build reads: source + plugin interface header
-// 0 on success; -1 when source can't be read (nothing to stamp)
-static int pc_inputs_hash(const plugin_catalog_t *c, const catalog_entry_t *e,
-                          char hex[NL_SHA256_HEX_LEN]) {
+// Hash every header a plugin build could read: <sdk>/include/*.h and
+// <sdk>/lib/*.h, sorted by name with name mixed in so a rename changes hash
+// Returns 0 with hdr_hex filled, or -1 if include/plugins.h isn't found
+// (SDK absent, nothing to vouch against)
+static int pc_compute_hdr_hash(const char *sdk_dir,
+                               char hdr_hex[NL_SHA256_HEX_LEN]) {
   nl_sha256_t h;
   nl_sha256_init(&h);
   nl_sha256_update(&h, PC_STAMP_TAG, sizeof(PC_STAMP_TAG) - 1);
-  if (pc_hash_file(&h, e->src_path) < 0) {
+  nl_sha256_update(&h, "\0headers\0", 10);
+
+  static char files[128][PC_FILE_LEN];
+  const char *sub[] = {"include", "lib"};
+  int found_plugins_h = 0;
+  int any = 0;
+
+  for (int d = 0; d < 2; d++) {
+    char dir[CATALOG_PATH_LEN];
+    if (sdk_dir[0]) {
+      nl_snprintf(dir, sizeof(dir), "%s/%s", sdk_dir, sub[d]);
+    } else {
+      nl_snprintf(dir, sizeof(dir), "%s", sub[d]);
+    }
+
+    int n = pc_list_files(dir, "h", files, 128);
+    if (n <= 0) {
+      continue;
+    }
+
+    // insertion sort: directory order is arbitrary
+    for (int i = 1; i < n; i++) {
+      char t[PC_FILE_LEN];
+      cat_copy(t, sizeof(t), files[i]);
+      int j = i - 1;
+      while (j >= 0 && nl_strcmp(files[j], t) > 0) {
+        cat_copy(files[j + 1], PC_FILE_LEN, files[j]);
+        j--;
+      }
+      cat_copy(files[j + 1], PC_FILE_LEN, t);
+    }
+
+    for (int i = 0; i < n; i++) {
+      size_t len = nl_strlen(files[i]);
+      if (len < 3 || files[i][len - 2] != '.' || files[i][len - 1] != 'h') {
+        continue;
+      }
+
+      char path[CATALOG_PATH_LEN];
+      if (!path_fits(dir, files[i], 0)) {
+        continue;
+      }
+
+      nl_snprintf(path, sizeof(path), "%s/%s", dir, files[i]);
+
+      nl_sha256_update(&h, sub[d], nl_strlen(sub[d]));
+      nl_sha256_update(&h, "/", 1);
+      nl_sha256_update(&h, files[i], len);
+      nl_sha256_update(&h, "\0", 1);
+      if (pc_hash_file(&h, path) < 0) {
+        nl_sha256_update(&h, "unreadable", 10);
+      }
+
+      if (d == 0 && nl_strcmp(files[i], "plugins.h") == 0) {
+        found_plugins_h = 1;
+      }
+
+      any = 1;
+    }
+  }
+
+  if (!found_plugins_h) {
     return -1;
   }
 
-  // Header decides ABI: new plugins.h means old libraries are suspect
-  char hdr[CATALOG_PATH_LEN + 24];
-  nl_snprintf(hdr, sizeof(hdr), "%s%sinclude/plugins.h", c->sdk_dir,
-              c->sdk_dir[0] ? "/" : "");
-  nl_sha256_update(&h, "\0hdr\0", 5);
-  if (pc_hash_file(&h, hdr) < 0) {
-    nl_sha256_update(&h, "none", 4); // unreadable is a state too, not a skip
+  uint8_t dig[NL_SHA256_LEN];
+  nl_sha256_final(&h, dig);
+  nl_sha256_hex(dig, hdr_hex);
+
+  (void)any;
+
+  return 0;
+}
+
+// Combine per-entry source with the precomputed SDK header hash. Also folds
+// PB_SCRIPT (the compile flags) in, so a change to plugin_build.h invalidates
+// every cached library without a manual PC_STAMP_TAG bump.
+// NOTE: $CC's own identity is NOT captured; switching gcc->clang without
+// touching source or headers reuses an old .so. Acceptable; PB_COMMON
+// carries most build-determining flags.
+static int pc_inputs_hash_with_hdr(const plugin_catalog_t *c,
+                                   const catalog_entry_t *e,
+                                   const char *hdr_hex,
+                                   char hex[NL_SHA256_HEX_LEN]) {
+  (void)c;
+  nl_sha256_t h;
+  nl_sha256_init(&h);
+  nl_sha256_update(&h, PC_STAMP_TAG, sizeof(PC_STAMP_TAG) - 1);
+  nl_sha256_update(&h, PB_SCRIPT, nl_strlen(PB_SCRIPT));
+  nl_sha256_update(&h, "\0script\0", 8);
+  if (pc_hash_file(&h, e->src_path) < 0) {
+    return -1;
   }
+  nl_sha256_update(&h, "\0hdr\0", 5);
+  nl_sha256_update(&h, hdr_hex, nl_strlen(hdr_hex));
 
   uint8_t d[NL_SHA256_LEN];
   nl_sha256_final(&h, d);
   nl_sha256_hex(d, hex);
-
   return 0;
+}
+
+// Fresh-compute variant: used by catalog_start_build and catalog_poll, where
+// headers may have changed since the last scan
+static int pc_inputs_hash(const plugin_catalog_t *c, const catalog_entry_t *e,
+                          char hex[NL_SHA256_HEX_LEN]) {
+  char hdr_hex[NL_SHA256_HEX_LEN];
+  if (pc_compute_hdr_hash(c->sdk_dir, hdr_hex) < 0) {
+    return -1;
+  }
+  return pc_inputs_hash_with_hdr(c, e, hdr_hex, hex);
 }
 
 static void pc_stamp_path(const plugin_catalog_t *c, const catalog_entry_t *e,
@@ -639,8 +754,13 @@ static int pc_stamp_matches(const char *stamp, const char *hex) {
   }
 
   char buf[NL_SHA256_HEX_LEN + 1] = {0};
-  ssize_t n = read(fd, buf, sizeof(buf) - 1);
+  ssize_t n;
+  do {
+    n = read(fd, buf, sizeof(buf) - 1);
+  } while (n < 0 && errno == EINTR);
+
   close(fd);
+
   if (n < NL_SHA256_HEX_LEN - 1) {
     return 0;
   }
@@ -656,8 +776,8 @@ static int pc_stamp_matches(const char *stamp, const char *hex) {
 
 // Write temp file then rename, so a crash never leaves half a stamp
 static void pc_stamp_write(const char *stamp, const char *hex) {
-  char tmp[PC_STAMP_PATH_LEN + 8];
-  nl_snprintf(tmp, sizeof(tmp), "%s.tmp", stamp);
+  char tmp[PC_STAMP_PATH_LEN];
+  nl_snprintf(tmp, sizeof(tmp), "%s.%ld.tmp", stamp, pc_pid());
 
   int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0644);
   if (fd < 0) {
@@ -668,6 +788,7 @@ static void pc_stamp_write(const char *stamp, const char *hex) {
   nl_snprintf(line, sizeof(line), "%s\n", hex);
   ssize_t n = write(fd, line, nl_strlen(line));
   close(fd);
+
   if (n != (ssize_t)nl_strlen(line)) {
     unlink(tmp);
 
@@ -682,11 +803,25 @@ static void pc_stamp_write(const char *stamp, const char *hex) {
   }
 }
 
-// Cached library for e, and does its stamp vouch for current source
+// Cached library for e and if its stamp vouch for current source
+// hdr_hex is combined SDK header hash; pass NULL to compute inline
 static int pc_cache_current(const plugin_catalog_t *c, const catalog_entry_t *e,
-                            char hex[NL_SHA256_HEX_LEN]) {
+                            const char *hdr_hex, char hex[NL_SHA256_HEX_LEN]) {
   hex[0] = '\0';
-  if (!e->src_path[0] || pc_inputs_hash(c, e, hex) < 0) {
+  if (!e->src_path[0]) {
+    return 0;
+  }
+
+  char local_hdr[NL_SHA256_HEX_LEN];
+  if (!hdr_hex) {
+    if (pc_compute_hdr_hash(c->sdk_dir, local_hdr) < 0) {
+      return 0;
+    }
+
+    hdr_hex = local_hdr;
+  }
+
+  if (pc_inputs_hash_with_hdr(c, e, hdr_hex, hex) < 0) {
     return 0;
   }
 
@@ -753,6 +888,11 @@ int catalog_scan(plugin_catalog_t *c) {
   static char names[CATALOG_MAX][CATALOG_NAME_LEN];
   int found = list_sources(c->src_dir, names, CATALOG_MAX);
 
+  // Hash SDK headers once for the whole scan: every entry shares them, so
+  // N entries cost 1 directory walk per SDK dir, not N.
+  char hdr_hex[NL_SHA256_HEX_LEN];
+  int hdr_ok = (pc_compute_hdr_hash(c->sdk_dir, hdr_hex) == 0);
+
   for (int i = 0; i < found && c->count < CATALOG_MAX; i++) {
     if (catalog_find(c, names[i]) >= 0) {
       continue;
@@ -777,7 +917,8 @@ int catalog_scan(plugin_catalog_t *c) {
 
     // a cached library counts only when its stamp matches today's source
     char hex[NL_SHA256_HEX_LEN];
-    e->state = file_exists(e->so_path) && pc_cache_current(c, e, hex)
+    e->state = (hdr_ok && file_exists(e->so_path) &&
+                pc_cache_current(c, e, hdr_hex, hex))
                    ? PC_READY
                    : PC_AVAILABLE;
   }
@@ -895,10 +1036,8 @@ int catalog_start_build(plugin_catalog_t *c, int idx) {
 
   pc_make_dirs(c->cache_dir);
 
-  // make compares file times: a source that went back in time (git checkout,
-  // restore) looks older than its library
-  // Drop a library that doesn't match its source so make really rebuilds it
-  // Only ever our own cache file, never a shipped prebuilt library
+  // Hash source+headers NOW; catalog_poll rehashes and refuses to stamp if
+  // they changed mid-build
   char stamp[PC_STAMP_PATH_LEN];
   pc_stamp_path(c, e, stamp, sizeof(stamp));
   e->hash[0] = '\0';
@@ -1040,12 +1179,27 @@ int catalog_poll(plugin_catalog_t *c, int *idx) {
       e->state = PC_FAILED;
       set_err(e, "lost track of build process");
     } else if (code == 0 && file_exists(e->so_path)) {
-      e->state = PC_READY;
-      e->err[0] = '\0';
-      if (e->hash[0]) {
+      // Rehash: if source or headers changed between catalog_start_build (which
+      // set e->hash) and now (when compiler read them), .so doesn't match what
+      // stamped R
+      // efuse to cache; force a rebuild
+      char now[NL_SHA256_HEX_LEN];
+      if (e->hash[0] && pc_inputs_hash(c, e, now) == 0 &&
+          nl_strcmp(now, e->hash) == 0) {
+        e->state = PC_READY;
+        e->err[0] = '\0';
         char stamp[PC_STAMP_PATH_LEN];
         pc_stamp_path(c, e, stamp, sizeof(stamp));
         pc_stamp_write(stamp, e->hash);
+      } else {
+        char own[CATALOG_PATH_LEN];
+        nl_snprintf(own, sizeof(own), "%s/%s.%s", c->cache_dir, e->name,
+                    PC_SO_EXT);
+        if (nl_strcmp(own, e->so_path) == 0) {
+          unlink(own);
+        }
+        e->state = PC_FAILED;
+        set_err(e, "source changed during build; rebuild");
       }
     } else {
       e->state = PC_FAILED;
@@ -1072,6 +1226,7 @@ void catalog_cleanup(plugin_catalog_t *c) {
     pc_kill(e->pid);
     e->pid = 0;
     e->state = PC_FAILED;
+    e->hash[0] = '\0'; // don't let a stale hash slip through a later poll
     set_err(e, "cancelled");
   }
 }
