@@ -240,7 +240,7 @@ installed   <prefix>/bin/asciicam          <prefix>/share/asciicam/{plugins,char
 
 ```bash
 make install PREFIX=/usr/local        # binary + prebuilt plugins + charsets
-make install-sdk PREFIX=/usr/local    # ... plus Makefile, headers, plugin sources
+make install-sdk PREFIX=/usr/local    # ... plus headers, plugin sources (and Makefile)
 ```
 
 Prebuilt libraries are preferred; a plugin is only compiled when the picker is
@@ -306,20 +306,37 @@ so it treats the file as untrusted: program headers, segment sizes, `PT_DYNAMIC`
 symbol/string/hash tables and every relocation target are bounds-checked before
 use, overlapping or writable+executable segments and unresolved non-weak symbols
 are refused, and a failed load unmaps everything. `tests/fuzz_elf.c` (part of
-`make test`) feeds it crafted and randomly damaged copies of the real plugins,
-each in a forked child with a canary mapping next to the reservation and fails
-on any crash, hang or write outside the mapping.
+`make test` and `./nb test`) feeds it crafted and randomly damaged copies of the
+real plugins, each in a forked child with a canary mapping next to the reservation
+and fails on any crash, hang or write outside the mapping.
 
 ---
 
-## Building without make (experimental)
+## Building without make
 
-`C/build.c` + `C/nb.h` are a small build system written in C,
-`cc -o nb build.c && ./nb` builds the binary and plugins in parallel (`-j8`),
-rebuilds only what changed and rebuilds itself when `build.c` changes.
-Other targets: `plugins`, `test` (core subset), `install`, `install-sdk`,
-`clean`. Linux and macOS; the Makefile stays the reference build until
-this covers everything.
+C/build.c` + `C/nb.h` are a small build system written in C. Bootstrap once,
+then it rebuilds itself whenever `build.c` or `nb.h` change:
+
+```sh
+cd C
+cc -o nb build.c
+./nb -j8              # binary + plugins, only what changed
+./nb test             # every unit test, fuzzers included
+./nb e2e              # main loop against a software camera, driven through a pty
+./nb install-sdk PREFIX=/usr DESTDIR=...   # also headers + plugin sources
+./nb clean            # ./nb info prints the flags in use
+```
+
+Nothing here and nothing installed app does, needs `make`: the picker builds a
+plugin by running the C compiler itself (`$CC`, default `cc`), with the flags
+from `include/plugin_build.h` - the same file `nb` takes them from, so a plugin
+compiled on demand is what a normal build produces. An installed SDK is just
+`include/`, `lib/` and `filters/`.
+
+Linux and macOS(Objective-C camera backend, frameworks) are tested.
+Makefile remains for Windows (`nb.h` has no Windows backend yet, Windows app still
+runs `make` for on-demand plugin builds) and for `make sanitize`. If you change
+plugin flags, change `plugin_build.h` and plugin rule in the Makefile to match.
 
 ## Try it without installing
 

@@ -3,9 +3,9 @@
  *
  * pc_list_files    names of files in a directory (Windows: matching *.ext)
  * pc_make_dirs     mkdir -p
- * pc_spawn         start `make` on plugin rule, output to a log file
- * pc_reap          non-blocking (or blocking) wait for that child
- * pc_kill          terminate and reap child
+ * pc_spawn         start the C compiler on a plugin source, output to a log
+ * file pc_reap     non-blocking (or blocking) wait for that child pc_kill
+ *                  terminate and reap child
  *
  * System headers must come before nolibc.h on libc platforms: nolibc redirects
  * names like strlen/signal with macros that would rewrite their declarations
@@ -31,6 +31,7 @@
 
 #include "nolibc.h"
 
+#include "plugin_build.h"
 #include "plugin_catalog.h"
 
 // Extension Makefile's plugin rule produces on this platform. Overridable so
@@ -185,35 +186,24 @@ static int pc_spawn(const plugin_catalog_t *c, const catalog_entry_t *e,
     return -1;
   }
 
-  // Use Makefile's own plugin rule so flags always match a normal build
-  char a_filter[CATALOG_PATH_LEN + 16];
-  char a_build[CATALOG_PATH_LEN + 16];
-  nl_snprintf(a_filter, sizeof(a_filter), "FILTERDIR=%s", c->src_dir);
-  nl_snprintf(a_build, sizeof(a_build), "BUILDDIR=%s", c->cache_dir);
-
+  // NOTE: compiler is run directly with flags from plugin_build.h, same ones
+  // build program uses, so a plugin built here matches a normal one
   static char *empty_env[] = {(char *)0};
   char **envp = c->envp ? c->envp : empty_env;
 
-  // /usr/bin/env resolves make through PATH; without an environment there is
-  // no PATH, so fall back to usual absolute location
-  const char *prog = c->envp ? "/usr/bin/env" : "/usr/bin/make";
-  // [env] make -s [-C <sdk>] FILTERDIR=.. BUILDDIR=.. <target>
-  char *argv[12];
+  // sh -c SCRIPT sh <source> <output> <sdk>; sh finds compiler through
+  // PATH (and $CC) in environment it is given
+  const char *prog = "/bin/sh";
+  char *argv[8];
   int ac = 0;
-  if (c->envp) {
-    argv[ac++] = "env";
-  }
 
-  argv[ac++] = "make";
-  argv[ac++] = "-s";
-  if (c->sdk_dir[0]) {
-    argv[ac++] = "-C";
-    argv[ac++] = (char *)c->sdk_dir;
-  }
-
-  argv[ac++] = a_filter;
-  argv[ac++] = a_build;
+  argv[ac++] = "sh";
+  argv[ac++] = "-c";
+  argv[ac++] = (char *)PB_SCRIPT;
+  argv[ac++] = "sh";
+  argv[ac++] = (char *)e->src_path;
   argv[ac++] = (char *)e->so_path;
+  argv[ac++] = (char *)(c->sdk_dir[0] ? c->sdk_dir : ".");
   argv[ac] = (char *)0;
 
   long pid = __sc1(SYS_fork, 0);
@@ -307,26 +297,20 @@ static void pc_make_dirs(const char *path) {
 
 static int pc_spawn(const plugin_catalog_t *c, const catalog_entry_t *e,
                     pc_proc_t *out, char *err, size_t errsz) {
-  char a_filter[CATALOG_PATH_LEN + 16];
-  char a_build[CATALOG_PATH_LEN + 16];
-  nl_snprintf(a_filter, sizeof(a_filter), "FILTERDIR=%s", c->src_dir);
-  nl_snprintf(a_build, sizeof(a_build), "BUILDDIR=%s", c->cache_dir);
-
-  char *argv[12];
+  // Runs compiler directly (flags from plugin_build.h)
+  // NOTE: see Linux version
+  char *argv[8];
   int ac = 0;
-  argv[ac++] = "make";
-  argv[ac++] = "-s";
-  if (c->sdk_dir[0]) {
-    argv[ac++] = "-C";
-    argv[ac++] = (char *)c->sdk_dir;
-  }
-
-  argv[ac++] = a_filter;
-  argv[ac++] = a_build;
+  argv[ac++] = "sh";
+  argv[ac++] = "-c";
+  argv[ac++] = (char *)PB_SCRIPT;
+  argv[ac++] = "sh";
+  argv[ac++] = (char *)e->src_path;
   argv[ac++] = (char *)e->so_path;
+  argv[ac++] = (char *)(c->sdk_dir[0] ? c->sdk_dir : ".");
   argv[ac] = (char *)0;
 
-  // posix_spawn rather than fork: macOS has AVFoundation threads running, and
+  // posix_spawn rather than fork: macOS has AVFoundation threads running and
   // spawn is supported way to start a child from a threaded process
   posix_spawn_file_actions_t fa;
   if (posix_spawn_file_actions_init(&fa) != 0) {
@@ -334,17 +318,18 @@ static int pc_spawn(const plugin_catalog_t *c, const catalog_entry_t *e,
 
     return -1;
   }
+
   posix_spawn_file_actions_addopen(&fa, 0, "/dev/null", O_RDONLY, 0);
   posix_spawn_file_actions_addopen(&fa, 1, e->log_path,
                                    O_WRONLY | O_CREAT | O_TRUNC, 0644);
   posix_spawn_file_actions_adddup2(&fa, 1, 2);
 
   pid_t pid = 0;
-  int rc =
-      posix_spawnp(&pid, "make", &fa, NULL, argv, c->envp ? c->envp : environ);
+  int rc = posix_spawn(&pid, "/bin/sh", &fa, NULL, argv,
+                       c->envp ? c->envp : environ);
   posix_spawn_file_actions_destroy(&fa);
   if (rc != 0) {
-    cat_copy(err, errsz, "build tool not found (need make)");
+    cat_copy(err, errsz, "cannot start /bin/sh to run the C compiler");
 
     return -1;
   }
@@ -436,7 +421,7 @@ static int pc_spawn(const plugin_catalog_t *c, const catalog_entry_t *e,
 
     return -1;
   }
-  
+
   HANDLE hnul =
       CreateFileA("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
                   OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -751,10 +736,22 @@ int catalog_start_build(plugin_catalog_t *c, int idx) {
   }
 
   if (c->sdk_dir[0]) {
-    char mk[CATALOG_PATH_LEN + 16];
+    // SDK is headers a plugin includes
+    // WARN: Only Windows build still goes through make and so also needs
+    // Makefile that ships beside them
+    char mk[CATALOG_PATH_LEN + 24];
+#if defined(PC_WINDOWS)
     nl_snprintf(mk, sizeof(mk), "%s/Makefile", c->sdk_dir);
     if (!file_exists(mk)) {
       set_err(e, "no plugin SDK (Makefile + headers): prebuilt plugins only");
+      e->state = PC_FAILED;
+
+      return -1;
+    }
+#endif
+    nl_snprintf(mk, sizeof(mk), "%s/include/plugins.h", c->sdk_dir);
+    if (!file_exists(mk)) {
+      set_err(e, "no plugin SDK (headers): prebuilt plugins only");
       e->state = PC_FAILED;
 
       return -1;
@@ -794,6 +791,11 @@ static void log_first_error(const char *log_path, int exit_code, char *out,
 
   if (n <= 0) {
     if (exit_code == 127) {
+#if defined(PC_WINDOWS)
+      cat_copy(out, outsz, "build tool not found (need make)");
+#else
+      cat_copy(out, outsz, "C compiler not found (install cc or set CC)");
+#endif
       cat_copy(out, outsz, "build tool not found (need make)");
     } else {
       cat_copy(out, outsz, "build failed (no output)");
