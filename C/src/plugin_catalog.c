@@ -638,7 +638,7 @@ static int pc_stamp_matches(const char *stamp, const char *hex) {
     return 0;
   }
 
-  char buf[NL_SHA256_HEX_LEN + 1];
+  char buf[NL_SHA256_HEX_LEN + 1] = {0};
   ssize_t n = read(fd, buf, sizeof(buf) - 1);
   close(fd);
   if (n < NL_SHA256_HEX_LEN - 1) {
