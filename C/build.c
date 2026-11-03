@@ -21,7 +21,11 @@
 #define BUILD "build"
 #define OBJ BUILD "/obj"
 
+#if defined(__APPLE__)
+static const char *cc = "clang";
+#else
 static const char *cc = "gcc";
+#endif
 static const char *prefix = "/usr/local";
 static const char *destdir = "";
 static int jobs = 4;
@@ -35,10 +39,11 @@ static int jobs = 4;
 #endif
 
 static const char *core_src[] = {
-    "src/app_paths.c",      "src/ascii.c",          "src/capture_demo.c",
-    "src/capture_reinit.c", "src/main.c",           "src/mouse.c",
-    "src/plugins.c",        "src/plugin_catalog.c", "src/plugin_picker.c",
-    "src/recorder.c",       "src/thread_sharing.c", "src/timing.c"};
+    "src/app_paths.c",     "src/ascii.c",          "src/browser.c",
+    "src/capture_demo.c",  "src/capture_reinit.c", "src/main.c",
+    "src/mouse.c",         "src/plugins.c",        "src/plugin_catalog.c",
+    "src/plugin_picker.c", "src/recorder.c",       "src/thread_sharing.c",
+    "src/timing.c"};
 static const char *lib_src[] = {
     "lib/nl_alloc.c",  "lib/nl_gc.c",     "lib/nl_dlfcn.c", "lib/nl_errno.c",
     "lib/nl_getopt.c", "lib/nl_printf.c", "lib/nl_start.c"};
@@ -151,6 +156,13 @@ static int build_all(void) {
       nb_cmd c = {0};
       nb_cmd_add(&c, cc);
       cflags(&c);
+#if !LINUX
+      const char *src = all[i];
+      size_t sl = strlen(src);
+      if (sl >= 2 && strcmp(src + sl - 2, ".m") == 0) {
+        nb_cmd_add(&c, "-x", "objective-c", "-fobjc-arc", "-fmodules");
+      }
+#endif
       nb_cmd_add(&c, "-c", all[i], "-o", o);
       nb_procs_add(&ps, &c);
     }
@@ -189,6 +201,9 @@ static int build_plugins(void) {
     nb_cmd_add(&c, cc);
     cflags(&c);
     nb_add_words(&c, PB_SHARED);
+#if !LINUX
+    nb_cmd_add(&c, "-undefined", "dynamic_lookup");
+#endif
     nb_cmd_add(&c, src, "-o", tmp);
     if (!nb_run(&c) || rename(tmp, out) != 0) {
       return 0;
