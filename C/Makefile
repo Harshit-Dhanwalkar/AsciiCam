@@ -133,6 +133,7 @@ CORE_SRCS := $(SRCDIR)/app_paths.c \
              $(SRCDIR)/thread_sharing.c \
              $(SRCDIR)/timing.c \
              $(SRCDIR)/capture_demo.c \
+             $(SRCDIR)/recorder.c
 
 ALL_C_SRCS := $(CORE_SRCS) $(PLAT_SRC) $(LIBSRCS)
 
@@ -281,6 +282,8 @@ test: all
 	$(CC) -O2 $(TEST_FLAGS) tests/test_capture_reinit.c $(SRCDIR)/capture_reinit.c $(TEST_LIBS) -o $(TESTDIR)/reinit
 	$(CC) -O2 $(TEST_FLAGS) tests/test_app_paths.c $(SRCDIR)/app_paths.c $(TEST_LIBS) -o $(TESTDIR)/app_paths
 	$(CC) -O2 $(TEST_FLAGS) tests/test_demo.c $(SRCDIR)/capture_demo.c $(TEST_LIBS) -o $(TESTDIR)/demo
+	$(CC) -O0 $(TEST_FLAGS) tests/test_recorder.c $(SRCDIR)/recorder.c $(TEST_LIBS) -o $(TESTDIR)/recorder_O0
+	$(CC) -O2 $(TEST_FLAGS) tests/test_recorder.c $(SRCDIR)/recorder.c $(TEST_LIBS) -o $(TESTDIR)/recorder_O2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_copy_file.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/copy_file
 	$(CC) -O2 $(TEST_FLAGS) tests/test_plugin_catalog.c $(SRCDIR)/plugin_catalog.c $(SRCDIR)/plugin_picker.c $(SRCDIR)/plugins.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/catalog
 	$(CC) -O0 $(TEST_FLAGS) tests/test_nl_gc.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/gc_O0
@@ -305,6 +308,8 @@ test: all
 	$(TESTDIR)/app_paths
 	$(TESTDIR)/catalog
 	$(TESTDIR)/demo
+	$(TESTDIR)/recorder_O0
+	$(TESTDIR)/recorder_O2
 	$(TESTDIR)/gc_O0
 	$(TESTDIR)/gc_O2
 	$(TESTDIR)/thread

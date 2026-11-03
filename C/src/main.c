@@ -8,6 +8,7 @@
 #include "plugin_catalog.h"
 #include "plugin_picker.h"
 #include "plugins.h"
+#include "recorder.h"
 #include "thread_sharing.h"
 #include "timing.h"
 
@@ -215,6 +216,9 @@ static void print_usage(const char *prog) {
       "  mouse         drag any corner to resize frame, drag frame     \n"
       "                itself to move it anywhere; applied on release  \n"
       "  a / A         return frame to terminal auto-fit (top-left)    \n"
+      "  s             screenshot: .png + .ansi in the captures folder \n"
+      "  t             start / stop recording (.cast, asciinema v2); a \n"
+      "                red REC clock shows in panel while it runs  \n"
       "  q             quit                                            \n",
       prog, DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT, DEFAULT_FPS,
       DEFAULT_ASCII_WIDTH, DEFAULT_ASCII_HEIGHT, ASCII_CHARS_DEFAULT,
@@ -434,6 +438,50 @@ void term_restore(void) {
 
 // panel_row: first of PANEL_ROWS rows (1-based) status panel is drawn on
 // drag     : current mouse drag, shown instead of hint bar while one is active
+// Last REC_TOAST_W bytes of a path with "..." in front when it was cut: toast
+// box is only 60 columns wide and file name is part that matters
+#define REC_TOAST_W 50
+
+static const char *path_tail(const char *path, char *buf, size_t bufsz) {
+  size_t n = nl_strlen(path);
+  if (n <= REC_TOAST_W || bufsz < REC_TOAST_W + 4) {
+    return path;
+  }
+
+  nl_snprintf(buf, bufsz, "...%s", path + n - REC_TOAST_W);
+
+  return buf;
+}
+
+// Red blinking dot, "REC" and elapsed time at right end of panel's first row
+static void draw_rec_indicator(int panel_row, int term_w, const recorder_t *r,
+                               uint64_t now_ns, int color) {
+  if (!r->active || panel_row < 1) {
+    return;
+  }
+
+  double secs = now_ns > r->t0_ns ? (double)(now_ns - r->t0_ns) / 1e9 : 0.0;
+  char clk[16];
+  rec_clock(clk, secs);
+  int lit = ((int)(secs * 2.0) & 1) == 0; // half-second blink
+  int col = term_w > 14 ? term_w - 13 : 1;
+  char buf[160];
+  int n;
+  if (color) {
+    n = nl_snprintf(buf, sizeof(buf),
+                    "\033[%d;%dH\033[48;2;18;18;18m\033[1;38;2;255;40;40m%s"
+                    "\033[38;2;255;255;255m REC %s \033[0m",
+                    panel_row, col, lit ? "●" : " ", clk);
+  } else {
+    n = nl_snprintf(buf, sizeof(buf), "\033[%d;%dH\033[7m %s REC %s \033[0m",
+                    panel_row, col, lit ? "(o)" : "   ", clk);
+  }
+
+  if (n > 0 && n < (int)sizeof(buf)) {
+    (void)write(STDOUT_FILENO, buf, (size_t)n);
+  }
+}
+
 static void overlay_panel(int panel_row, const frame_rect_t *frame,
                           const mouse_drag_t *drag, double fps,
                           plugin_loader_t *plugins, const int *plugin_params,
@@ -758,7 +806,7 @@ static void plugin_slot_remove(plugin_loader_t *plugins, int *params, int *cat,
   }
 }
 
-// Load a built catalog entry into the filter chain. msg gets the toast text
+// Load a built catalog entry into filter chain. msg gets toast text
 static int plugin_activate(plugin_catalog_t *cc, int ci,
                            plugin_loader_t *plugins, int *params, int *cat,
                            int *count, char *msg, size_t msgsz) {
@@ -1045,7 +1093,7 @@ int main(int argc, char *argv[]) {
 
   picker_t picker;
   nl_memset(&picker, 0, sizeof(picker));
-  char toast_msg[128];
+  char toast_msg[160];
   toast_msg[0] = '\0';
   int toast_frames = 0;
 
@@ -1159,18 +1207,34 @@ int main(int argc, char *argv[]) {
 
   mouse_parser_t mouse_parser = {0, {0, 0, 0}, 0};
   mouse_drag_t mouse_drag = {0};
-  // Frame placement: top-left cell, and the terminal it has to stay inside
+  // Frame placement: top-left cell, and terminal it has to stay inside
   int frame_x = 1;
   int frame_y = 1;
   int term_w = 0;
   int term_h = 0;
   query_term_size(&term_w, &term_h);
-  // Outline of the pending rectangle while a drag is in progress
+  // Outline of pending rectangle while a drag is in progress
   frame_rect_t outline = {0, 0, 0, 0};
   int outline_on = 0;
 
   // 0 = frame follows terminal width (SIGWINCH); 1 = user dragged it
   int ascii_size_manual = 0;
+
+  // Recorder / screenshots: where files go, what was saved this session.
+  // Declared at function scope because they are used by the keyhandler (the
+  // 's' screenshot, 't' toggle-rec hotkeys), the per-frame shot/rec write, and
+  // the cleanup block after the main loop - not only by the SIGWINCH branch.
+  recorder_t rec;
+  rec_init(&rec);
+  char cap_dir[REC_PATH_LEN];
+  if (rec_default_dir(cap_dir, sizeof(cap_dir), app_env.home,
+                      app_getenv(envp, "XDG_DATA_HOME")) < 0) {
+    nl_snprintf(cap_dir, sizeof(cap_dir), "captures");
+  }
+
+  int want_shot = 0;
+  char saved_cast[REC_PATH_LEN] = "";
+  char saved_shot[REC_PATH_LEN] = "";
 
   struct timespec frame_start = {0};
   struct timespec last_frame_time = {0};
@@ -1220,7 +1284,7 @@ int main(int argc, char *argv[]) {
       (void)write(STDOUT_FILENO, "\033[2J", 4);
 
       if (ascii_size_manual) {
-        // keep the chosen frame, but not outside the (smaller) terminal
+        // keep chosen frame, but not outside (smaller) terminal
         int avail_h = term_h - PANEL_ROWS;
         int fw = (term_w > 0 && ascii_w > term_w) ? term_w : ascii_w;
         int fh = (term_h > 0 && ascii_h > avail_h) ? avail_h : ascii_h;
@@ -1278,11 +1342,11 @@ int main(int argc, char *argv[]) {
         }
 
         if (prc == MOUSE_PARSE_DONE) {
-          // Corners resize the ASCII frame 1:1 in cells, dragging the body
-          // moves it. Capture resolution is controlled only by -w/-h at
-          // startup and is not touched here, so frame's aspect and camera's
-          // aspect stay independent. Nothing changes until release: meanwhile
-          // an outline shows where the frame will go
+          // Corners resize ASCII frame 1:1 in cells, dragging body moves it
+          // Capture resolution is controlled only by -w/-h at startup and is
+          // not touched here, so frame's aspect and camera's aspect stay
+          // independent. Nothing changes until release: meanwhile an outline
+          // shows where frame will go
           frame_rect_t cur = {frame_x, frame_y, ascii_w, ascii_h};
           mouse_limits_t lim = {term_w,          term_h,      PANEL_ROWS,
                                 MIN_ASCII_W,     MIN_ASCII_H, DRAG_MAX_ASCII_W,
@@ -1368,8 +1432,8 @@ int main(int argc, char *argv[]) {
 
               break;
             default:
-              // other CSI sequences (Home, End, F1..F12, C/D cursor keys)
-              // are not bound; fall through to the outer continue
+              // other CSI sequences (Home, End, F1..F12, C/D cursor keys) are
+              // not bound; fall through to outer continue
               break;
             }
           }
@@ -1520,6 +1584,31 @@ int main(int argc, char *argv[]) {
         opts.depth_invert = !opts.depth_invert;
 
         break;
+      case 's':
+      case 'S':
+        want_shot = 1; // taken from the next frame that is rendered
+
+        break;
+      case 't':
+      case 'T':
+        if (rec.active) {
+          double secs = 0;
+          char tb[REC_TOAST_W + 8];
+          int frames = rec_stop(&rec, rec_mono_ns(), &secs);
+          nl_snprintf(saved_cast, sizeof(saved_cast), "%s", rec.path);
+          TOAST("REC stopped, %ds: %s", (int)secs,
+                path_tail(rec.path, tb, sizeof(tb)));
+          (void)frames;
+        } else if (rec_start(&rec, cap_dir, term_w, term_h, rec_unix_now(),
+                             rec_mono_ns()) == 0) {
+          char tb[REC_TOAST_W + 8];
+          TOAST("REC started: %s", path_tail(rec.path, tb, sizeof(tb)));
+        } else {
+          char tb[REC_TOAST_W + 8];
+          TOAST("cannot record into %s", path_tail(cap_dir, tb, sizeof(tb)));
+        }
+
+        break;
       case 'u':
       case 'U':
         if (plugin_count > 0) {
@@ -1605,9 +1694,8 @@ int main(int argc, char *argv[]) {
     charset_registry_check_reload(&charsets);
     opts.charset = charset_registry_active_ramp(&charsets);
 
-    // Frame capture. `frame` is luma the plugins and renderer work on; `raw`
-    // is the camera's YUYV for this frame (colour needs it), NULL if
-    // unavailable
+    // Frame capture. `frame` is luma plugins and renderer work on; `raw` is
+    // camera's YUYV for this frame (colour needs it), NULL if unavailable
     uint8_t *frame = gray;
     const uint8_t *raw = NULL;
 
@@ -1624,7 +1712,7 @@ int main(int argc, char *argv[]) {
         continue; // no new frame yet; keys were handled above
       }
 
-      frame = cf->gray; // exclusively ours until the next acquire
+      frame = cf->gray; // exclusively ours until next acquire
       raw = cf->has_yuyv ? cf->yuyv : NULL;
     } else {
       if (webcam_wait_frame(&cam, 1000) < 0) {
@@ -1642,7 +1730,7 @@ int main(int argc, char *argv[]) {
         continue; // corrupt frame dropped, its buffer is already requeued
       }
 
-      // NOTE: cam.buffer is the V4L2 mmap region (Linux only)
+      // NOTE: cam.buffer is V4L2 mmap region (Linux only)
       // On macOS, capture_macos.c delivers luma only; cam.buffer is NULL
       // TODO: Add color support for macOS
       // Color mode is therefore a Linux-only feature for now
@@ -1660,7 +1748,7 @@ int main(int argc, char *argv[]) {
     }
 
     // frame already went through plugins, so use it as Y: shapes and colour
-    // then come from same image (U/V are still the camera's)
+    // then come from same image (U/V are still camera's)
     if (opts.color && rgb && raw) {
       yuyv_to_rgb_ex(raw, cam.stride, frame, rgb, cam.width, cam.height);
     }
@@ -1700,12 +1788,42 @@ int main(int argc, char *argv[]) {
       write_all(STDOUT_FILENO, SYNC_BEGIN, sizeof(SYNC_BEGIN) - 1);
       write_all(STDOUT_FILENO, out_buf, (size_t)len);
 
+      uint64_t rec_now = rec_mono_ns();
+      if (rec.active && rec_frame(&rec, rec_now, out_buf, (size_t)len) < 0) {
+        TOAST("REC stopped: cannot write %s", rec.path);
+      }
+
+      if (want_shot) {
+        want_shot = 0;
+        int have_rgb = opts.color && rgb && raw;
+        char png_p[REC_PATH_LEN], ansi_p[REC_PATH_LEN], tb[REC_TOAST_W + 8];
+        int rc = shot_save(cap_dir, rec_unix_now(), have_rgb ? rgb : frame,
+                           cam.width, cam.height, have_rgb ? 3 : 1, out_buf,
+                           (size_t)len, term_h, png_p, sizeof(png_p), ansi_p,
+                           sizeof(ansi_p));
+        if (ansi_p[0]) {
+          nl_snprintf(saved_shot, sizeof(saved_shot), "%s",
+                      png_p[0] ? png_p : ansi_p);
+        }
+
+        if (rc == 0) {
+          TOAST("saved %s", path_tail(png_p, tb, sizeof(tb)));
+        } else if (ansi_p[0]) {
+          TOAST("saved text only: %s", path_tail(ansi_p, tb, sizeof(tb)));
+        } else {
+          TOAST("cannot save into %s", path_tail(cap_dir, tb, sizeof(tb)));
+        }
+      }
+
       frame_rect_t shown = {frame_x, frame_y, ascii_w, ascii_h};
       overlay_panel(panel_row_for(term_h, ascii_h), &shown, &mouse_drag,
                     current_fps, plugins, plugin_params, plugin_count, selected,
                     opts.color, &opts, &charsets, hw_exposure, hw_contrast,
                     hw_wb, cam.width, cam.height, ascii_size_manual);
       draw_corner_indicators(&shown, opts.color, &mouse_drag);
+      draw_rec_indicator(panel_row_for(term_h, ascii_h), term_w, &rec, rec_now,
+                         opts.color);
+
       if (outline_on && mouse_drag.dragging) {
         draw_drag_outline(&outline, opts.color, 0);
       }
@@ -1769,6 +1887,20 @@ int main(int argc, char *argv[]) {
   (void)write(STDOUT_FILENO, CLEANUP, sizeof(CLEANUP) - 1);
 
   fprintf(stderr, "Stopped.\n");
+  if (rec.active) {
+    double secs = 0;
+    int frames = rec_stop(&rec, rec_mono_ns(), &secs);
+    nl_snprintf(saved_cast, sizeof(saved_cast), "%s", rec.path);
+    fprintf(stderr, "Recording ended: %d frames, %d s\n", frames, (int)secs);
+  }
+
+  if (saved_cast[0]) {
+    fprintf(stderr, "Recording saved: %s\n", saved_cast);
+  }
+
+  if (saved_shot[0]) {
+    fprintf(stderr, "Screenshot saved: %s\n", saved_shot);
+  }
 
   nl_free(gray);
   nl_free(rgb);
@@ -1778,7 +1910,7 @@ int main(int argc, char *argv[]) {
   }
   catalog_cleanup(&catalog);
   charset_registry_cleanup(&charsets);
-  capture_pipe_stop(&cap_pipe); // before the camera it reads from is closed
+  capture_pipe_stop(&cap_pipe); // before camera it reads from is closed
   webcam_cleanup(&cam);
 
   return 0;

@@ -12,12 +12,15 @@ capture thread and once with -T, and checks:
     is used (inline capture blocks in camera wait)
 """
 import fcntl
+import json
 import os
 import pty
 import re
 import select
+import shutil
 import struct
 import sys
+import tempfile
 import termios
 import time
 
@@ -222,6 +225,91 @@ for label, extra in (("threaded", []), ("inline -T", ["-T"])):
     check(last_origin(out[marks[0]:marks[2]]) == (1, 1), f"{label}: plain click does not move frame")
     check(last_origin(out[marks[-3]:marks[-2]]) == (1, 1), f"{label}: 'a' returns frame to top-left")
     check(last_frame(out[marks[-3]:marks[-2]]) == (120, 46), f"{label}: 'a' fits terminal ({last_frame(out[marks[-3]:marks[-2]])})")
+
+
+# Recorder + screenshot: keys, red REC clock, toasts, files that really decode
+def check_png(path):
+    import zlib
+    d = open(path, "rb").read()
+    if d[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    pos, idat, w = 8, b"", None
+    while pos < len(d):
+        n = struct.unpack(">I", d[pos:pos + 4])[0]
+        typ, body = d[pos + 4:pos + 8], d[pos + 8:pos + 8 + n]
+        if zlib.crc32(typ + body) != struct.unpack(">I", d[pos + 8 + n:pos + 12 + n])[0]:
+            return None
+        if typ == b"IHDR":
+            w, h, _, ct = struct.unpack(">IIBB", body[:10])
+        if typ == b"IDAT":
+            idat += body
+        pos += 12 + n
+    raw = zlib.decompress(idat)
+    ch = 3 if ct == 2 else 1
+    return (w, h, ch) if len(raw) == h * (1 + w * ch) else None
+
+
+for label, extra in (("colour", ["-C"]), ("mono", [])):
+    cap_root = tempfile.mkdtemp(prefix="asciicam_cap_")
+    os.environ["XDG_DATA_HOME"] = cap_root
+    out, marks = session(
+        ARGS + extra,
+        [
+            (b"t", 0.9),     # start recording
+            (b"s", 0.5),     # screenshot while recording
+            (b"t", 0.5),     # stop
+        ],
+    )
+    del os.environ["XDG_DATA_HOME"]
+    cap_dir = os.path.join(cap_root, "asciicam", "captures")
+    files = sorted(os.listdir(cap_dir)) if os.path.isdir(cap_dir) else []
+    casts = [f for f in files if f.endswith(".cast")]
+    pngs = [f for f in files if f.endswith(".png")]
+    ansis = [f for f in files if f.endswith(".ansi")]
+    check(len(casts) == 1 and len(pngs) == 1 and len(ansis) == 1,
+          f"recorder {label}: one .cast, .png, .ansi saved ({files})")
+    check(b"REC started" in out, f"recorder {label}: toast on start")
+    check(b"REC stopped" in out and b"saved" in out,
+          f"recorder {label}: toasts on stop and screenshot")
+    check(b"asciicam-" in out, f"recorder {label}: toast names the saved file")
+    check(b" REC 0:0" in out, f"recorder {label}: REC clock drawn in panel")
+    if label == "colour":
+        check(b"\x1b[1;38;2;255;40;40m\xe2\x97\x8f" in out,
+              "recorder colour: red dot")
+    else:
+        check(b"(o) REC" in out, "recorder mono: (o) dot")
+    if casts:
+        lines = open(os.path.join(cap_dir, casts[0]), encoding="utf-8").read().split("\n")
+        head = json.loads(lines[0])
+        events = [json.loads(l) for l in lines[1:] if l]
+        check(head["version"] == 2 and head["width"] == 120 and head["height"] == 50,
+              f"recorder {label}: cast header {head}")
+        check(len(events) >= 8 and all(e[1] == "o" for e in events),
+              f"recorder {label}: {len(events)} output events")
+        times = [e[0] for e in events]
+        check(times == sorted(times) and 0.4 < times[-1] < 2.0,
+              f"recorder {label}: event times rise, last {times[-1] if times else None}")
+        check(any("\x1b[" in e[2] for e in events), f"recorder {label}: frames hold the escapes")
+        check(not any("REC" in e[2] for e in events),
+              f"recorder {label}: panel/REC clock not part of recording")
+    if pngs:
+        info = check_png(os.path.join(cap_dir, pngs[0]))
+        check(info == (640, 480, 3 if label == "colour" else 1),  # camera size, not -W/-H
+              f"recorder {label}: png decodes, {info}")
+    if ansis:
+        txt = open(os.path.join(cap_dir, ansis[0]), "rb").read()
+        check(txt.startswith(b"\x1b[2J\x1b[H") and len(txt) > 200,
+              f"recorder {label}: .ansi holds the frame")
+    shutil.rmtree(cap_root, ignore_errors=True)
+
+# unwritable captures folder: a message, no crash
+os.environ["XDG_DATA_HOME"] = "/proc/nope"
+out, marks = session(ARGS, [(b"t", 0.5), (b"s", 0.5)])
+del os.environ["XDG_DATA_HOME"]
+check(b"cannot record" in out and b"cannot save" in out,
+      "recorder: unwritable folder gives messages, program keeps running")
+check(out.count(SYNC_BEGIN) > 10, "recorder: still drawing after failures")
+
 
 # Real binary with built-in picture: no camera, no fake
 REAL = sys.argv[2] if len(sys.argv) > 2 else None

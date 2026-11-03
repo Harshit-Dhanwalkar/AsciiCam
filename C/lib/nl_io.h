@@ -258,6 +258,17 @@ static inline int nl_rename(const char *from, const char *to) {
   return 0;
 }
 
+static inline int nl_mkdir(const char *path, int mode) {
+  long ret = __sc2(SYS_mkdir, (long)path, (long)mode);
+  if (ret < 0) {
+    errno = (int)-ret;
+
+    return -1;
+  }
+
+  return 0;
+}
+
 // Macro redirects
 #define write(fd, buf, n) nl_write(fd, buf, n)
 #define read(fd, buf, n) nl_read(fd, buf, n)
@@ -268,6 +279,7 @@ static inline int nl_rename(const char *from, const char *to) {
 #define close(fd) nl_close(fd)
 #define unlink(p) nl_unlink(p)
 #define rename(a, b) nl_rename(a, b)
+#define mkdir(p, m) nl_mkdir(p, m)
 #define mmap(a, l, p, f, fd, o) nl_mmap(a, l, p, f, fd, o)
 #define munmap(a, l) nl_munmap(a, l)
 #define ioctl(fd, req, arg) nl_ioctl(fd, req, (void *)(long)(arg))

@@ -38,7 +38,7 @@ static const char *core_src[] = {
     "src/app_paths.c",      "src/ascii.c",          "src/capture_demo.c",
     "src/capture_reinit.c", "src/main.c",           "src/mouse.c",
     "src/plugins.c",        "src/plugin_catalog.c", "src/plugin_picker.c",
-    "src/thread_sharing.c", "src/timing.c"};
+    "src/recorder.c",       "src/thread_sharing.c", "src/timing.c"};
 static const char *lib_src[] = {
     "lib/nl_alloc.c",  "lib/nl_gc.c",     "lib/nl_dlfcn.c", "lib/nl_errno.c",
     "lib/nl_getopt.c", "lib/nl_printf.c", "lib/nl_start.c"};
@@ -319,6 +319,16 @@ static int run_tests(void) {
         "build/threshold.so 2000 1 build/tests/fuzz_elf.tmp"}},
       {"mouse", "-O0", "", "tests/test_mouse.c src/mouse.c", {NULL}},
       {"demo", "-O2", "", "tests/test_demo.c src/capture_demo.c", {NULL}},
+      {"recorder_O0",
+       "-O0",
+       "",
+       "tests/test_recorder.c src/recorder.c",
+       {NULL}},
+      {"recorder_O2",
+       "-O2",
+       "",
+       "tests/test_recorder.c src/recorder.c",
+       {NULL}},
       {"reinit",
        "-O2",
        "",
@@ -450,7 +460,7 @@ int main(int argc, char **argv) {
   } else if (!strcmp(target, "plugins")) {
     ok = build_plugins();
   } else if (!strcmp(target, "test")) {
-    ok = run_tests();
+    ok = build_all() && run_tests(); // tests read build/webcam_ascii
   } else if (!strcmp(target, "e2e")) {
     ok = run_e2e();
   } else if (!strcmp(target, "info")) {
