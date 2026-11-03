@@ -99,11 +99,11 @@ int rec_make_dirs(const char *path) {
   }
 
   nl_memcpy(tmp, path, len + 1);
-  for (char *p = tmp + 1; *p; p++) {
-    if (*p == '/') {
-      *p = '\0';
+  for (size_t i = 1; i < len; i++) {
+    if (tmp[i] == '/') {
+      tmp[i] = '\0';
       mkdir(tmp, 0755); // exists already is fine, the last call decides
-      *p = '/';
+      tmp[i] = '/';
     }
   }
 
@@ -163,7 +163,7 @@ void rec_timestamp(char out[17], int64_t unix_secs) {
 }
 
 int64_t rec_unix_now(void) {
-  struct timespec ts;
+  struct timespec ts = {0, 0};
   if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
     return 0;
   }
@@ -172,7 +172,7 @@ int64_t rec_unix_now(void) {
 }
 
 uint64_t rec_mono_ns(void) {
-  struct timespec ts;
+  struct timespec ts = {0, 0};
   if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
     return 0;
   }
