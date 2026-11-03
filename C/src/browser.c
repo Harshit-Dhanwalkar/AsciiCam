@@ -1,6 +1,12 @@
+
 #include "nolibc.h"
 
 #include "browser.h"
+
+#if !defined(__LINUX_NOLIBC__)
+#include <dirent.h>
+#include <time.h>
+#endif
 
 // Linux dirent64 layout returned by getdents64 (syscall 217)
 struct brows_dirent64 {
@@ -23,13 +29,42 @@ void browser_init(browser_t *b) { nl_memset(b, 0, sizeof(*b)); }
 
 static brows_ftype_t type_from_name(const char *name) {
   size_t n = nl_strlen(name);
-  if (n >= 5 && nl_strcmp(name + n - 5, ".cast") == 0)
+  if (n >= 5 && nl_strcmp(name + n - 5, ".cast") == 0) {
     return BROWS_CAST;
-  if (n >= 5 && nl_strcmp(name + n - 5, ".ansi") == 0)
+  }
+  if (n >= 5 && nl_strcmp(name + n - 5, ".ansi") == 0) {
     return BROWS_ANSI;
-  if (n >= 4 && nl_strcmp(name + n - 4, ".png") == 0)
+  }
+  if (n >= 4 && nl_strcmp(name + n - 4, ".png") == 0) {
     return BROWS_PNG;
+  }
+
   return BROWS_UNKNOWN;
+}
+
+// Helper
+static void add_capture_entry(browser_t *b, const char *cap_dir,
+                              const char *name) {
+  if (b->count >= BROWS_MAX_FILES) {
+    return;
+  }
+  if (name[0] == '.') {
+    return;
+  }
+
+  brows_ftype_t t = type_from_name(name);
+  if (t == BROWS_UNKNOWN) {
+    return;
+  }
+
+  brows_entry_t *e = &b->e[b->count];
+  nl_strncpy_safe(e->name, name, BROWS_NAME_LEN);
+  if (nl_snprintf(e->path, BROWS_PATH_LEN, "%s/%s", cap_dir, name) <= 0) {
+    return;
+  }
+
+  e->type = t;
+  b->count++;
 }
 
 int browser_scan(browser_t *b, const char *cap_dir) {
@@ -43,32 +78,35 @@ int browser_scan(browser_t *b, const char *cap_dir) {
     return -1;
   }
 
+#if defined(__LINUX_NOLIBC__)
   char dbuf[8192];
   long n;
   while ((n = __sc3(SYS_getdents64, fd, (long)dbuf, (long)sizeof(dbuf))) > 0) {
     long off = 0;
-    while (off < n && b->count < BROWS_MAX_FILES) {
+    while (off < n) {
       struct brows_dirent64 *d = (struct brows_dirent64 *)(dbuf + off);
       off += d->d_reclen;
-
-      const char *name = d->d_name;
-      if (name[0] == '.')
-        continue; // skip dotfiles incl. . and ..
-
-      brows_ftype_t t = type_from_name(name);
-      if (t == BROWS_UNKNOWN)
-        continue;
-
-      brows_entry_t *e = &b->e[b->count];
-      nl_strncpy_safe(e->name, name, BROWS_NAME_LEN);
-      if (nl_snprintf(e->path, BROWS_PATH_LEN, "%s/%s", cap_dir, name) <= 0) {
-        continue;
-      }
-      e->type = t;
-      b->count++;
+      add_capture_entry(b, cap_dir, d->d_name);
     }
   }
+
   close(fd);
+#else
+  DIR *dir = fdopendir(fd);
+  if (!dir) {
+    close(fd);
+    nl_snprintf(b->status, sizeof(b->status), "cannot open dir");
+
+    return -1;
+  }
+
+  struct dirent *d;
+  while ((d = readdir(dir)) != NULL) {
+    add_capture_entry(b, cap_dir, d->d_name);
+  }
+
+  closedir(dir); // closes fd too
+#endif
 
   // Sort by name descending
   // asciicam-generated filenames contain an ISO 8601 UTC timestamp
@@ -225,12 +263,15 @@ int browser_render(const browser_t *b, int term_h, int term_w, int color,
   // Keep selected visible (cast away const for scroll adjustment - it's a
   // display-only cache, not real state)
   browser_t *bm = (browser_t *)b;
-  if (bm->selected < bm->scroll)
+  if (bm->selected < bm->scroll) {
     bm->scroll = bm->selected;
-  if (bm->selected >= bm->scroll + list_rows)
+  }
+  if (bm->selected >= bm->scroll + list_rows) {
     bm->scroll = bm->selected - list_rows + 1;
-  if (bm->scroll < 0)
+  }
+  if (bm->scroll < 0) {
     bm->scroll = 0;
+  }
 
   // Colour palette (truecolor when color, empty strings otherwise)
   const char *border_fg = color ? "\033[38;2;120;140;180m" : "";
@@ -268,7 +309,7 @@ int browser_render(const browser_t *b, int term_h, int term_w, int color,
                        place_col);
 
     if (idx < b->count) {
-      brows_entry_t *e = &b->e[idx];
+      const brows_entry_t *e = &b->e[idx];
       const char *marker = (idx == b->selected) ? "▶" : " ";
       const char *row_bg = (idx == b->selected) ? sel_bg : norm_bg;
       const char *type_fg = e->type == BROWS_CAST   ? cast_fg
@@ -399,8 +440,10 @@ static void drain_keys(void) {
   }
 }
 
-// Nanosleep wrapper that doesn't depend on libc exposing nanosleep() as a
-// symbol (nolibc build may not). Raw syscall via __sc2
+// TODO: Implement lib/sleep.h
+// WARN: Temperory Nanosleep wrapper that doesn't depend on libc exposing
+// nanosleep() as a symbol (nolibc build may not)
+// Raw syscall via __sc2
 static void my_nanosleep(long ns) {
   if (ns <= 0) {
     return;
@@ -409,7 +452,11 @@ static void my_nanosleep(long ns) {
   struct timespec ts = {0};
   ts.tv_sec = ns / 1000000000L;
   ts.tv_nsec = ns % 1000000000L;
+#if defined(__LINUX_NOLIBC__)
   __sc2(SYS_nanosleep, (long)&ts, 0);
+#else
+  nanosleep(&ts, NULL);
+#endif
 }
 
 // Wait for a keypress, polling every ~50ms
