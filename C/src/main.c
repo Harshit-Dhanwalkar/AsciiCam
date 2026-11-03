@@ -2,6 +2,7 @@
 
 #include "app_paths.h"
 #include "ascii.h"
+#include "browser.h"
 #include "capture.h"
 #include "demo.h"
 #include "mouse.h"
@@ -165,61 +166,67 @@ static void print_usage(const char *prog) {
       "Usage: %s [options]\n"
       "\n"
       "Capture options:\n"
-      "  -d <device>   video device             (default: /dev/video0)\n"
-      "  --demo        built-in animated picture, no camera needed    \n"
-      "                (same as -d demo)                              \n"
-      "  -w <width>    capture width            (default: %d)         \n"
-      "  -h <height>   capture height           (default: %d)         \n"
-      "  -f <fps>      target framerate         (default: %d)         \n"
+      "  -d <device>   video device             (default: /dev/video0) \n"
+      "  --demo        built-in animated picture, no camera needed     \n"
+      "                (same as -d demo)                               \n"
+      "  -w <width>    capture width            (default: %d)          \n"
+      "  -h <height>   capture height           (default: %d)          \n"
+      "  -f <fps>      target framerate         (default: %d)          \n"
       "  -T            capture in main loop     (Linux default: a separate\n"
-      "                capture thread keeps UI responsive)             \n"
+      "                capture thread keeps UI responsive)              \n"
       "\n"
       "Output options:\n"
-      "  -W <width>    ASCII output columns     (default: %d)          \n"
-      "  -H <height>   ASCII output rows        (default: %d)          \n"
-      "  -s <chars>    custom charset string    (default: \"%s\")      \n"
-      "  -p <path>     filter plugin .so path   (repeatable)           \n"
-      "  -L <dir>      plugin source dir for live picker (default: %s) \n"
-      "  -m <mode>     render mode: braille|blocks|ascii|halfblock|dots\n"
-      "  -k <dir>      charset directory (hot-reloadable .txt ramps)   \n"
+      "  -W <width>    ASCII output columns     (default: %d)           \n"
+      "  -H <height>   ASCII output rows        (default: %d)           \n"
+      "  -s <chars>    custom charset string    (default: \"%s\")       \n"
+      "  -p <path>     filter plugin .so path   (repeatable)            \n"
+      "  -L <dir>      plugin source dir for live picker (default: %s)  \n"
+      "  -m <mode>     render mode: braille|blocks|ascii|halfblock|dots \n"
+      "  -k <dir>      charset directory (hot-reloadable .txt ramps)    \n"
       "\n"
       "Image adjustments:\n"
-      "  -b <val>      brightness offset        -128..128  (default: 0)\n"
+      "  -b <val>      brightness offset        -128..128  (default: 0) \n"
       "  -c <val>      contrast in percent      >0; 100=none (default: 100)\n"
       "  -g <val>      gamma percent            10..400; 100=none (default: "
       "100)\n"
-      "  -i            invert mapping                                  \n"
+      "  -i            invert mapping                                   \n"
       "  -E <mode>     edge mode                off|sobel|sobel-dir|laplacian\n"
-      "  -C            ANSI truecolor output                           \n"
-      "  -2            ANSI-256 color output (fallback for terminals   \n"
-      "                without truecolor support, implies color on)    \n"
-      "  -D            Floyd-Steinberg dithering                       \n"
-      "  -P <0-100>    depth-pop 3D parallax strength (0=off)          \n"
+      "  -C            ANSI truecolor output                            \n"
+      "  -2            ANSI-256 color output (fallback for terminals    \n"
+      "                without truecolor support, implies color on)     \n"
+      "  -D            Floyd-Steinberg dithering                        \n"
+      "  -P <0-100>    depth-pop 3D parallax strength (0=off)           \n"
       "\n"
       "Config file:\n"
-      "  ./.asciicamrc, key=value per line (# comments), auto-loaded   \n"
-      "  if present. CLI flags above always override it.               \n"
+      "  ./.asciicamrc, key=value per line (# comments), auto-loaded    \n"
+      "  if present. CLI flags above always override it.                \n"
       "\n"
       "Live keybindings:\n"
-      "  m / M         cycle render mode forward / backward            \n"
-      "  x / X         cycle edge detection mode forward / backward    \n"
-      "  n / N         cycle loaded charset forward / backward         \n"
-      "  p / o         increase / decrease depth-pop strength          \n"
+      "  m / M         cycle render mode forward / backward             \n"
+      "  x / X         cycle edge detection mode forward / backward     \n"
+      "  n / N         cycle loaded charset forward / backward          \n"
+      "  p / o         increase / decrease depth-pop strength           \n"
       "  g / G         decrease / increase gamma                        \n"
-      "  e / E         hw exposure down / up        (V4L2, Linux only) \n"
-      "  w / W         hw white-balance down / up   (V4L2, Linux only) \n"
-      "  c / C         hw contrast down / up        (V4L2, Linux only) \n"
-      "  up/down       select plugin    [ ] +-1   { } +-10   r reset   \n"
-      "  /             search plugin sources, enter builds + loads it  \n"
+      "  e / E         hw exposure down / up        (V4L2, Linux only)  \n"
+      "  w / W         hw white-balance down / up   (V4L2, Linux only)  \n"
+      "  c / C         hw contrast down / up        (V4L2, Linux only)  \n"
+      "  up/down       select plugin    [ ] +-1   { } +-10   r reset    \n"
+      "  /             search plugin sources, enter builds + loads it   \n"
       "                (up/down move, esc closes; compiles in background)\n"
-      "  u             unload the selected plugin                      \n"
-      "  mouse         drag any corner to resize frame, drag frame     \n"
-      "                itself to move it anywhere; applied on release  \n"
-      "  a / A         return frame to terminal auto-fit (top-left)    \n"
-      "  s             screenshot: .png + .ansi in the captures folder \n"
-      "  t             start / stop recording (.cast, asciinema v2); a \n"
-      "                red REC clock shows in panel while it runs  \n"
-      "  q             quit                                            \n",
+      "  u             unload the selected plugin                       \n"
+      "  mouse         drag any corner to resize frame, drag frame      \n"
+      "                itself to move it anywhere; applied on release   \n"
+      "  a / A         return frame to terminal auto-fit (top-left)     \n"
+      "  s             screenshot: .png + .ansi in ~/Pictures/asciicam  \n"
+      "  t             start / stop recording (.cast, asciinema v2); a  \n"
+      "                red REC clock shows in panel while it runs       \n"
+      "                .cast plays with `asciinema play file.cast`;     \n"
+      "                convert to mp4/gif with `agg file.cast out.gif`  \n"
+      "                then `ffmpeg -i out.gif out.mp4`                 \n"
+      "  b             toggle side panel: browse / replay saved captures\n"
+      "                up and down key or jk move, enter opens ansi     \n"
+      "                previews, .cast replays with timing), esc closes \n"
+      "  q             quit                                             \n",
       prog, DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT, DEFAULT_FPS,
       DEFAULT_ASCII_WIDTH, DEFAULT_ASCII_HEIGHT, ASCII_CHARS_DEFAULT,
       DEFAULT_PLUGIN_DIR);
@@ -523,18 +530,21 @@ static void overlay_panel(int panel_row, const frame_rect_t *frame,
     n = nl_snprintf(buf, sizeof(buf),
                     "\033[%d;1H\033[38;2;0;220;0m\033[48;2;18;18;18m"
                     " FPS: %s  │  / catalog  ↑↓ select  [ ] ±1  { } ±10  "
-                    "r reset  q quit  │  frame: %dx%d%s  cap: %dx%d  ◤◥◣◢ drag"
+                    "r reset  s shot  t rec  b browse  q quit  │  frame: "
+                    "%dx%d%s  cap: %dx%d  "
+                    "◤◥◣◢ drag"
                     "\033[0m\033[K",
                     base_row, fpsbuf, ascii_w_now, ascii_h,
                     ascii_size_manual ? " [manual]" : "", cap_w, cap_h);
   } else {
-    n = nl_snprintf(buf, sizeof(buf),
-                    "\033[%d;1H FPS: %s  |  / catalog  up/dn select  "
-                    "[ ] +-1  { } +-10  r reset  q quit  |  frame: %dx%d%s  "
-                    "cap: %dx%d  drag +"
-                    "\033[K",
-                    base_row, fpsbuf, ascii_w_now, ascii_h,
-                    ascii_size_manual ? " [manual]" : "", cap_w, cap_h);
+    n = nl_snprintf(
+        buf, sizeof(buf),
+        "\033[%d;1H FPS: %s  |  / catalog  up/dn select  "
+        "[ ] +-1  { } +-10  r reset  s shot  t rec  b browse  q quit  |  "
+        "frame: %dx%d%s  cap: %dx%d  drag +"
+        "\033[K",
+        base_row, fpsbuf, ascii_w_now, ascii_h,
+        ascii_size_manual ? " [manual]" : "", cap_w, cap_h);
   }
 
   if (n > 0 && n < (int)sizeof(buf)) {
@@ -1220,21 +1230,62 @@ int main(int argc, char *argv[]) {
   // 0 = frame follows terminal width (SIGWINCH); 1 = user dragged it
   int ascii_size_manual = 0;
 
-  // Recorder / screenshots: where files go, what was saved this session.
-  // Declared at function scope because they are used by the keyhandler (the
-  // 's' screenshot, 't' toggle-rec hotkeys), the per-frame shot/rec write, and
-  // the cleanup block after the main loop - not only by the SIGWINCH branch.
+  // Recorder / screenshots: where files go, what was saved this session
+  // Declared at function scope because they are used by keyhandler ('s'
+  // screenshot, 't' toggle-rec hotkeys), per-frame shot/rec write, and cleanup
+  // block after main loop - not only by SIGWINCH branch
   recorder_t rec;
   rec_init(&rec);
+
+  // Save screenshots and recordings under user's Pictures folder so they are
+  // visible alongside other image files, instead of buried in XDG_DATA
+  // Probe xisting casing first to no create a duplicate ~/Pictures next to
+  // lowercase ~/pictures some systems/distros use; default to capital
+  // 'Pictures' (XDG user-dirs standard) when neither exists
   char cap_dir[REC_PATH_LEN];
-  if (rec_default_dir(cap_dir, sizeof(cap_dir), app_env.home,
-                      app_getenv(envp, "XDG_DATA_HOME")) < 0) {
+  int got_dir = 0;
+  if (app_env.home && app_env.home[0]) {
+    const char *pics = "Pictures"; // XDG user-dirs default capitalisation
+    char probe[REC_PATH_LEN];
+    if (nl_snprintf(probe, sizeof(probe), "%s/Pictures", app_env.home) > 0) {
+      int pfd = open(probe, O_RDONLY, 0);
+      if (pfd < 0) {
+        // ~/Pictures doesn't exist: try ~/pictures before creating one
+        if (nl_snprintf(probe, sizeof(probe), "%s/pictures", app_env.home) >
+            0) {
+          int pfd2 = open(probe, O_RDONLY, 0);
+          if (pfd2 >= 0) {
+            close(pfd2);
+            pics = "pictures";
+          }
+        }
+      } else {
+        close(pfd);
+      }
+    }
+
+    if (nl_snprintf(cap_dir, sizeof(cap_dir), "%s/%s/asciicam", app_env.home,
+                    pics) > 0 &&
+        rec_make_dirs(cap_dir) == 0) {
+      got_dir = 1;
+    }
+  }
+  if (!got_dir) {
+    // Last-resort fallback: captures dir in current working directory
     nl_snprintf(cap_dir, sizeof(cap_dir), "captures");
+    rec_make_dirs(cap_dir);
   }
 
   int want_shot = 0;
   char saved_cast[REC_PATH_LEN] = "";
   char saved_shot[REC_PATH_LEN] = "";
+
+  // Captures browser: retractable side panel that lists screenshots and
+  // recordings saved to cap_dir, with in-terminal preview (.ansi) and replay
+  // (.cast). Toggled with 'b' while main loop is running.
+  browser_t browser;
+  browser_init(&browser);
+  browser_scan(&browser, cap_dir);
 
   struct timespec frame_start = {0};
   struct timespec last_frame_time = {0};
@@ -1415,16 +1466,20 @@ int main(int argc, char *argv[]) {
             }
 
             switch (seq[1]) {
-            case 'A': // up arrow key, previous plugin / picker row
-              if (picker.active) {
+            case 'A': // up arrow key
+              if (browser.active) {
+                browser_key(&browser, BR_KEY_UP, 0, NULL, 0);
+              } else if (picker.active) {
                 picker_key(&picker, &catalog, PK_KEY_UP, NULL);
               } else if (plugin_count > 0) {
                 selected = (selected - 1 + plugin_count) % plugin_count;
               }
 
               break;
-            case 'B': // down arrow key, next plugin / picker row
-              if (picker.active) {
+            case 'B': // down arrow key
+              if (browser.active) {
+                browser_key(&browser, BR_KEY_DOWN, 0, NULL, 0);
+              } else if (picker.active) {
                 picker_key(&picker, &catalog, PK_KEY_DOWN, NULL);
               } else if (plugin_count > 0) {
                 selected = (selected + 1) % plugin_count;
@@ -1437,9 +1492,63 @@ int main(int argc, char *argv[]) {
               break;
             }
           }
+        } else if (browser.active) {
+          // a lone ESC closes the browser panel
+          browser_key(&browser, BR_KEY_ESC, 0, NULL, 0);
+          browser.active = 0;
+          browser_clear_area(term_h, term_w);
         } else if (picker.active) {
           // a lone ESC closes picker
           picker_key(&picker, &catalog, PK_KEY_ESC, NULL);
+        }
+
+        continue;
+      }
+
+      // Browser panel open: it owns the keyboard, same convention as the
+      // plugin picker - typing a filename can't accidentally trigger hotkeys
+      // below (b/q/j/k/g/G all have meaning to the browser).
+      if (browser.active) {
+        char br_path[BROWS_PATH_LEN];
+        brows_action_t ba;
+        // Enter arrives as '\r' (or '\n' on some terminals) - map it to the
+        // dedicated BR_KEY_ENTER kind so browser_key can act on it regardless
+        // of which char the terminal sent.
+        if (ch == '\r' || ch == '\n') {
+          ba = browser_key(&browser, BR_KEY_ENTER, 0, br_path, sizeof(br_path));
+        } else {
+          ba = browser_key(&browser, BR_KEY_CHAR, ch, br_path, sizeof(br_path));
+        }
+        switch (ba) {
+        case BROWS_ACT_CLOSE:
+          browser.active = 0;
+          browser_clear_area(term_h, term_w);
+          break;
+        case BROWS_ACT_PREVIEW_ANSI: {
+          int aborted = 0;
+          // Hide panel during preview so it doesn't overlap the screenshot
+          browser_clear_area(term_h, term_w);
+          browser_preview_ansi(br_path, &aborted);
+          // Live UI will fully redraw on the next frame
+          break;
+        }
+        case BROWS_ACT_REPLAY_CAST: {
+          int aborted = 0;
+          // Refuse to replay while recording - the recording thread would
+          // pause with the main loop and corrupt the in-flight .cast
+          if (rec.active) {
+            TOAST("stop recording (t) before replaying a .cast");
+            break;
+          }
+          browser_clear_area(term_h, term_w);
+          browser_replay_cast(br_path, &aborted);
+          break;
+        }
+        case BROWS_ACT_INFO:
+          TOAST("%s", browser.info_msg);
+          break;
+        default:
+          break;
         }
 
         continue;
@@ -1587,6 +1696,18 @@ int main(int argc, char *argv[]) {
       case 's':
       case 'S':
         want_shot = 1; // taken from the next frame that is rendered
+
+        break;
+      case 'b':
+      case 'B':
+        // Toggle the captures browser panel. Re-scan on open so freshly
+        // saved screenshots / recordings show up without a restart.
+        browser_toggle(&browser);
+        if (browser.active) {
+          browser_scan(&browser, cap_dir);
+        } else {
+          browser_clear_area(term_h, term_w);
+        }
 
         break;
       case 't':
@@ -1826,6 +1947,17 @@ int main(int argc, char *argv[]) {
 
       if (outline_on && mouse_drag.dragging) {
         draw_drag_outline(&outline, opts.color, 0);
+      }
+
+      // Captures browser panel: drawn inside the SYNC region so it appears
+      // atomically with the frame, no flicker while it's being scrolled.
+      if (browser.active) {
+        char br_buf[8192];
+        int br_n = browser_render(&browser, term_h, term_w, opts.color, br_buf,
+                                  sizeof(br_buf));
+        if (br_n > 0) {
+          write_all(STDOUT_FILENO, br_buf, (size_t)br_n);
+        }
       }
 
       write_all(STDOUT_FILENO, SYNC_END, sizeof(SYNC_END) - 1);

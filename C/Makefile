@@ -124,6 +124,7 @@ endif
 
 CORE_SRCS := $(SRCDIR)/app_paths.c \
              $(SRCDIR)/ascii.c \
+             $(SRCDIR)/browser.c \
              $(SRCDIR)/capture_reinit.c \
              $(SRCDIR)/main.c  \
              $(SRCDIR)/mouse.c \
