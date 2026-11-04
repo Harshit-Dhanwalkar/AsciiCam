@@ -1,4 +1,3 @@
-
 #include "nolibc.h"
 
 #include "browser.h"
@@ -90,7 +89,7 @@ int browser_scan(browser_t *b, const char *cap_dir) {
     return -1;
   }
 
-  char dbuf[8192];
+  char dbuf[8192] = {0};
   long n;
   while ((n = __sc3(SYS_getdents64, fd, (long)dbuf, (long)sizeof(dbuf))) > 0) {
     long off = 0;
@@ -453,6 +452,7 @@ static void write_all_fd(int fd, const char *p, size_t n) {
 // Non-blocking read: returns 1 if a byte was read into *ch, 0 otherwise
 static int poll_key(char *ch) {
   ssize_t r = read(STDIN_FILENO, ch, 1);
+
   return r == 1 ? 1 : 0;
 }
 
@@ -476,7 +476,7 @@ static void my_nanosleep(long ns) {
 // Wait for a keypress, polling every ~50ms
 // Returns key
 static char wait_for_any_key(void) {
-  char ch;
+  char ch = 0;
   while (!poll_key(&ch)) {
     my_nanosleep(50 * 1000000L); // 50ms
   }
@@ -495,7 +495,7 @@ int browser_preview_ansi(const char *path, int *aborted) {
   static const char CLR[] = "\033[2J\033[H\033[?25l";
   write_all_fd(STDOUT_FILENO, CLR, sizeof(CLR) - 1);
 
-  char buf[4096];
+  char buf[4096] = {0};
   ssize_t n;
   while ((n = read(fd, buf, sizeof(buf))) > 0) {
     write_all_fd(STDOUT_FILENO, buf, (size_t)n);
@@ -766,7 +766,7 @@ int browser_replay_cast(const char *path, int *aborted) {
                               (uint64_t)now_ts.tv_nsec;
             while (now_ns < target_ns) {
               // Check for abort key
-              char ch;
+              char ch = 0;
               if (poll_key(&ch)) {
                 aborted_local = 1;
                 break;

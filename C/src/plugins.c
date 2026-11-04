@@ -34,7 +34,7 @@ static int copy_file(const char *src, const char *dst) {
     return -1;
   }
 
-  char buf[65536];
+  char buf[65536] = {0};
   ssize_t n;
   while ((n = read(fd_src, buf, sizeof(buf))) > 0) {
     if (write(fd_dst, buf, (size_t)n) != n) {
@@ -211,7 +211,7 @@ void plugin_check_reload(plugin_loader_t *pl) {
   }
 
   // Read all available events from non-blocking queue
-  char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
+  char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event)))) = {0};
   ssize_t n = read(pl->inotify_fd, buf, sizeof(buf));
   if (n <= 0) {
     return; // No new filesystem modifications detected

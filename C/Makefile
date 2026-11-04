@@ -251,6 +251,16 @@ sanitize-run: $(ASAN_TARGET)
 	UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=0 \
 	  ./$(ASAN_TARGET) $(ARGS)
 
+analyze:
+	clang --analyze \
+	  -Xanalyzer -analyzer-checker=core \
+	  -Xanalyzer -analyzer-output=text \
+	  $(filter-out -MMD -MP,$(CFLAGS_COMMON)) \
+	  -DPLATFORM_LINUX -D__LINUX_NOLIBC__ -msse4.1 \
+	  -nostdinc -isystem $(shell clang -print-file-name=include) \
+	  -Werror -Wno-error=gcc-install-dir-libstdcxx \
+	  $(CORE_SRCS) $(PLAT_SRC) $(LIBSRCS)
+
 .PHONY: sanitize sanitize-run
 endif
 
