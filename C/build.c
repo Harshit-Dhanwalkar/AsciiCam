@@ -45,8 +45,8 @@ static const char *core_src[] = {
     "src/plugin_picker.c", "src/recorder.c",       "src/thread_sharing.c",
     "src/timing.c"};
 static const char *lib_src[] = {
-    "lib/nl_alloc.c",  "lib/nl_gc.c",     "lib/nl_dlfcn.c", "lib/nl_errno.c",
-    "lib/nl_getopt.c", "lib/nl_printf.c", "lib/nl_start.c"};
+    "lib/nl_alloc.c",  "lib/nl_gc.c",  "lib/nl_dlfcn.c",  "lib/nl_errno.c",
+    "lib/nl_getopt.c", "lib/nl_mem.c", "lib/nl_printf.c", "lib/nl_start.c"};
 static const char *plugin_name[] = {"edge_detect", "invert", "threshold"};
 
 #define COUNT(a) (sizeof(a) / sizeof(*a))
@@ -254,8 +254,9 @@ typedef struct {
   const char *args[3]; // each non-NULL entry is one run, e.g. "100000 1"
 } nb_test;
 
-static const char *test_libs[] = {"lib/nl_printf.c", "lib/nl_errno.c",
-                                  "lib/nl_alloc.c", "lib/nl_start.c", NULL};
+static const char *test_libs[] = {"lib/nl_mem.c",   "lib/nl_printf.c",
+                                  "lib/nl_errno.c", "lib/nl_alloc.c",
+                                  "lib/nl_start.c", NULL};
 
 static int run_one_test(const nb_test *t) {
   const char *out = nb_fmt(BUILD "/tests/%s", t->name);
