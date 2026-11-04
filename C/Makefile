@@ -179,13 +179,6 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.m | $(OBJDIR)
 $(OBJDIR)/lib_%.o: $(LIBDIR)/%.c | $(OBJDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# nl_mem.c provides freestanding memset/memcpy/memmove/memcmp that gcc emits calls
-# to for large aggregate initializations (= {0} on big arrays)
-# NOTE: Must be compiled with -fno-tree-loop-distribute-patterns so gcc doesn't
-# replace loops in those functions with calls to functions themselves
-$(OBJDIR)/lib_nl_mem.o: $(LIBDIR)/nl_mem.c | $(OBJDIR)
-	$(CC) $(CFLAGS) -fno-tree-loop-distribute-patterns -c $< -o $@
-
 # Plugins
 plugins: $(PLUGIN_TARGETS)
 
@@ -246,9 +239,6 @@ $(ASAN_OBJDIR)/%.o: $(SRCDIR)/%.c | $(ASAN_OBJDIR)
 $(ASAN_OBJDIR)/lib_%.o: $(LIBDIR)/%.c | $(ASAN_OBJDIR)
 	$(CC) $(ASAN_CFLAGS) -c $< -o $@
 
-$(ASAN_OBJDIR)/lib_nl_mem.o: $(LIBDIR)/nl_mem.c | $(ASAN_OBJDIR)
-	$(CC) $(ASAN_CFLAGS) -fno-tree-loop-distribute-patterns -c $< -o $@
-
 $(ASAN_TARGET): $(ASAN_OBJECTS) | $(BUILDDIR)
 	PATH=/usr/bin:/bin $(LD) $(ASAN_OBJECTS) -o $@ $(ASAN_LDFLAGS)
 	@echo "  LD [sanitize] $@"
@@ -281,7 +271,6 @@ TESTDIR    := $(BUILDDIR)/tests
 TEST_FLAGS := -D__LINUX_NOLIBC__ -DPLATFORM_LINUX -nostdinc \
               -isystem $(shell $(CC) -print-file-name=include) -ffreestanding \
               -fno-builtin -fno-stack-protector -nostdlib -static -msse4.1 \
-              -fno-tree-loop-distribute-patterns \
               -Iinclude -I$(LIBDIR)
 TEST_LIBS  := $(LIBDIR)/nl_mem.c $(LIBDIR)/nl_printf.c $(LIBDIR)/nl_errno.c \
               $(LIBDIR)/nl_alloc.c $(LIBDIR)/nl_start.c
