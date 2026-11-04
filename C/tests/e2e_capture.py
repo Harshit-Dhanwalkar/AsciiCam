@@ -24,6 +24,9 @@ import tempfile
 import termios
 import time
 
+REAL_HOME = os.environ.get("HOME", "")
+START_DIR = os.getcwd()
+
 BIN = sys.argv[1]
 if not os.access(BIN, os.X_OK):
     sys.exit(f"e2e: {BIN} is not an executable (build it with `make e2e`)")
@@ -250,8 +253,10 @@ def check_png(path):
 
 
 for label, extra in (("colour", ["-C"]), ("mono", [])):
+    # captures go to ~/Pictures/asciicam: point HOME at a scratch directory so 
+    # a test run never writes into real one
     cap_root = tempfile.mkdtemp(prefix="asciicam_cap_")
-    os.environ["XDG_DATA_HOME"] = cap_root
+    os.environ["HOME"] = cap_root
     out, marks = session(
         ARGS + extra,
         [
@@ -260,8 +265,8 @@ for label, extra in (("colour", ["-C"]), ("mono", [])):
             (b"t", 0.5),     # stop
         ],
     )
-    del os.environ["XDG_DATA_HOME"]
-    cap_dir = os.path.join(cap_root, "asciicam", "captures")
+    os.environ["HOME"] = REAL_HOME
+    cap_dir = os.path.join(cap_root, "Pictures", "asciicam")
     files = sorted(os.listdir(cap_dir)) if os.path.isdir(cap_dir) else []
     casts = [f for f in files if f.endswith(".cast")]
     pngs = [f for f in files if f.endswith(".png")]
@@ -302,10 +307,18 @@ for label, extra in (("colour", ["-C"]), ("mono", [])):
               f"recorder {label}: .ansi holds the frame")
     shutil.rmtree(cap_root, ignore_errors=True)
 
-# unwritable captures folder: a message, no crash
-os.environ["XDG_DATA_HOME"] = "/proc/nope"
-out, marks = session(ARGS, [(b"t", 0.5), (b"s", 0.5)])
-del os.environ["XDG_DATA_HOME"]
+# unwritable captures folder (and an unwritable working directory, which is last-resort
+# fallback): a message, no crash
+os.environ["HOME"] = "/proc/nope"
+BIN_REL = BIN
+BIN = os.path.abspath(BIN)
+os.chdir("/proc")
+try:
+    out, marks = session(ARGS, [(b"t", 0.5), (b"s", 0.5)])
+finally:
+    os.chdir(START_DIR)
+    BIN = BIN_REL
+    os.environ["HOME"] = REAL_HOME
 check(b"cannot record" in out and b"cannot save" in out,
       "recorder: unwritable folder gives messages, program keeps running")
 check(out.count(SYNC_BEGIN) > 10, "recorder: still drawing after failures")

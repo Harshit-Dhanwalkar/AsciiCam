@@ -25,6 +25,16 @@ struct brows_dirent64 {
 // Single-byte non-blocking read with VMIN=0, poll for an abort key cheaply
 // between events
 
+static int has_prefix(const char *s, const char *prefix) {
+  while (*prefix) {
+    if (*s++ != *prefix++) {
+      return 0;
+    }
+  }
+
+  return 1;
+}
+
 void browser_init(browser_t *b) { nl_memset(b, 0, sizeof(*b)); }
 
 static brows_ftype_t type_from_name(const char *name) {
@@ -72,19 +82,24 @@ int browser_scan(browser_t *b, const char *cap_dir) {
   b->selected = 0;
   b->scroll = 0;
 
+#if defined(__LINUX_NOLIBC__)
   int fd = open(cap_dir, O_RDONLY, 0);
   if (fd < 0) {
     nl_snprintf(b->status, sizeof(b->status), "cannot open dir");
+
     return -1;
   }
 
-#if defined(__LINUX_NOLIBC__)
   char dbuf[8192];
   long n;
   while ((n = __sc3(SYS_getdents64, fd, (long)dbuf, (long)sizeof(dbuf))) > 0) {
     long off = 0;
     while (off < n) {
       struct brows_dirent64 *d = (struct brows_dirent64 *)(dbuf + off);
+      if (d->d_reclen == 0) {
+        break; // would never advance
+      }
+
       off += d->d_reclen;
       add_capture_entry(b, cap_dir, d->d_name);
     }
@@ -92,9 +107,9 @@ int browser_scan(browser_t *b, const char *cap_dir) {
 
   close(fd);
 #else
-  DIR *dir = fdopendir(fd);
+  // opendir by name: fdopendir does not exist on Windows (MinGW)
+  DIR *dir = opendir(cap_dir);
   if (!dir) {
-    close(fd);
     nl_snprintf(b->status, sizeof(b->status), "cannot open dir");
 
     return -1;
@@ -105,7 +120,7 @@ int browser_scan(browser_t *b, const char *cap_dir) {
     add_capture_entry(b, cap_dir, d->d_name);
   }
 
-  closedir(dir); // closes fd too
+  closedir(dir);
 #endif
 
   // Sort by name descending
@@ -320,8 +335,16 @@ int browser_render(const browser_t *b, int term_h, int term_w, int color,
       // Truncate name to max_name_w columns
       // Names are ASCII (asciicam generates ASCII filenames) so byte count ==
       // display width
+      // "asciicam-" is same on every row and panel is narrow: leave it out, or
+      // part that tells recordings from screenshots (".cast", ".png") is what
+      // gets cut off
       char nm[BROWS_NAME_LEN];
-      nl_strncpy_safe(nm, e->name, BROWS_NAME_LEN);
+      const char *shown = e->name;
+      if (has_prefix(shown, "asciicam-") && shown[9]) {
+        shown += 9;
+      }
+
+      nl_strncpy_safe(nm, shown, BROWS_NAME_LEN);
       size_t nl_ = nl_strlen(nm);
       if ((int)nl_ > max_name_w) {
         nm[max_name_w - 1] = '~';
@@ -445,18 +468,9 @@ static void drain_keys(void) {
 // nanosleep() as a symbol (nolibc build may not)
 // Raw syscall via __sc2
 static void my_nanosleep(long ns) {
-  if (ns <= 0) {
-    return;
+  if (ns > 0) {
+    nl_usleep((unsigned)(ns / 1000));
   }
-
-  struct timespec ts = {0};
-  ts.tv_sec = ns / 1000000000L;
-  ts.tv_nsec = ns % 1000000000L;
-#if defined(__LINUX_NOLIBC__)
-  __sc2(SYS_nanosleep, (long)&ts, 0);
-#else
-  nanosleep(&ts, NULL);
-#endif
 }
 
 // Wait for a keypress, polling every ~50ms
@@ -511,11 +525,11 @@ int browser_preview_ansi(const char *path, int *aborted) {
 // data is a JSON-escaped string of bytes that were sent to the terminal
 // unescape JSON \\ \" \n \r \t \b \f \/ and \uXXXX (UTF-8 encoded)
 
-static double parse_float(const char *s, const char **end) {
+static double parse_float(const char *s, const char *limit, const char **end) {
   double v = 0.0;
   double frac = 0.1;
   int seen_dot = 0;
-  while (*s) {
+  while (s < limit) {
     if (*s >= '0' && *s <= '9') {
       if (seen_dot) {
         v += (*s - '0') * frac;
@@ -537,6 +551,24 @@ static double parse_float(const char *s, const char **end) {
   return v;
 }
 
+// Skip blanks (not before the letter), then take one expected character
+static int expect_tok(const char **pp, const char *end, char want) {
+  const char *p = *pp;
+  if (want != 'o') {
+    while (p < end && (*p == ' ' || *p == '\t')) {
+      p++;
+    }
+  }
+
+  if (p >= end || *p != want) {
+    return 0;
+  }
+
+  *pp = p + 1;
+
+  return 1;
+}
+
 // Parse one event line "[t,\"o\",\"data\"]" into out_time and out_data
 // Returns 0 on success, -1 on malformed input
 static int parse_event(const char *line, size_t line_len, double *out_time,
@@ -551,19 +583,18 @@ static int parse_event(const char *line, size_t line_len, double *out_time,
   const char *p = line + 1;
   const char *end = line + line_len;
 
+  // Whitespace between the fields is legal JSON and is what asciinema itself
+  // writes ([1.5, "o", "..."]), so accept it, and also its absence
   const char *time_end;
-  *out_time = parse_float(p, &time_end);
+  *out_time = parse_float(p, end, &time_end);
   p = time_end;
 
-  // Expect ,"o","
-  if (p + 6 > end) {
+  // , "o" , "   with optional spaces around each comma
+  if (!expect_tok(&p, end, ',') || !expect_tok(&p, end, '"') ||
+      !expect_tok(&p, end, 'o') || !expect_tok(&p, end, '"') ||
+      !expect_tok(&p, end, ',') || !expect_tok(&p, end, '"')) {
     return -1;
   }
-  if (p[0] != ',' || p[1] != '"' || p[2] != 'o' || p[3] != '"' || p[4] != ',' ||
-      p[5] != '"') {
-    return -1;
-  }
-  p += 6;
 
   size_t di = 0;
   while (p < end && *p != '"') {
@@ -667,11 +698,14 @@ int browser_replay_cast(const char *path, int *aborted) {
 
   // Streaming line reader: read into a sliding buffer, find newlines, hand each
   // complete line to parse_event. Buffer must be big enough for one frame's
-  // worth of escape codes - 1 MB is generous for asciicam output
-  size_t cap = 1024 * 1024;
+  // worth of escape codes. Over 1 MiB on purpose: nl_malloc serves up to 1 MiB
+  // from 2 MiB arena, where two such buffers cannot both fit and replay failed
+  // every time; larger ones are mmap'd and only touched pages cost
+  size_t cap = 4 * 1024 * 1024;
   char *buf = nl_malloc(cap);
   if (!buf) {
     close(fd);
+
     return -1;
   }
 
@@ -680,6 +714,7 @@ int browser_replay_cast(const char *path, int *aborted) {
   if (!data) {
     nl_free(buf);
     close(fd);
+
     return -1;
   }
 
