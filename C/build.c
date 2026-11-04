@@ -21,7 +21,11 @@
 #define BUILD "build"
 #define OBJ BUILD "/obj"
 
+#if defined(__APPLE__)
+static const char *cc = "clang";
+#else
 static const char *cc = "gcc";
+#endif
 static const char *prefix = "/usr/local";
 static const char *destdir = "";
 static int jobs = 4;
@@ -35,13 +39,14 @@ static int jobs = 4;
 #endif
 
 static const char *core_src[] = {
-    "src/app_paths.c",      "src/ascii.c",          "src/capture_demo.c",
-    "src/capture_reinit.c", "src/main.c",           "src/mouse.c",
-    "src/plugins.c",        "src/plugin_catalog.c", "src/plugin_picker.c",
-    "src/thread_sharing.c", "src/timing.c"};
+    "src/app_paths.c",     "src/ascii.c",          "src/browser.c",
+    "src/capture_demo.c",  "src/capture_reinit.c", "src/main.c",
+    "src/mouse.c",         "src/plugins.c",        "src/plugin_catalog.c",
+    "src/plugin_picker.c", "src/recorder.c",       "src/thread_sharing.c",
+    "src/timing.c"};
 static const char *lib_src[] = {
-    "lib/nl_alloc.c",  "lib/nl_gc.c",     "lib/nl_dlfcn.c", "lib/nl_errno.c",
-    "lib/nl_getopt.c", "lib/nl_printf.c", "lib/nl_start.c"};
+    "lib/nl_alloc.c",  "lib/nl_gc.c",  "lib/nl_dlfcn.c",  "lib/nl_errno.c",
+    "lib/nl_getopt.c", "lib/nl_mem.c", "lib/nl_printf.c", "lib/nl_start.c"};
 static const char *plugin_name[] = {"edge_detect", "invert", "threshold"};
 
 #define COUNT(a) (sizeof(a) / sizeof(*a))
@@ -151,6 +156,13 @@ static int build_all(void) {
       nb_cmd c = {0};
       nb_cmd_add(&c, cc);
       cflags(&c);
+#if !LINUX
+      const char *src = all[i];
+      size_t sl = strlen(src);
+      if (sl >= 2 && strcmp(src + sl - 2, ".m") == 0) {
+        nb_cmd_add(&c, "-x", "objective-c", "-fobjc-arc", "-fmodules");
+      }
+#endif
       nb_cmd_add(&c, "-c", all[i], "-o", o);
       nb_procs_add(&ps, &c);
     }
@@ -189,6 +201,9 @@ static int build_plugins(void) {
     nb_cmd_add(&c, cc);
     cflags(&c);
     nb_add_words(&c, PB_SHARED);
+#if !LINUX
+    nb_cmd_add(&c, "-undefined", "dynamic_lookup");
+#endif
     nb_cmd_add(&c, src, "-o", tmp);
     if (!nb_run(&c) || rename(tmp, out) != 0) {
       return 0;
@@ -239,8 +254,9 @@ typedef struct {
   const char *args[3]; // each non-NULL entry is one run, e.g. "100000 1"
 } nb_test;
 
-static const char *test_libs[] = {"lib/nl_printf.c", "lib/nl_errno.c",
-                                  "lib/nl_alloc.c", "lib/nl_start.c", NULL};
+static const char *test_libs[] = {"lib/nl_mem.c",   "lib/nl_printf.c",
+                                  "lib/nl_errno.c", "lib/nl_alloc.c",
+                                  "lib/nl_start.c", NULL};
 
 static int run_one_test(const nb_test *t) {
   const char *out = nb_fmt(BUILD "/tests/%s", t->name);
@@ -319,6 +335,26 @@ static int run_tests(void) {
         "build/threshold.so 2000 1 build/tests/fuzz_elf.tmp"}},
       {"mouse", "-O0", "", "tests/test_mouse.c src/mouse.c", {NULL}},
       {"demo", "-O2", "", "tests/test_demo.c src/capture_demo.c", {NULL}},
+      {"recorder_O0",
+       "-O0",
+       "",
+       "tests/test_recorder.c src/recorder.c",
+       {NULL}},
+      {"recorder_O2",
+       "-O2",
+       "",
+       "tests/test_recorder.c src/recorder.c",
+       {NULL}},
+      {"browser_O0",
+       "-O0",
+       "",
+       "tests/test_browser.c src/browser.c src/recorder.c",
+       {NULL}},
+      {"browser_O2",
+       "-O2",
+       "",
+       "tests/test_browser.c src/browser.c src/recorder.c",
+       {NULL}},
       {"reinit",
        "-O2",
        "",
@@ -450,7 +486,7 @@ int main(int argc, char **argv) {
   } else if (!strcmp(target, "plugins")) {
     ok = build_plugins();
   } else if (!strcmp(target, "test")) {
-    ok = run_tests();
+    ok = build_all() && run_tests(); // tests read build/webcam_ascii
   } else if (!strcmp(target, "e2e")) {
     ok = run_e2e();
   } else if (!strcmp(target, "info")) {

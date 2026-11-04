@@ -146,7 +146,7 @@ jobs:
         run: |
           set -euo pipefail
           FLAGS="-D__LINUX_NOLIBC__ -DPLATFORM_LINUX -nostdinc -isystem $(gcc -print-file-name=include) -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -static -Iinclude -Ilib"
-          LIBS="lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
+          LIBS="lib/nl_mem.c lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
           # clone() child path once depended on register allocation and only worked at -Os,
           # so run suite at several -O levels
           for O in -O0 -O2 -O3 -Os; do
@@ -173,7 +173,7 @@ jobs:
         run: |
           set -euo pipefail
           FLAGS="-D__LINUX_NOLIBC__ -DPLATFORM_LINUX -nostdinc -isystem $(gcc -print-file-name=include) -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -static -Iinclude -Ilib"
-          LIBS="lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
+          LIBS="lib/nl_mem.c lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
           gcc $FLAGS tests/test_mouse.c src/mouse.c $LIBS -o /tmp/t_mouse
           /tmp/t_mouse
           # capture_reinit against a scripted fake camera (no hardware)
@@ -189,7 +189,7 @@ jobs:
         run: |
           set -euo pipefail
           FLAGS="-D__LINUX_NOLIBC__ -DPLATFORM_LINUX -nostdinc -isystem $(gcc -print-file-name=include) -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -static -Iinclude -Ilib"
-          LIBS="lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
+          LIBS="lib/nl_mem.c lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
           for O in -O0 -O2; do
             gcc $O $FLAGS tests/test_plugin_catalog.c src/plugin_catalog.c src/plugin_picker.c src/plugins.c lib/nl_dlfcn.c $LIBS -o /tmp/t_catalog
             /tmp/t_catalog
@@ -202,7 +202,7 @@ jobs:
         run: |
           set -euo pipefail
           FLAGS="-D__LINUX_NOLIBC__ -DPLATFORM_LINUX -nostdinc -isystem $(gcc -print-file-name=include) -ffreestanding -fno-builtin -fno-stack-protector -nostdlib -static -msse4.1 -Iinclude -Ilib"
-          LIBS="lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
+          LIBS="lib/nl_mem.c lib/nl_printf.c lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c"
           # same spread as clone() tests: thread path is sensitive to code generation
           for O in -O0 -O2 -O3 -Os; do
             gcc $O $FLAGS tests/test_capture_pipe.c src/thread_sharing.c $LIBS -o /tmp/t_pipe

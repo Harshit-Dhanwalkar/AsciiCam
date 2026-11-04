@@ -63,6 +63,7 @@ ifeq ($(PLATFORM),linux)
                 $(LIBDIR)/nl_gc.c \
                 $(LIBDIR)/nl_dlfcn.c \
                 $(LIBDIR)/nl_errno.c \
+                $(LIBDIR)/nl_mem.c \
                 $(LIBDIR)/nl_getopt.c \
                 $(LIBDIR)/nl_printf.c \
                 $(LIBDIR)/nl_start.c
@@ -124,6 +125,7 @@ endif
 
 CORE_SRCS := $(SRCDIR)/app_paths.c \
              $(SRCDIR)/ascii.c \
+             $(SRCDIR)/browser.c \
              $(SRCDIR)/capture_reinit.c \
              $(SRCDIR)/main.c  \
              $(SRCDIR)/mouse.c \
@@ -133,6 +135,7 @@ CORE_SRCS := $(SRCDIR)/app_paths.c \
              $(SRCDIR)/thread_sharing.c \
              $(SRCDIR)/timing.c \
              $(SRCDIR)/capture_demo.c \
+             $(SRCDIR)/recorder.c
 
 ALL_C_SRCS := $(CORE_SRCS) $(PLAT_SRC) $(LIBSRCS)
 
@@ -249,6 +252,16 @@ sanitize-run: $(ASAN_TARGET)
 	UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=0 \
 	  ./$(ASAN_TARGET) $(ARGS)
 
+analyze:
+	clang --analyze \
+	  -Xanalyzer -analyzer-checker=core \
+	  -Xanalyzer -analyzer-output=text \
+	  $(filter-out -MMD -MP,$(CFLAGS_COMMON)) \
+	  -DPLATFORM_LINUX -D__LINUX_NOLIBC__ -msse4.1 \
+	  -nostdinc -isystem $(shell clang -print-file-name=include) \
+	  -Werror -Wno-error=gcc-install-dir-libstdcxx \
+	  $(CORE_SRCS) $(PLAT_SRC) $(LIBSRCS)
+
 .PHONY: sanitize sanitize-run
 endif
 
@@ -259,8 +272,8 @@ TEST_FLAGS := -D__LINUX_NOLIBC__ -DPLATFORM_LINUX -nostdinc \
               -isystem $(shell $(CC) -print-file-name=include) -ffreestanding \
               -fno-builtin -fno-stack-protector -nostdlib -static -msse4.1 \
               -Iinclude -I$(LIBDIR)
-TEST_LIBS  := $(LIBDIR)/nl_printf.c $(LIBDIR)/nl_errno.c $(LIBDIR)/nl_alloc.c \
-              $(LIBDIR)/nl_start.c
+TEST_LIBS  := $(LIBDIR)/nl_mem.c $(LIBDIR)/nl_printf.c $(LIBDIR)/nl_errno.c \
+              $(LIBDIR)/nl_alloc.c $(LIBDIR)/nl_start.c
 FILTER_SRC := $(FILTERDIR)/edge_detect.c $(FILTERDIR)/invert.c \
               $(FILTERDIR)/threshold.c
 
@@ -281,6 +294,10 @@ test: all
 	$(CC) -O2 $(TEST_FLAGS) tests/test_capture_reinit.c $(SRCDIR)/capture_reinit.c $(TEST_LIBS) -o $(TESTDIR)/reinit
 	$(CC) -O2 $(TEST_FLAGS) tests/test_app_paths.c $(SRCDIR)/app_paths.c $(TEST_LIBS) -o $(TESTDIR)/app_paths
 	$(CC) -O2 $(TEST_FLAGS) tests/test_demo.c $(SRCDIR)/capture_demo.c $(TEST_LIBS) -o $(TESTDIR)/demo
+	$(CC) -O0 $(TEST_FLAGS) tests/test_recorder.c $(SRCDIR)/recorder.c $(TEST_LIBS) -o $(TESTDIR)/recorder_O0
+	$(CC) -O2 $(TEST_FLAGS) tests/test_recorder.c $(SRCDIR)/recorder.c $(TEST_LIBS) -o $(TESTDIR)/recorder_O2
+	$(CC) -O0 $(TEST_FLAGS) tests/test_browser.c $(SRCDIR)/browser.c $(SRCDIR)/recorder.c $(TEST_LIBS) -o $(TESTDIR)/browser_O0
+	$(CC) -O2 $(TEST_FLAGS) tests/test_browser.c $(SRCDIR)/browser.c $(SRCDIR)/recorder.c $(TEST_LIBS) -o $(TESTDIR)/browser_O2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_copy_file.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/copy_file
 	$(CC) -O2 $(TEST_FLAGS) tests/test_plugin_catalog.c $(SRCDIR)/plugin_catalog.c $(SRCDIR)/plugin_picker.c $(SRCDIR)/plugins.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/catalog
 	$(CC) -O0 $(TEST_FLAGS) tests/test_nl_gc.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/gc_O0
@@ -305,6 +322,10 @@ test: all
 	$(TESTDIR)/app_paths
 	$(TESTDIR)/catalog
 	$(TESTDIR)/demo
+	$(TESTDIR)/recorder_O0
+	$(TESTDIR)/recorder_O2
+	$(TESTDIR)/browser_O0
+	$(TESTDIR)/browser_O2
 	$(TESTDIR)/gc_O0
 	$(TESTDIR)/gc_O2
 	$(TESTDIR)/thread

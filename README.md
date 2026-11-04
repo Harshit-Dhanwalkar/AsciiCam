@@ -279,7 +279,6 @@ Consequences:
 | Delete `<name>.stamp`                           | rebuilds once                         |
 | Two AsciiCam instances building the same plugin | safe — temp names carry a PID         |
 
-
 No manual pruning of `~/.cache` is ever needed; the cache is self-invalidating.
 Note that the compiler's own identity (`$CC`, its version) is **not** part of
 the hash, so switching `gcc` → `clang` without couching source or headers reuses
@@ -327,6 +326,22 @@ release the button. The status panel stays at the bottom of the terminal.
 | `{` / `}` | param &plusmn; 10 |
 | `r` | reset param to 128 |
 | `q` | quit |
+
+---
+
+## Screenshots and recording
+
+No ffmpeg or any other library: the encoders are in `src/recorder.c`.
+
+| Key | Does                                                                                                                                                           |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `s` | screenshot: `asciicam-<UTC time>.png` (the camera picture after plugins, colour or grey) and `.ansi` (the ASCII frame; `cat` it in a terminal to see it again) |
+| `t` | start / stop recording to `asciicam-<UTC time>.cast`                                                                                                           |
+
+While recording, a blinking red `●` (or `(o)` without colour) with an elapsed
+clock shows at the right end of the panel. A message at the bottom of the frame
+says when a recording or screenshot started and ended and where the file is; the
+full paths are printed again when the program exits.
 
 ---
 
