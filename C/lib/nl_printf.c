@@ -11,11 +11,11 @@
  *
  * %f/%F is exact: double is expanded to its full decimal value and then rounded
  * half-to-even, which matches glibc for every finite input. No floating point
- * arithmetic is used at all (nothing here can pull in libgcc helpers), and
- * nan/inf print as nan/inf.
+ * arithmetic is used at all (nothing here can pull in libgcc helpers) and
+ * nan/inf print as nan/inf
  *
  * One deliberate difference from C99: return value is number of bytes stored
- * (not length that would have been written had buffer been large enough).
+ * (not length that would have been written had buffer been large enough)
  * Callers in this tree rely on that to advance a cursor
  */
 
@@ -139,8 +139,8 @@ static void fmt_str(out_t *o, const spec_t *sp, const char *s, int slen) {
 // Floating point
 
 // digits of mant * 2^e as a decimal integer scaled by 10^-fd; digits are kept
-// least significant first. Halving is multiplying by 5 and moving the decimal
-// point one place, so only small-integer multiplications are needed.
+// least significant first. Halving is multiplying by 5 and moving decimal point
+// one place, so only small-integer multiplications are needed
 #define FDIG_MAX 1200
 
 static int mul_small(unsigned char *d, int n, unsigned m) {
@@ -172,7 +172,7 @@ static void fmt_nonfinite(out_t *o, const spec_t *sp, int neg, int is_nan) {
   for (int i = 0; i < 3; i++) {
     char c = s[i];
     if (sp->flags & F_UPPER) {
-      c = (char)(c - 'a' + 'A');
+      c = (c >= 'a' && c <= 'z') ? "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[c - 'a'] : c;
     }
     tmp[n++] = c;
   }
@@ -237,9 +237,9 @@ static void fmt_double(out_t *o, const spec_t *sp, double v) {
     prec = PREC_CAP;
   }
 
-  // Round half to even at 'prec' fractional digits.
+  // Round half to even at 'prec' fractional digits
   if (prec < fd) {
-    int start = fd - prec; // index of the last kept digit
+    int start = fd - prec; // index of last kept digit
     int first = d[start - 1];
     int rest = 0;
     for (int i = 0; i < start - 1; i++) {
@@ -301,14 +301,14 @@ static void fmt_double(out_t *o, const spec_t *sp, double v) {
 
   out_rep(o, '0', zeros);
   for (int i = n - 1; i >= fd; i--) {
-    out_ch(o, (char)('0' + d[i]));
+    out_ch(o, "0123456789"[d[i]]);
   }
   if (dot) {
     out_ch(o, '.');
   }
   for (int j = 1; j <= prec; j++) {
     int idx = fd - j;
-    out_ch(o, (idx >= 0 && idx < n) ? (char)('0' + d[idx]) : '0');
+    out_ch(o, (idx >= 0 && idx < n) ? "0123456789"[d[idx]] : '0');
   }
   if (sp->flags & F_LEFT) {
     out_rep(o, ' ', pad);
