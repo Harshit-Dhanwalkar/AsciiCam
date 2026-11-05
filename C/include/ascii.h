@@ -71,7 +71,7 @@ typedef struct {
   int invert;              /* flip brightness->charset mapping     */
   int color;               /* ANSI color output (truecolor or 256) */
   color_mode_t color_mode; /* which color output when `color` is set;
-+                             defaults to COLOR_TRUECOLOR (0)       */
+                             defaults to COLOR_TRUECOLOR (0)       */
   int gamma;               /* percent, 100 = linear, range 10..400 */
   edge_mode_t edges;       /* edge detection mode                   */
   int dither;              /* Floyd-Steinberg dithering             */
@@ -92,6 +92,8 @@ typedef struct {
    * 0 or 1 = top-left corner of terminal (default) */
   int origin_x;
   int origin_y;
+
+  int mirror;  /* Mirror/flip frame horizontally */
 } ascii_opts_t;
 
 /* Convert YUYV raw data to grayscale */

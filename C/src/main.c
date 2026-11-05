@@ -196,6 +196,7 @@ static void print_usage(const char *prog) {
       "                without truecolor support, implies color on)          \n"
       "  -D            Floyd-Steinberg dithering                             \n"
       "  -P <0-100>    depth-pop 3D parallax strength (0=off)                \n"
+      "  -f            mirror/flip frame horizontally                        \n"
       "\n"
       "Config file:                                                          \n"
       "  ./.asciicamrc, key=value per line (# comments), auto-loaded         \n"
@@ -905,73 +906,84 @@ int main(int argc, char *argv[]) {
   // CLI parsing
   int opt;
   while ((opt = nl_getopt(argc, argv,
-                          "d:W:H:w:h:f:b:c:g:iCD2s:p:L:m:E:k:P:T")) != -1)
+                          "d:W:H:w:h:r:b:c:g:iCD2s:p:L:m:E:k:P:Tf")) != -1)
     switch (opt) {
-    case 'd':
+    case 'd': {
       device = optarg;
 
       break;
-    case 'W':
+    }
+    case 'W': {
       ascii_w = my_atoi(optarg);
       if (ascii_w <= 0) {
         ascii_w = DEFAULT_ASCII_WIDTH;
       }
 
       break;
-    case 'H':
+    }
+    case 'H': {
       ascii_h = my_atoi(optarg);
       if (ascii_h <= 0) {
         ascii_h = DEFAULT_ASCII_HEIGHT;
       }
 
       break;
-    case 'w':
+    }
+    case 'w': {
       cap_w = my_atoi(optarg);
       if (cap_w <= 0) {
         cap_w = DEFAULT_CAPTURE_WIDTH;
       }
 
       break;
-    case 'h':
+    }
+    case 'h': {
       cap_h = my_atoi(optarg);
       if (cap_h <= 0) {
         cap_h = DEFAULT_CAPTURE_HEIGHT;
       }
 
       break;
-    case 'f':
+    }
+    case 'r': {
       fps = my_atoi(optarg);
       if (fps <= 0) {
         fps = DEFAULT_FPS;
       }
 
       break;
-    case 'b':
+    }
+    case 'b': {
       opts.brightness = my_atoi(optarg);
 
       break;
-    case 'c':
+    }
+    case 'c': {
       opts.contrast = my_atoi(optarg);
       if (opts.contrast <= 0) {
         opts.contrast = 100;
       }
 
       break;
-    case 'i':
+    }
+    case 'i': {
       opts.invert = 1;
 
       break;
-    case 'C':
+    }
+    case 'C': {
       opts.color = 1;
       opts.color_mode = COLOR_TRUECOLOR;
 
       break;
-    case '2':
+    }
+    case '2': {
       opts.color = 1;
       opts.color_mode = COLOR_256;
 
       break;
-    case 'g':
+    }
+    case 'g': {
       opts.gamma = my_atoi(optarg);
       if (opts.gamma < 10) {
         opts.gamma = 10;
@@ -981,19 +993,23 @@ int main(int argc, char *argv[]) {
       }
 
       break;
-    case 'E':
+    }
+    case 'E': {
       opts.edges = parse_edge_mode(optarg);
 
       break;
-    case 'm':
+    }
+    case 'm': {
       opts.render_mode = parse_render_mode(optarg);
 
       break;
-    case 'k':
+    }
+    case 'k': {
       charset_dir = optarg;
 
       break;
-    case 'P':
+    }
+    case 'P': {
       opts.depth_pop = my_atoi(optarg);
       if (opts.depth_pop < 0) {
         opts.depth_pop = 0;
@@ -1003,23 +1019,28 @@ int main(int argc, char *argv[]) {
       }
 
       break;
-    case 'D':
+    }
+    case 'D': {
       opts.dither = 1;
 
       break;
-    case 'T':
+    }
+    case 'T': {
       capture_threaded = 0;
 
       break;
-    case 's':
+    }
+    case 's': {
       opts.charset = optarg;
 
       break;
-    case 'L':
+    }
+    case 'L': {
       g_plugin_dir = optarg;
 
       break;
-    case 'p':
+    }
+    case 'p': {
       if (plugin_path_count < MAX_PLUGINS) {
         plugin_paths[plugin_path_count++] = optarg;
       } else {
@@ -1028,11 +1049,18 @@ int main(int argc, char *argv[]) {
       }
 
       break;
+    }
+    case 'f':
+    case 'F': {
+      opts.mirror = !opts.mirror;
+      break;
+    }
 
-    default:
+    default: {
       print_usage(argv[0]);
 
       return 1;
+    }
     }
 
   timing_init(fps);
@@ -1117,8 +1145,8 @@ int main(int argc, char *argv[]) {
 
   int selected = 0;
 
-  // NOTE: built-in picture is bright everywhere: default dots mode would fill
-  // screen, unless a mode was chosen, show it as an ASCII ramp
+  // NOTE: built-in picture is bright everywhere: default dots mode would
+  // fill screen, unless a mode was chosen, show it as an ASCII ramp
   if (demo_is_device(device) && opts.render_mode == RENDER_DOTS) {
     opts.render_mode = RENDER_ASCII_RAMP;
   }
@@ -1211,7 +1239,7 @@ int main(int argc, char *argv[]) {
 #endif
 
   // Initial screen setup
-  (void)write(STDOUT_FILENO, "\033[2J\033[H\033[?25l", 13);
+  (void)write(STDOUT_FILENO, "\033[?1049h\033[2J\033[H\033[?25l", 19);
 
   term_raw_mode();
   mouse_enable();
@@ -1233,16 +1261,17 @@ int main(int argc, char *argv[]) {
 
   // Recorder / screenshots: where files go, what was saved this session
   // Declared at function scope because they are used by keyhandler ('s'
-  // screenshot, 't' toggle-rec hotkeys), per-frame shot/rec write, and cleanup
-  // block after main loop - not only by SIGWINCH branch
+  // screenshot, 't' toggle-rec hotkeys), per-frame shot/rec write, and
+  // cleanup block after main loop - not only by SIGWINCH branch
   recorder_t rec;
   rec_init(&rec);
 
-  // Save screenshots and recordings under user's Pictures folder so they are
-  // visible alongside other image files, instead of buried in XDG_DATA
-  // Probe existing casing first so it does not create a duplicate ~/Pictures
-  // next to lowercase ~/pictures some systems/distros use; default to capital
-  // 'Pictures' (XDG user-dirs standard) when neither exists
+  // Save screenshots and recordings under user's Pictures folder so they
+  // are visible alongside other image files, instead of buried in XDG_DATA
+  // Probe existing casing first so it does not create a duplicate
+  // ~/Pictures next to lowercase ~/pictures some systems/distros use;
+  // default to capital 'Pictures' (XDG user-dirs standard) when neither
+  // exists
   char cap_dir[REC_PATH_LEN];
   int got_dir = 0;
   if (app_env.home && app_env.home[0]) {
@@ -1282,7 +1311,8 @@ int main(int argc, char *argv[]) {
   char saved_shot[REC_PATH_LEN] = "";
 
   // Captures browser: retractable side panel that lists screenshots and
-  // recordings saved to cap_dir, with in-terminal preview (.ansi) and replay
+  // recordings saved to cap_dir, with in-terminal preview (.ansi) and
+  // replay
   // (.cast). Toggled with 'b' while main loop is running
   browser_t browser;
   browser_init(&browser);
@@ -1319,9 +1349,9 @@ int main(int argc, char *argv[]) {
     last_frame_time = frame_start;
     double current_fps = fps_get(&fps_calc);
 
-    // Apply any pending terminal resize (SIGWINCH) before drawing this frame.
-    // If user has manually sized frame with mouse, terminal auto-fit is
-    // suppressed until press 'a'
+    // Apply any pending terminal resize (SIGWINCH) before drawing this
+    // frame. If user has manually sized frame with mouse, terminal auto-fit
+    // is suppressed until press 'a'
     if (term_resized) {
       term_resized = 0;
 
@@ -1374,8 +1404,8 @@ int main(int argc, char *argv[]) {
     //   if (winch_count != last) {
     //     last = winch_count;
     //     char b[64];
-    //     int n = nl_snprintf(b, sizeof(b), "[winch #%d]\n", (int)winch_count);
-    //     if (n > 0) {
+    //     int n = nl_snprintf(b, sizeof(b), "[winch #%d]\n",
+    //     (int)winch_count); if (n > 0) {
     //       write(2, b, (size_t)n);
     //     }
     //   }
@@ -1395,10 +1425,10 @@ int main(int argc, char *argv[]) {
 
         if (prc == MOUSE_PARSE_DONE) {
           // Corners resize ASCII frame 1:1 in cells, dragging body moves it
-          // Capture resolution is controlled only by -w/-h at startup and is
-          // not touched here, so frame's aspect and camera's aspect stay
-          // independent. Nothing changes until release: meanwhile an outline
-          // shows where frame will go
+          // Capture resolution is controlled only by -w/-h at startup and
+          // is not touched here, so frame's aspect and camera's aspect stay
+          // independent. Nothing changes until release: meanwhile an
+          // outline shows where frame will go
           frame_rect_t cur = {frame_x, frame_y, ascii_w, ascii_h};
           mouse_limits_t lim = {term_w,          term_h,      PANEL_ROWS,
                                 MIN_ASCII_W,     MIN_ASCII_H, DRAG_MAX_ASCII_W,
@@ -1453,8 +1483,8 @@ int main(int argc, char *argv[]) {
             }
 
             if (seq[1] == 'M') {
-              // Legacy X10 report (ESC [ M b x y) from a terminal that has no
-              // SGR mode: swallow 3 payload bytes, they are not keys (a
+              // Legacy X10 report (ESC [ M b x y) from a terminal that has
+              // no SGR mode: swallow 3 payload bytes, they are not keys (a
               // coordinate byte can equal 'q')
               char junk;
               for (int k = 0; k < 3; k++) {
@@ -1467,7 +1497,7 @@ int main(int argc, char *argv[]) {
             }
 
             switch (seq[1]) {
-            case 'A': // up arrow key
+            case 'A': { // up arrow key
               if (browser.active) {
                 browser_key(&browser, BR_KEY_UP, 0, NULL, 0);
               } else if (picker.active) {
@@ -1477,7 +1507,8 @@ int main(int argc, char *argv[]) {
               }
 
               break;
-            case 'B': // down arrow key
+            }
+            case 'B': { // down arrow key
               if (browser.active) {
                 browser_key(&browser, BR_KEY_DOWN, 0, NULL, 0);
               } else if (picker.active) {
@@ -1487,10 +1518,12 @@ int main(int argc, char *argv[]) {
               }
 
               break;
-            default:
-              // other CSI sequences (Home, End, F1..F12, C/D cursor keys) are
-              // not bound; fall through to outer continue
+            }
+            default: {
+              // other CSI sequences (Home, End, F1..F12, C/D cursor keys)
+              // are not bound; fall through to outer continue
               break;
+            }
             }
           }
         } else if (browser.active) {
@@ -1506,25 +1539,27 @@ int main(int argc, char *argv[]) {
         continue;
       }
 
-      // Browser panel open: it owns keyboard, same convention as plugin picker
+      // Browser panel open: it owns keyboard, same convention as plugin
+      // picker
       // - typing a filename can't accidentally trigger hotkeys below
       // (b/q/j/k/g/G all have meaning to browser)
       if (browser.active) {
         char br_path[BROWS_PATH_LEN];
         brows_action_t ba;
         // Enter arrives as '\r' (or '\n' on some terminals) - map it to
-        // dedicated BR_KEY_ENTER kind so browser_key can act on it regardless
-        // of which char terminal sent
+        // dedicated BR_KEY_ENTER kind so browser_key can act on it
+        // regardless of which char terminal sent
         if (ch == '\r' || ch == '\n') {
           ba = browser_key(&browser, BR_KEY_ENTER, 0, br_path, sizeof(br_path));
         } else {
           ba = browser_key(&browser, BR_KEY_CHAR, ch, br_path, sizeof(br_path));
         }
         switch (ba) {
-        case BROWS_ACT_CLOSE:
+        case BROWS_ACT_CLOSE: {
           browser.active = 0;
           browser_clear_area(term_h, term_w);
           break;
+        }
         case BROWS_ACT_PREVIEW_ANSI: {
           int aborted = 0;
           // Hide panel during preview so it doesn't overlap screenshot
@@ -1545,18 +1580,20 @@ int main(int argc, char *argv[]) {
           browser_replay_cast(br_path, &aborted);
           break;
         }
-        case BROWS_ACT_INFO:
+        case BROWS_ACT_INFO: {
           TOAST("%s", browser.info_msg);
           break;
-        default:
+        }
+        default: {
           break;
+        }
         }
 
         continue;
       }
 
-      // Picker open: it owns keyboard, so typing a plugin name can't trigger
-      // hotkeys below (w/e/c would all fire on "water")
+      // Picker open: it owns keyboard, so typing a plugin name can't
+      // trigger hotkeys below (w/e/c would all fire on "water")
       if (picker.active) {
         int load_idx = -1;
         picker_action_t pa =
@@ -1569,7 +1606,8 @@ int main(int argc, char *argv[]) {
             ce->want_load = 1;
             TOAST("%s is already compiling", ce->name);
           } else if (ce->state == PC_READY) {
-            // Already built (or shipped prebuilt): load it, no compiler needed
+            // Already built (or shipped prebuilt): load it, no compiler
+            // needed
             char lmsg[128];
             plugin_activate(&catalog, load_idx, plugins, plugin_params,
                             plugin_cat, &plugin_count, lmsg, sizeof(lmsg));
@@ -1861,6 +1899,22 @@ int main(int argc, char *argv[]) {
       }
     }
 
+    // Mirror/Flip horizontally if requested
+    if (opts.mirror) {
+      int w = cam.width;
+      int h = cam.height;
+
+      // Flip luma (grayscale) frame in-place
+      for (int y = 0; y < h; y++) {
+        uint8_t *row = frame + y * w;
+        for (int x = 0; x < w / 2; x++) {
+          uint8_t tmp = row[x];
+          row[x] = row[w - 1 - x];
+          row[w - 1 - x] = tmp;
+        }
+      }
+    }
+
     // Run all plugins in order
     for (int i = 0; i < plugin_count; i++) {
       if (plugins[i].plugin) {
@@ -2015,9 +2069,6 @@ int main(int argc, char *argv[]) {
   // Cleanup
   mouse_disable();
   term_restore();
-  // \033[2J = erase screen, \033[H = cursor home, \033[?25h = show cursor
-  static const char CLEANUP[] = SYNC_END "\033[2J\033[H\033[0m\033[?25h";
-  (void)write(STDOUT_FILENO, CLEANUP, sizeof(CLEANUP) - 1);
 
   fprintf(stderr, "Stopped.\n");
   if (rec.active) {
@@ -2034,6 +2085,13 @@ int main(int argc, char *argv[]) {
   if (saved_shot[0]) {
     fprintf(stderr, "Screenshot saved: %s\n", saved_shot);
   }
+
+  // Restore main screen, reset attributes, and explicitly show cursor
+  // \033[?1049l = erase screen, \033[0m = cursor home, \033[?25h = show
+  // cursor
+  // static const char CLEANUP[] = SYNC_END "\033[?1049l\033[0m\033[?25h";
+  static const char CLEANUP[] = "\033[?1049l\033[0m\033[?25h";
+  (void)write(STDOUT_FILENO, CLEANUP, sizeof(CLEANUP) - 1);
 
   nl_free(gray);
   nl_free(rgb);
