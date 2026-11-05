@@ -172,7 +172,9 @@ static void fmt_nonfinite(out_t *o, const spec_t *sp, int neg, int is_nan) {
   for (int i = 0; i < 3; i++) {
     char c = s[i];
     if (sp->flags & F_UPPER) {
-      c = (c >= 'a' && c <= 'z') ? "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[c - 'a'] : c;
+      if (c >= 'a' && c <= 'z') {
+        c = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[c - 'a'];
+      }
     }
     tmp[n++] = c;
   }
@@ -308,7 +310,11 @@ static void fmt_double(out_t *o, const spec_t *sp, double v) {
   }
   for (int j = 1; j <= prec; j++) {
     int idx = fd - j;
-    out_ch(o, (idx >= 0 && idx < n) ? "0123456789"[d[idx]] : '0');
+    if (idx >= 0 && idx < n) {
+      out_ch(o, "0123456789"[d[idx]]);
+    } else {
+      out_ch(o, '0');
+    }
   }
   if (sp->flags & F_LEFT) {
     out_rep(o, ' ', pad);
@@ -321,27 +327,35 @@ enum { L_HH = -2, L_H = -1, L_NONE = 0, L_LONG = 1 };
 
 static long long get_signed(va_list *ap, int len) {
   switch (len) {
-  case L_HH:
+  case L_HH: {
     return (signed char)va_arg(*ap, int);
-  case L_H:
+  }
+  case L_H: {
     return (short)va_arg(*ap, int);
-  case L_LONG:
+  }
+  case L_LONG: {
     return va_arg(*ap, long long);
-  default:
+  }
+  default: {
     return va_arg(*ap, int);
+  }
   }
 }
 
 static unsigned long long get_unsigned(va_list *ap, int len) {
   switch (len) {
-  case L_HH:
+  case L_HH: {
     return (unsigned char)va_arg(*ap, unsigned int);
-  case L_H:
+  }
+  case L_H: {
     return (unsigned short)va_arg(*ap, unsigned int);
-  case L_LONG:
+  }
+  case L_LONG: {
     return va_arg(*ap, unsigned long long);
-  default:
+  }
+  default: {
     return va_arg(*ap, unsigned int);
+  }
   }
 }
 
