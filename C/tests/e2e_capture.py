@@ -91,19 +91,19 @@ def run(args, seconds, quit_after=None, key=b"q"):
 
 
 for label, extra in (("threaded", []), ("inline -T", ["-T"])):
-    frames, code, out, _ = run(["-d", "fake", "-f", "20"] + extra, 2.0)
+    frames, code, out, _ = run(["-d", "fake", "-r", "20"] + extra, 2.0)
     check(frames >= 25, f"{label}: frames drawn in 2 s ({frames})")
     check(code == 0, f"{label}: 'q' exits 0 (got {code})")
     check(b"\x1b[?25h" in out, f"{label}: cursor restored on exit")
 
-    frames, code, out, _ = run(["-d", "fake:pad", "-f", "20", "-C", "-w", "320", "-h", "240"] + extra, 1.5)
+    frames, code, out, _ = run(["-d", "fake:pad", "-r", "20", "-C", "-w", "320", "-h", "240"] + extra, 1.5)
     check(frames >= 15 and code == 0, f"{label}: padded rows + colour ({frames} frames, exit {code})")
     check(b"\x1b[38;2;" in out, f"{label}: truecolor escapes emitted")
 
 # Wedged camera: capture thread keeps UI responsive, inline capture does not
 lat = {}
 for label, extra in (("threaded", []), ("inline -T", ["-T"])):
-    frames, code, out, latency = run(["-d", "fake:stall=10", "-f", "20"] + extra, 3.0, quit_after=1.5)
+    frames, code, out, latency = run(["-d", "fake:stall=10", "-r", "20"] + extra, 3.0, quit_after=1.5)
     lat[label] = latency
     check(code == 0, f"{label}: stalled camera, 'q' still exits 0 (got {code})")
     if latency is not None:
@@ -175,7 +175,7 @@ def last_origin(buf):
     return (int(x), int(y)) if x else (1, 1)
 
 
-ARGS = ["-d", "fake", "-W", "40", "-H", "20", "-f", "20"]
+ARGS = ["-d", "fake", "-W", "40", "-H", "20", "-r", "20"]
 for label, extra in (("threaded", []), ("inline -T", ["-T"])):
     out, marks = session(
         ARGS + extra,
@@ -330,10 +330,10 @@ if REAL and os.access(REAL, os.X_OK):
     BIN_SAVE = BIN
     BIN = REAL
     for flag in (["--demo"], ["-d", "demo"]):
-        frames, code, out, _ = run(flag + ["-f", "20", "-C"], 1.5)
+        frames, code, out, _ = run(flag + ["-r", "20", "-C"], 1.5)
         check(frames >= 15 and code == 0, f"real binary {' '.join(flag)}: picture drawn ({frames} frames, exit {code})")
         check(b"\x1b[38;2;" in out, f"real binary {' '.join(flag)}: colour")
-    frames, code, out, latency = run(["--demo", "-f", "20"], 1.0)
+    frames, code, out, latency = run(["--demo", "-r", "20"], 1.0)
     check(len(set(re.findall(rb"\x1b\[\?2026h(.{200})", out, re.DOTALL))) > 3,
           "real binary --demo: picture animates")
     # every effect plugin loads through the real loader and keeps the picture
@@ -344,7 +344,7 @@ if REAL and os.access(REAL, os.X_OK):
         if not os.path.exists(so):
             check(False, f"plugin {name}: {so} was built")
             continue
-        frames, code, out, _ = run(["--demo", "-f", "20", "-p", so], 1.0)
+        frames, code, out, _ = run(["--demo", "-r", "20", "-p", so], 1.0)
         check(frames >= 8 and code == 0 and b"Failed to load" not in out,
               f"plugin {name}: loads and draws ({frames} frames, exit {code})")
     # a missing camera explains how to get a picture
