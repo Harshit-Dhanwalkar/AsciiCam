@@ -217,6 +217,26 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 
 **Hot-reload:** Linux: the binary watches the `.so` with `inotify`. Recompile the plugin while the viewer is running and it reloads automatically within $\approx$100 ms.
 
+### Effect plugins
+
+Besides `edge_detect`, `invert` and `threshold`, `filters/` holds eighteen
+effects. Each takes one parameter 0-255 (the `[128]` in the panel): 0 is "off",
+128 is a pleasant default. They only see the luma plane, so the "colour"
+effects (`thermal`, `sepia`, `chromatic`) are tone-curve approximations.
+
+| Look | Plugins |
+| --- | --- |
+| Analog | `crt` (curved screen, scanlines), `vhs` (wobble, tracking band), `tv_static`, `chromatic` (edge fringing), `vignette`, `sepia` |
+| Digital | `glitch` (bursts), `pixel_sort`, `matrix_rain`, `dither_bayer`, `dither_fs` (levels set by the parameter) |
+| Motion | `trails` (ghosting), `framediff` (highlight what moved) |
+| Shape | `neon_edge`, `ripple`, `fisheye`, `kaleidoscope` (2/4/8-fold), `thermal` (heat bands) |
+
+Shared helpers (bounds check, parameter clamp, integer sine and square root,
+PRNG) live in `include/fx.h`; none of the effects use floating point, libm or
+`malloc`. Stateful ones (`trails`, `framediff`, `glitch`, `matrix_rain`, ...)
+keep their history in static buffers sized for up to 1920x1080 and pass larger
+frames through untouched.
+
 ### Shipping plugins
 
 The program binary contains **no plugin code** (static binary ≈ 86 KB, each

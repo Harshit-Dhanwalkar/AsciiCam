@@ -47,7 +47,12 @@ static const char *core_src[] = {
 static const char *lib_src[] = {
     "lib/nl_alloc.c",  "lib/nl_gc.c",  "lib/nl_dlfcn.c",  "lib/nl_errno.c",
     "lib/nl_getopt.c", "lib/nl_mem.c", "lib/nl_printf.c", "lib/nl_start.c"};
-static const char *plugin_name[] = {"edge_detect", "invert", "threshold"};
+static const char *plugin_name[] = {
+    "edge_detect",  "invert",      "threshold", "chromatic",  "crt",
+    "dither_bayer", "dither_fs",   "fisheye",   "framediff",  "glitch",
+    "kaleidoscope", "matrix_rain", "neon_edge", "pixel_sort", "ripple",
+    "sepia",        "thermal",     "trails",    "tv_static",  "vhs",
+    "vignette"};
 
 #define COUNT(a) (sizeof(a) / sizeof(*a))
 
@@ -380,6 +385,8 @@ static int run_tests(void) {
        "",
        "tests/test_capture_pipe.c src/thread_sharing.c",
        {NULL}},
+      {"effects_O0", "-O0", "-DTESTING", "tests/test_effects.c", {NULL}},
+      {"effects_O2", "-O2", "-DTESTING", "tests/test_effects.c", {NULL}},
       {"security",
        "-O0",
        "-DTESTING",
