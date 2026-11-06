@@ -2298,7 +2298,7 @@ int main(int argc, char *argv[]) {
       if (gfx_len > 0) {
         write_all(STDOUT_FILENO, gfx_out, (size_t)gfx_len);
       } else {
-        write_all(STDOUT_FILENO, out_buf, (size_t)len);
+        write_all(STDOUT_FILENO, wire, wire_len);
       }
 
       uint64_t rec_now = rec_mono_ns();
