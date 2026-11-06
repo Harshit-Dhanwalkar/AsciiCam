@@ -40,8 +40,8 @@ static int jobs = 4;
 
 static const char *core_src[] = {
     "src/app_paths.c",      "src/ascii.c",          "src/browser.c",
-    "src/capture_demo.c",   "src/capture_reinit.c", "src/main.c",
-    "src/mouse.c",          "src/netenc.c",         "src/plugins.c",
+    "src/capture_demo.c",   "src/capture_reinit.c", "src/gfx.c",
+    "src/main.c",           "src/mouse.c",          "src/plugins.c",
     "src/plugin_catalog.c", "src/plugin_picker.c",  "src/recorder.c",
     "src/thread_sharing.c", "src/timing.c"};
 static const char *lib_src[] = {
@@ -320,6 +320,8 @@ static int run_tests(void) {
       {"alloc", "-O0", "", "tests/test_nl_alloc.c", {NULL}},
       {"printf", "-O0", "", "tests/test_nl_printf.c", {NULL}},
       {"dlfcn", "-O0", "", "tests/test_nl_dlfcn.c lib/nl_dlfcn.c", {"build"}},
+      {"gfx_O0", "-O0", "", "tests/test_gfx.c src/gfx.c", {NULL}},
+      {"gfx_O2", "-O2", "", "tests/test_gfx.c src/gfx.c", {NULL}},
       {"fuzz",
        "-O0",
        "",

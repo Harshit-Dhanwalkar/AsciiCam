@@ -228,6 +228,19 @@ for label, extra in (("threaded", []), ("inline -T", ["-T"])):
     after = out[marks[-3]:]
     check(last_frame(after) == (90, 35), f"{label}: colour 640x480 BR resize -> 90x35 ({last_frame(after)})")
 
+    # the picture follows the frame: move and resize with --gfx kitty
+    out, marks = session(
+        ARGS + extra + ["--gfx", "kitty"],
+        [
+            (mouse(0, 10, 5), 0.15), (mouse(32, 30, 15), 0.2), (mouse(0, 30, 15, True), 0.4),
+            (mouse(0, 60, 30), 0.15), (mouse(32, 70, 35), 0.25), (mouse(0, 70, 35, True), 0.6),
+        ],
+    )
+    after = out[marks[-3]:]
+    geo = re.findall(rb"\x1b\[(\d+);(\d+)H\x1b_Ga=T[^;]*,c=(\d+),r=(\d+),", after)
+    check(geo and tuple(map(int, geo[-1])) == (11, 21, 50, 25),
+          f"{label}: --gfx kitty picture placed at (21,11) over 50x25 cells ({geo[-1] if geo else None})")
+
     # a click without dragging changes nothing; 'a' goes back to top-left
     out, marks = session(
         ARGS + extra,
@@ -370,8 +383,8 @@ if REAL and os.access(REAL, os.X_OK):
     check(len(set(re.findall(rb"\x1b\[\?2026h(.{200})", out, re.DOTALL))) > 3,
           "real binary --demo: picture animates")
 
-    # every effect plugin loads through the real loader and keeps the picture
-    # moving (plugin lookups are relative to the binary: build/<name>.so)
+    # every effect plugin loads through real loader and keeps picture moving
+    # (plugin lookups are relative to binary: build/<name>.so)
     plugin_dir = os.path.dirname(os.path.abspath(REAL))
     for name in ['chromatic', 'crt', 'dither_bayer', 'dither_fs', 'fisheye', 'framediff', 'glitch', 'kaleidoscope', 'matrix_rain', 'neon_edge', 'pixel_sort', 'ripple', 'sepia', 'thermal', 'trails', 'tv_static', 'vhs', 'vignette']:
         so = os.path.join(plugin_dir, name + ".so")
@@ -391,6 +404,21 @@ if REAL and os.access(REAL, os.X_OK):
     check(code == 2 and b"--net needs" in out, "--net with a bad value is refused")
     _, code, out, _ = run(["--demo", "--net"], 1.0)
     check(code == 2, "--net without a value is refused")
+
+    # picture output: real images instead of characters
+    for name, start in (("kitty", b"\x1b_Ga=T,f=24"), ("sixel", b"\x1bP0;1;q\"")):
+        for flag in ([], ["-C"]):
+            frames, code, out, _ = run(["--demo", "-r", "10", "--gfx", name] + flag, 1.5, quit_after=1.0)
+            check(code == 0 and out.count(start) >= 3,
+                  f"--gfx {name} {' '.join(flag)}: draws pictures ({out.count(start)}, exit {code})")
+        check(b"\x1b_Ga=d" in out if name == "kitty" else b"\x1b[?80l" in out,
+              f"--gfx {name}: cleans up on exit")
+    _, code, out, _ = run(["--demo", "--gfx", "png"], 0.5)
+    check(code == 2 and b"--gfx needs" in out, "--gfx with a bad value is refused")
+    _, code, out, _ = run(["--demo", "--gfx"], 0.5)
+    check(code == 2, "--gfx without a value is refused")
+    _, code, out, _ = run(["--demo", "--gfx", "off", "-r", "10"], 0.8)
+    check(b"\x1b_G" not in out and b"\x1bP0;1;q" not in out, "--gfx off stays text")
 
     # a missing camera explains how to get a picture
     frames, code, out, _ = run(["-d", "/dev/definitely-not-a-camera"], 0.3)

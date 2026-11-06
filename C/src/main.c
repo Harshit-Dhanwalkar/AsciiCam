@@ -5,6 +5,7 @@
 #include "browser.h"
 #include "capture.h"
 #include "demo.h"
+#include "gfx.h"
 #include "mouse.h"
 #include "netenc.h"
 #include "plugin_catalog.h"
@@ -187,6 +188,9 @@ static void print_usage(const char *prog) {
       "  -m <mode>     render mode: braille|blocks|ascii|halfblock|dots      \n"
       "  -k <dir>      charset directory (hot-reloadable .txt ramps)         \n"
       "  --debug-input <file>  log raw input bytes and mouse events there    \n"
+      "  --gfx <type>  pixels instead of characters: kitty | sixel | auto    \n"
+      "                (kitty, WezTerm, Ghostty / foot, mlterm; auto looks   \n"
+      "                at terminal, off if it has no pictures)               \n"
       "\n"
       "Image adjustments:\n"
       "  -b <val>      brightness offset        -128..128  (default: 0)      \n"
@@ -789,6 +793,19 @@ static int read_escape_byte(char *c) {
   return 0;
 }
 
+// Pixel size of one terminal cell; 8x16 when terminal does not say
+static void query_cell_px(int *cw, int *ch) {
+  struct winsize ws;
+  nl_memset(&ws, 0, sizeof(ws));
+  *cw = 8;
+  *ch = 16;
+  if (nl_ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0 &&
+      ws.ws_row > 0 && ws.ws_xpixel >= ws.ws_col && ws.ws_ypixel >= ws.ws_row) {
+    *cw = ws.ws_xpixel / ws.ws_col;
+    *ch = ws.ws_ypixel / ws.ws_row;
+  }
+}
+
 // Row status panel starts on: bottom of terminal, so it stays put wherever
 // frame is
 // Without a known size it goes under frame as before
@@ -905,12 +922,32 @@ static long parse_count(const char *s, long max) {
 
 int main(int argc, char *argv[]) {
   char **envp_base = argv + argc + 1;
-
   for (int i = 1; i < argc; i++) {
     if (nl_strcmp(argv[i], "--help") == 0) {
       print_usage(argv[0]);
 
       return 0;
+    }
+  }
+
+  // --gfx <type>: taken out of argv here, resolved once environment is known
+  // (auto looks at TERM)
+  const char *gfx_name = NULL;
+  for (int i = 1; i < argc; i++) {
+    if (nl_strcmp(argv[i], "--gfx") == 0) {
+      if (i + 1 >= argc) {
+        fprintf(stderr, "--gfx needs kitty, sixel, auto or off\n");
+
+        return 2;
+      }
+
+      gfx_name = argv[i + 1];
+      for (int j = i; j + 2 <= argc; j++) {
+        argv[j] = argv[j + 2];
+      }
+
+      argc -= 2;
+      i--;
     }
   }
 
@@ -1222,8 +1259,27 @@ int main(int argc, char *argv[]) {
       (char **)0;
 #endif
 
-  // Where everything lives: prebuilt plugins beside binary or under install
-  // prefix, sources + build cache only if a plugin SDK is around
+  gfx_mode_t gfx_mode = GFX_OFF;
+  if (gfx_name) {
+    int gm = gfx_parse(gfx_name, app_getenv(envp, "TERM"),
+                       app_getenv(envp, "TERM_PROGRAM"),
+                       app_getenv(envp, "KITTY_WINDOW_ID") != NULL);
+    if (gm < 0) {
+      fprintf(stderr, "--gfx require kitty, sixel, auto or off (got \"%s\")\n",
+              gfx_name);
+
+      return 2;
+    }
+
+    gfx_mode = (gfx_mode_t)gm;
+    if (gfx_mode == GFX_OFF && nl_strcmp(gfx_name, "auto") == 0) {
+      fprintf(stderr, "--gfx auto: this terminal does not support pictures, "
+                      "using characters\n");
+    }
+  }
+
+  // Everything lives: prebuilt plugins beside binary or under install prefix,
+  // sources + build cache only if a plugin SDK is around
   char exe_dir[AP_LEN];
   app_env_t app_env = {
       .exe_dir = app_exe_dir(exe_dir, sizeof(exe_dir)) == 0 ? exe_dir : NULL,
@@ -1393,19 +1449,17 @@ int main(int argc, char *argv[]) {
   // 0 = frame follows terminal width (SIGWINCH); 1 = user dragged it
   int ascii_size_manual = 0;
 
-  // Recorder / screenshots: where files go, what was saved this session
+  // Recorder / screenshots: output files paths, saved in this session
   // Declared at function scope because they are used by keyhandler ('s'
-  // screenshot, 't' toggle-rec hotkeys), per-frame shot/rec write, and
-  // cleanup block after main loop - not only by SIGWINCH branch
+  // screenshot, 't' toggle-rec hotkeys), per-frame shot/rec write
   recorder_t rec;
   rec_init(&rec);
 
   // Save screenshots and recordings under user's Pictures folder so they
   // are visible alongside other image files, instead of buried in XDG_DATA
-  // Probe existing casing first so it does not create a duplicate
+  // WARN: Probe existing casing first so it does not create a duplicate
   // ~/Pictures next to lowercase ~/pictures some systems/distros use;
-  // default to capital 'Pictures' (XDG user-dirs standard) when neither
-  // exists
+  // default to 'Pictures' (XDG user-dirs standard) when neither exists
   char cap_dir[REC_PATH_LEN];
   int got_dir = 0;
   if (app_env.home && app_env.home[0]) {
@@ -1435,19 +1489,29 @@ int main(int argc, char *argv[]) {
     }
   }
   if (!got_dir) {
-    // Last-resort fallback: captures dir in the current working directory
+    // Last-resort fallback: captures dir in current working directory
     nl_snprintf(cap_dir, sizeof(cap_dir), "captures");
     rec_make_dirs(cap_dir);
   }
 
   int want_shot = 0;
+
+  // Picture output (--gfx): scaled copy of frame and its encoded form
+  uint8_t *gfx_img = NULL;
+  char *gfx_out = NULL;
+  size_t gfx_img_cap = 0;
+  size_t gfx_out_cap = 0;
+  if (gfx_mode == GFX_SIXEL) {
+    (void)write(STDOUT_FILENO, "\033[?80h", 6); // do not scroll at bottom
+  }
+
   char saved_cast[REC_PATH_LEN] = "";
   char saved_shot[REC_PATH_LEN] = "";
 
   // Captures browser: retractable side panel that lists screenshots and
   // recordings saved to cap_dir, with in-terminal preview (.ansi) and
-  // replay
-  // (.cast). Toggled with 'b' while main loop is running
+  // replay (.cast)
+  // Toggled with 'b' while main loop is running
   browser_t browser;
   browser_init(&browser);
   browser_scan(&browser, cap_dir);
@@ -2114,20 +2178,83 @@ int main(int argc, char *argv[]) {
 
     opts.origin_x = frame_x;
     opts.origin_y = frame_y;
-    int len = grayscale_to_ascii(frame, rgb, cam.width, cam.height, subpixel_w,
-                                 subpixel_h, out_buf, out_size, &opts);
-    if (len > (int)out_size) {
-      fprintf(stderr, "WARNING: len=%d > out_size=%zu\n", len, out_size);
+
+    // Characters are only made when shown, recorded or saved
+    int len = 0;
+    if (gfx_mode == GFX_OFF || rec.active || want_shot) {
+      len = grayscale_to_ascii(frame, rgb, cam.width, cam.height, subpixel_w,
+                               subpixel_h, out_buf, out_size, &opts);
+      if (len > (int)out_size) {
+        fprintf(stderr, "WARNING: len=%d > out_size=%zu\n", len, out_size);
+      }
     }
 
-    if (len > 0) {
+    // Picture for --gfx: processed frame scaled to terminal to show in frame's
+    // cells
+    int gfx_len = 0;
+    if (gfx_mode != GFX_OFF) {
+      int pw = ascii_w * 4;
+      int ph = ascii_h * 8;
+      if (gfx_mode == GFX_SIXEL) {
+        int cw, chh;
+        query_cell_px(&cw, &chh);
+        pw = ascii_w * cw;
+        ph = ascii_h * chh;
+        // keep picture inside one sixel costs on wire
+        while (pw > 1024 || ph > 1024) {
+          pw = pw * 3 / 4;
+          ph = ph * 3 / 4;
+        }
+      } else {
+        pw = pw > cam.width ? cam.width : pw;
+        ph = ph > cam.height ? cam.height : ph;
+      }
+
+      pw = pw < 1 ? 1 : pw;
+      ph = ph < 1 ? 1 : ph;
+
+      size_t need_img = (size_t)pw * (size_t)ph * 3u;
+      size_t need_out =
+          gfx_mode == GFX_KITTY ? gfx_kitty_cap(pw, ph) : gfx_sixel_cap(pw, ph);
+      if (need_img > gfx_img_cap) {
+        nl_free(gfx_img);
+        gfx_img = nl_malloc(need_img);
+        gfx_img_cap = gfx_img ? need_img : 0;
+      }
+
+      if (need_out > gfx_out_cap) {
+        nl_free(gfx_out);
+        gfx_out = nl_malloc(need_out);
+        gfx_out_cap = gfx_out ? need_out : 0;
+      }
+
+      if (gfx_img && gfx_out &&
+          gfx_resample(rgb && opts.color && raw ? NULL : frame,
+                       rgb && opts.color && raw ? rgb : NULL, cam.width,
+                       cam.height, pw, ph, gfx_img) == 0) {
+        char cup[24];
+        int cn = nl_snprintf(cup, sizeof(cup), "\033[%d;%dH", frame_y, frame_x);
+        int en =
+            gfx_mode == GFX_KITTY
+                ? gfx_kitty_encode(gfx_img, pw, ph, ascii_w, ascii_h,
+                                   gfx_out + cn, gfx_out_cap - (size_t)cn)
+                : gfx_sixel_encode(gfx_img, pw, ph, !(rgb && opts.color && raw),
+                                   gfx_out + cn, gfx_out_cap - (size_t)cn);
+        if (cn > 0 && en > 0) {
+          nl_memcpy(gfx_out, cup, (size_t)cn);
+          gfx_len = cn + en;
+        }
+      }
+    }
+
+    if (len > 0 || gfx_len > 0) {
       write_all(STDOUT_FILENO, SYNC_BEGIN, sizeof(SYNC_BEGIN) - 1);
       const char *wire = out_buf;
       size_t wire_len = (size_t)len;
       if (net_kbps >= 0) {
-        // the delta is never much bigger than the frame itself, and sizing
-        // it to the frame (not to out_size, the worst case over all render
-        // modes) keeps it out of the allocator's big-block path
+        // delta is never much bigger than frame itself and sizing it to frame
+        // (not to out_size, worst case over all render modes) keeps it out of
+        // allocator's big-block path
         size_t need = (size_t)len + (size_t)len / 4 + 4096;
         if (net_buf_cap < need) {
           nl_free(net_buf);
@@ -2168,14 +2295,19 @@ int main(int argc, char *argv[]) {
         }
       }
 
-      write_all(STDOUT_FILENO, wire, wire_len);
+      if (gfx_len > 0) {
+        write_all(STDOUT_FILENO, gfx_out, (size_t)gfx_len);
+      } else {
+        write_all(STDOUT_FILENO, out_buf, (size_t)len);
+      }
 
       uint64_t rec_now = rec_mono_ns();
-      if (rec.active && rec_frame(&rec, rec_now, out_buf, (size_t)len) < 0) {
+      if (rec.active && len > 0 &&
+          rec_frame(&rec, rec_now, out_buf, (size_t)len) < 0) {
         TOAST("REC stopped: cannot write %s", rec.path);
       }
 
-      if (want_shot) {
+      if (want_shot && len > 0) {
         want_shot = 0;
         int have_rgb = opts.color && rgb && raw;
         char png_p[REC_PATH_LEN], ansi_p[REC_PATH_LEN], tb[REC_TOAST_W + 8];
@@ -2284,6 +2416,16 @@ int main(int argc, char *argv[]) {
   mouse_disable();
   term_restore();
 
+  if (gfx_mode == GFX_KITTY) {
+    char del[32];
+    int dn = gfx_kitty_delete(del, sizeof(del));
+    if (dn > 0) {
+      (void)write(STDOUT_FILENO, del, (size_t)dn);
+    }
+  } else if (gfx_mode == GFX_SIXEL) {
+    (void)write(STDOUT_FILENO, "\033[?80l", 6);
+  }
+
   fprintf(stderr, "Stopped.\n");
   if (rec.active) {
     double secs = 0;
@@ -2310,6 +2452,8 @@ int main(int argc, char *argv[]) {
   nl_free(gray);
   nl_free(rgb);
   nl_free(out_buf);
+  nl_free(gfx_img);
+  nl_free(gfx_out);
   if (net_kbps >= 0) {
     netenc_free(&net);
     nl_free(net_buf);
