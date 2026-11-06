@@ -19,6 +19,31 @@ V4L2 on Linux, AVFoundation on macOS, Media Foundation on Windows.
 
 ---
 
+## Pictures instead of characters (`--gfx`)
+
+```sh
+asciicam --gfx kitty     # kitty, WezTerm, Ghostty, Konsole
+asciicam --gfx sixel     # foot, mlterm, xterm -ti vt340, Windows Terminal
+asciicam --gfx auto      # decides from $TERM / $KITTY_WINDOW_ID, characters if unsure
+```
+
+The frame (after mirror, plugins and edge detection, in colour with `-C`) is sent
+as a real image over the frame's cells. Dragging, resizing, the panel, the plugin
+picker and screenshots/recordings keep working; a recording or screenshot saves
+the character version of that frame.
+
+- kitty: raw 24-bit RGB at 4x8 pixels per cell (at most the camera size), scaled by
+  the terminal, text drawn on top of the picture. Roughly 0.5 MB per frame at
+  120x46 cells: meant for a local terminal, not for ssh (use `--net` and
+  characters there).
+- sixel: 216-colour cube (64 greys without `-C`), pixel size taken from the
+  terminal's cell size (8x16 if it does not say), capped at 1024x1024.
+
+Not tried on real kitty/foot/WezTerm: output is verified by decoding it back in
+tests (`tests/test_gfx.c`).
+
+---
+
 ## Features
 
 | Feature                      | Details                                                                                                                                           |
