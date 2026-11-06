@@ -545,7 +545,7 @@ if REAL and os.access(REAL, os.X_OK):
         check(b"\x1b_Ga=d" in out if name == "kitty" else b"\x1b[?80l" in out,
               f"--gfx {name}: cleans up on exit")
     _, code, out, _ = run(["--demo", "--gfx", "png"], 0.5)
-    check(code == 2 and b"--gfx needs" in out, "--gfx with a bad value is refused")
+    check(code == 2 and b"--gfx require" in out, "--gfx with a bad value is refused")
     _, code, out, _ = run(["--demo", "--gfx"], 0.5)
     check(code == 2, "--gfx without a value is refused")
     _, code, out, _ = run(["--demo", "--gfx", "off", "-r", "10"], 0.8)
