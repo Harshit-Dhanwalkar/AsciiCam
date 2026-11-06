@@ -302,7 +302,7 @@ test: all
 	$(CC) -O0 -DTESTING $(TEST_FLAGS) tests/test_effects.c $(TEST_LIBS) -o $(TESTDIR)/effects_O0
 	$(CC) -O2 -DTESTING $(TEST_FLAGS) tests/test_effects.c $(TEST_LIBS) -o $(TESTDIR)/effects_O2
 	$(CC) -O0 $(TEST_FLAGS) tests/test_netenc.c $(SRCDIR)/netenc.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/netenc_O0
-	$(CC) -O2 $(TEST_FLAGS) tests/test_netenc.c $(SRCDIR)/netenc.c 
+	$(CC) -O2 $(TEST_FLAGS) tests/test_netenc.c $(SRCDIR)/netenc.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/netenc_O2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_copy_file.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/copy_file
 	$(CC) -O2 $(TEST_FLAGS) tests/test_plugin_catalog.c $(SRCDIR)/plugin_catalog.c $(SRCDIR)/plugin_picker.c $(SRCDIR)/plugins.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/catalog
 	$(CC) -O0 $(TEST_FLAGS) tests/test_nl_gc.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/gc_O0
