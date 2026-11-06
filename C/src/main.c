@@ -2716,14 +2716,10 @@ int main(int argc, char *argv[]) {
       opts.tone_hist = NULL;
     }
 
-    int len = grayscale_to_ascii(frame, rgb, cam.width, cam.height, subpixel_w,
-                                 subpixel_h, out_buf, out_size, &opts);
-    if (len > (int)out_size) {
-      fprintf(stderr, "WARNING: len=%d > out_size=%zu\n", len, out_size);
-
+    {
       // Characters are only made when shown, recorded or saved
       int len = 0;
-      if (gfx_mode == GFX_OFF || rec.active || want_shot) {
+      if (gfx_mode == GFX_OFF || rec.active || want_shot || vcam_on) {
         len = grayscale_to_ascii(frame, rgb, cam.width, cam.height, subpixel_w,
                                  subpixel_h, out_buf, out_size, &opts);
         if (len > (int)out_size) {
@@ -2844,7 +2840,7 @@ int main(int argc, char *argv[]) {
         if (gfx_len > 0) {
           write_all(STDOUT_FILENO, gfx_out, (size_t)gfx_len);
         } else {
-          write_all(STDOUT_FILENO, out_buf, (size_t)len);
+          write_all(STDOUT_FILENO, wire, wire_len);
         }
 
         if (vcam_on && vcam_frame(&vcam, out_buf, (size_t)len) < 0) {
@@ -2975,78 +2971,79 @@ int main(int argc, char *argv[]) {
 
         net_prev_overlay = overlay_now;
       }
-
-      if (!pipe_on && webcam_requeue_buffer(&cam) < 0) {
-        nl_perror("requeue_buffer");
-
-        break;
-      }
-
-      timing_sleep(&frame_start);
     }
 
-    // Cleanup
-    mouse_disable();
-    term_restore();
+    if (!pipe_on && webcam_requeue_buffer(&cam) < 0) {
+      nl_perror("requeue_buffer");
 
-    if (gfx_mode == GFX_KITTY) {
-      char del[32];
-      int dn = gfx_kitty_delete(del, sizeof(del));
-      if (dn > 0) {
-        (void)write(STDOUT_FILENO, del, (size_t)dn);
-      }
-    } else if (gfx_mode == GFX_SIXEL) {
-      (void)write(STDOUT_FILENO, "\033[?80l", 6);
+      break;
     }
 
-    fprintf(stderr, "Stopped.\n");
-
-    if (vcam_on) {
-      fprintf(stderr, "Virtual camera: %u frames sent to %s\n",
-              (unsigned)vcam.frames, vcam_path);
-      vcam_close(&vcam);
-    }
-
-    if (rec.active) {
-      double secs = 0;
-      int frames = rec_stop(&rec, rec_mono_ns(), &secs);
-      nl_snprintf(saved_cast, sizeof(saved_cast), "%s", rec.path);
-      fprintf(stderr, "Recording ended: %d frames, %d s\n", frames, (int)secs);
-    }
-
-    if (saved_cast[0]) {
-      fprintf(stderr, "Recording saved: %s\n", saved_cast);
-    }
-
-    if (saved_shot[0]) {
-      fprintf(stderr, "Screenshot saved: %s\n", saved_shot);
-    }
-
-    // Restore main screen, reset attributes, and explicitly show cursor
-    // \033[?1049l = erase screen, \033[0m = cursor home, \033[?25h = show
-    // cursor
-    // static const char CLEANUP[] = SYNC_END "\033[?1049l\033[0m\033[?25h";
-    static const char CLEANUP[] = "\033[?1049l\033[0m\033[?25h";
-    (void)write(STDOUT_FILENO, CLEANUP, sizeof(CLEANUP) - 1);
-
-    nl_free(gray);
-    nl_free(rgb);
-    nl_free(out_buf);
-    nl_free(gfx_img);
-    nl_free(gfx_out);
-    if (net_kbps >= 0) {
-      netenc_free(&net);
-      nl_free(net_buf);
-    }
-
-    for (int i = 0; i < plugin_count; i++) {
-      plugin_cleanup(&plugins[i]);
-    }
-
-    catalog_cleanup(&catalog);
-    charset_registry_cleanup(&charsets);
-    capture_pipe_stop(&cap_pipe); // before camera it reads from is closed
-    webcam_cleanup(&cam);
-
-    return 0;
+    timing_sleep(&frame_start);
   }
+
+  // Cleanup
+  mouse_disable();
+  term_restore();
+
+  if (gfx_mode == GFX_KITTY) {
+    char del[32];
+    int dn = gfx_kitty_delete(del, sizeof(del));
+    if (dn > 0) {
+      (void)write(STDOUT_FILENO, del, (size_t)dn);
+    }
+  } else if (gfx_mode == GFX_SIXEL) {
+    (void)write(STDOUT_FILENO, "\033[?80l", 6);
+  }
+
+  fprintf(stderr, "Stopped.\n");
+
+  if (vcam_on) {
+    fprintf(stderr, "Virtual camera: %u frames sent to %s\n",
+            (unsigned)vcam.frames, vcam_path);
+    vcam_close(&vcam);
+  }
+
+  if (rec.active) {
+    double secs = 0;
+    int frames = rec_stop(&rec, rec_mono_ns(), &secs);
+    nl_snprintf(saved_cast, sizeof(saved_cast), "%s", rec.path);
+    fprintf(stderr, "Recording ended: %d frames, %d s\n", frames, (int)secs);
+  }
+
+  if (saved_cast[0]) {
+    fprintf(stderr, "Recording saved: %s\n", saved_cast);
+  }
+
+  if (saved_shot[0]) {
+    fprintf(stderr, "Screenshot saved: %s\n", saved_shot);
+  }
+
+  // Restore main screen, reset attributes, and explicitly show cursor
+  // \033[?1049l = erase screen, \033[0m = cursor home, \033[?25h = show
+  // cursor
+  // static const char CLEANUP[] = SYNC_END "\033[?1049l\033[0m\033[?25h";
+  static const char CLEANUP[] = "\033[?1049l\033[0m\033[?25h";
+  (void)write(STDOUT_FILENO, CLEANUP, sizeof(CLEANUP) - 1);
+
+  nl_free(gray);
+  nl_free(rgb);
+  nl_free(out_buf);
+  nl_free(gfx_img);
+  nl_free(gfx_out);
+  if (net_kbps >= 0) {
+    netenc_free(&net);
+    nl_free(net_buf);
+  }
+
+  for (int i = 0; i < plugin_count; i++) {
+    plugin_cleanup(&plugins[i]);
+  }
+
+  catalog_cleanup(&catalog);
+  charset_registry_cleanup(&charsets);
+  capture_pipe_stop(&cap_pipe); // before camera it reads from is closed
+  webcam_cleanup(&cam);
+
+  return 0;
+}
