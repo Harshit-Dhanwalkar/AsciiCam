@@ -336,6 +336,7 @@ if REAL and os.access(REAL, os.X_OK):
     frames, code, out, latency = run(["--demo", "-f", "20"], 1.0)
     check(len(set(re.findall(rb"\x1b\[\?2026h(.{200})", out, re.DOTALL))) > 3,
           "real binary --demo: picture animates")
+
     # every effect plugin loads through the real loader and keeps the picture
     # moving (plugin lookups are relative to the binary: build/<name>.so)
     plugin_dir = os.path.dirname(os.path.abspath(REAL))
@@ -347,6 +348,17 @@ if REAL and os.access(REAL, os.X_OK):
         frames, code, out, _ = run(["--demo", "-f", "20", "-p", so], 1.0)
         check(frames >= 8 and code == 0 and b"Failed to load" not in out,
               f"plugin {name}: loads and draws ({frames} frames, exit {code})")
+
+    # slow-link mode: draws and a bad value is refused up front
+    for level in ("0", "300"):
+        frames, code, out, _ = run(["--demo", "-f", "20", "--net", level], 1.0)
+        check(frames >= 8 and code == 0,
+              f"--net {level}: draws and exits cleanly ({frames} frames, exit {code})")
+    _, code, out, _ = run(["--demo", "--net", "fast"], 1.0)
+    check(code == 2 and b"--net needs" in out, "--net with a bad value is refused")
+    _, code, out, _ = run(["--demo", "--net"], 1.0)
+    check(code == 2, "--net without a value is refused")
+
     # a missing camera explains how to get a picture
     frames, code, out, _ = run(["-d", "/dev/definitely-not-a-camera"], 0.3)
     check(code != 0 and b"--demo" in out, "missing camera: error mentions --demo")

@@ -6,6 +6,7 @@
 #include "capture.h"
 #include "demo.h"
 #include "mouse.h"
+#include "netenc.h"
 #include "plugin_catalog.h"
 #include "plugin_picker.h"
 #include "plugins.h"
@@ -171,9 +172,11 @@ static void print_usage(const char *prog) {
       "                (same as -d demo)                                     \n"
       "  -w <width>    capture width            (default: %d)                \n"
       "  -h <height>   capture height           (default: %d)                \n"
-      "  -f <fps>      target framerate         (default: %d)                \n"
+      "  -r <fps>      target framerate         (default: %d)                \n"
       "  -T            capture in main loop     (Linux default: a separate   \n"
       "                capture thread keeps UI responsive)                   \n"
+      "  --net <kbps>  slow-link mode: send only changed pixels,             \n"
+      "                <kbps> kbit/s (0 = lossless changes only)            \n"
       "\n"
       "Output options:\n"
       "  -W <width>    ASCII output columns     (default: %d)                \n"
@@ -843,6 +846,27 @@ static int plugin_activate(plugin_catalog_t *cc, int ci,
 fps_counter_t fps_calc = {0};
 
 // Main
+// A non-negative decimal number not larger than max, or -1
+static long parse_count(const char *s, long max) {
+  if (!s || *s == '\0') {
+    return -1;
+  }
+
+  long v = 0;
+  for (; *s; s++) {
+    if (*s < '0' || *s > '9') {
+      return -1;
+    }
+
+    v = v * 10 + (*s - '0');
+    if (v > max) {
+      return -1;
+    }
+  }
+
+  return v;
+}
+
 int main(int argc, char *argv[]) {
   for (int i = 1; i < argc; i++) {
     if (nl_strcmp(argv[i], "--help") == 0) {
@@ -857,6 +881,32 @@ int main(int argc, char *argv[]) {
     if (nl_strcmp(argv[i], "--demo") == 0) {
       argv[i] = (char *)"-d" DEMO_DEVICE;
     }
+  }
+
+  // --net <kbps>: slow-link mode (getopt only knows short options, so it is
+  // taken out of argv here)
+  // -1 = off
+  int net_kbps = -1;
+  for (int i = 1; i < argc; i++) {
+    if (nl_strcmp(argv[i], "--net") != 0) {
+      continue;
+    }
+
+    long v = i + 1 < argc ? parse_count(argv[i + 1], 1000000) : -1;
+    if (v < 0) {
+      fprintf(stderr, "--net needs a number of kbit/s (0 = lossless)\n");
+
+      return 2;
+    }
+
+    net_kbps = (int)v;
+    for (int k = i; k + 2 < argc; k++) {
+      argv[k] = argv[k + 2];
+    }
+
+    argc -= 2;
+    argv[argc] = NULL;
+    i--;
   }
 
   nl_signal(SIGINT, handle_signal);
@@ -1203,6 +1253,21 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  // Slow-link mode (--net): delta encoder state
+  // net_dirty = terminal no longer shows what encoder thinks (screen cleared,
+  // overlay removed)
+  netenc_t net;
+  char *net_buf = NULL;
+  size_t net_buf_cap = 0;
+  int net_dirty = 0;
+  int net_age = 0;
+  int net_prev_overlay = 0;
+  int net_warned = 0;
+  if (net_kbps >= 0) {
+    // below ~24 levels of colour difference a change is noise, not picture
+    netenc_init(&net, net_kbps > 0 ? 24 : 0, 0);
+  }
+
   char *out_buf = malloc(out_size);
   if (!out_buf) {
     nl_perror("malloc out_buf");
@@ -1364,6 +1429,7 @@ int main(int argc, char *argv[]) {
 
       outline_on = 0;
       (void)write(STDOUT_FILENO, "\033[2J", 4);
+      net_dirty = 1;
 
       if (ascii_size_manual) {
         // keep chosen frame, but not outside (smaller) terminal
@@ -1459,6 +1525,7 @@ int main(int argc, char *argv[]) {
               }
 
               (void)write(STDOUT_FILENO, "\033[2J", 4);
+              net_dirty = 1;
             }
           }
 
@@ -1962,7 +2029,53 @@ int main(int argc, char *argv[]) {
 
     if (len > 0) {
       write_all(STDOUT_FILENO, SYNC_BEGIN, sizeof(SYNC_BEGIN) - 1);
-      write_all(STDOUT_FILENO, out_buf, (size_t)len);
+      const char *wire = out_buf;
+      size_t wire_len = (size_t)len;
+      if (net_kbps >= 0) {
+        // the delta is never much bigger than the frame itself, and sizing
+        // it to the frame (not to out_size, the worst case over all render
+        // modes) keeps it out of the allocator's big-block path
+        size_t need = (size_t)len + (size_t)len / 4 + 4096;
+        if (net_buf_cap < need) {
+          nl_free(net_buf);
+          net_buf = malloc(need);
+          net_buf_cap = net_buf ? need : 0;
+          if (!net_buf && !net_warned) {
+            net_warned = 1;
+            fprintf(stderr, "--net: out of memory, sending full frames\n");
+          }
+        }
+
+        // repaint everything now and then so a stray character (a terminal
+        // hiccup, a write from elsewhere) cannot stay on screen for long
+        if (++net_age >= fps * 10) {
+          net_dirty = 1;
+        }
+
+        if (net_buf) {
+          if (net_dirty) {
+            netenc_invalidate(&net);
+            net_dirty = 0;
+            net_age = 0;
+          }
+
+          net.budget = net_kbps > 0 ? net_kbps * 125 / (fps > 0 ? fps : 1) : 0;
+          if (net.budget > 0 && net.budget < 300) {
+            net.budget = 300;
+          }
+
+          int en =
+              netenc_frame(&net, out_buf, (size_t)len, net_buf, net_buf_cap);
+          if (en >= 0) {
+            wire = net_buf;
+            wire_len = (size_t)en;
+          } else {
+            netenc_invalidate(&net); // unknown escapes: send as is, then resync
+          }
+        }
+      }
+
+      write_all(STDOUT_FILENO, wire, wire_len);
 
       uint64_t rec_now = rec_mono_ns();
       if (rec.active && rec_frame(&rec, rec_now, out_buf, (size_t)len) < 0) {
@@ -2055,6 +2168,14 @@ int main(int argc, char *argv[]) {
       if (on > 0) {
         (void)write(STDOUT_FILENO, ovl, (size_t)on);
       }
+
+      // an overlay that just went away leaves its cells wrong on screen
+      int overlay_now = on > 0 || browser.active || mouse_drag.dragging;
+      if (net_prev_overlay && !overlay_now) {
+        net_dirty = 1;
+      }
+
+      net_prev_overlay = overlay_now;
     }
 
     if (!pipe_on && webcam_requeue_buffer(&cam) < 0) {
@@ -2096,9 +2217,15 @@ int main(int argc, char *argv[]) {
   nl_free(gray);
   nl_free(rgb);
   nl_free(out_buf);
+  if (net_kbps >= 0) {
+    netenc_free(&net);
+    nl_free(net_buf);
+  }
+
   for (int i = 0; i < plugin_count; i++) {
     plugin_cleanup(&plugins[i]);
   }
+
   catalog_cleanup(&catalog);
   charset_registry_cleanup(&charsets);
   capture_pipe_stop(&cap_pipe); // before camera it reads from is closed

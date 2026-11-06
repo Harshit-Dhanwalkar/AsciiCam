@@ -224,12 +224,12 @@ effects. Each takes one parameter 0-255 (the `[128]` in the panel): 0 is "off",
 128 is a pleasant default. They only see the luma plane, so the "colour"
 effects (`thermal`, `sepia`, `chromatic`) are tone-curve approximations.
 
-| Look | Plugins |
-| --- | --- |
-| Analog | `crt` (curved screen, scanlines), `vhs` (wobble, tracking band), `tv_static`, `chromatic` (edge fringing), `vignette`, `sepia` |
-| Digital | `glitch` (bursts), `pixel_sort`, `matrix_rain`, `dither_bayer`, `dither_fs` (levels set by the parameter) |
-| Motion | `trails` (ghosting), `framediff` (highlight what moved) |
-| Shape | `neon_edge`, `ripple`, `fisheye`, `kaleidoscope` (2/4/8-fold), `thermal` (heat bands) |
+| Look    | Plugins                                                                                                                        |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Analog  | `crt` (curved screen, scanlines), `vhs` (wobble, tracking band), `tv_static`, `chromatic` (edge fringing), `vignette`, `sepia` |
+| Digital | `glitch` (bursts), `pixel_sort`, `matrix_rain`, `dither_bayer`, `dither_fs` (levels set by the parameter)                      |
+| Motion  | `trails` (ghosting), `framediff` (highlight what moved)                                                                        |
+| Shape   | `neon_edge`, `ripple`, `fisheye`, `kaleidoscope` (2/4/8-fold), `thermal` (heat bands)                                          |
 
 Shared helpers (bounds check, parameter clamp, integer sine and square root,
 PRNG) live in `include/fx.h`; none of the effects use floating point, libm or
@@ -364,6 +364,37 @@ says when a recording or screenshot started and ended and where the file is; the
 full paths are printed again when the program exits.
 
 ---
+
+## Slow links and ssh
+
+`--net <kbps>` sends only what changed since the last frame, so the picture is
+usable over ssh on bad wifi:
+
+```sh
+asciicam --net 300 -m halfblock -C     # about 300 kbit/s
+asciicam --net 0                       # lossless changes only
+```
+
+Without `--net` every frame repaints every cell with its own colour escape:
+roughly 3.7 KB per 80x40 frame in plain ASCII, 38 KB in 256 colours, 60 KB in
+truecolor and 124 KB in half-blocks (measured, at 20 fps that is 0.6 to 20
+Mbit/s). With it:
+
+| Mode (80x40, demo source) | off    | `--net 0` | `--net 1000` | `--net 300` | `--net 100` |
+| ------------------------- | ------ | --------- | ------------ | ----------- | ----------- |
+| ASCII mono                | 3.7 KB | 3.7 KB    | 3.2 KB       | 1.6 KB      | 0.7 KB      |
+| ASCII 256-colour          | 38 KB  | 20 KB     | 5.5 KB       | 2.0 KB      | 1.0 KB      |
+| ASCII truecolor           | 61 KB  | 61 KB     | 6.7 KB       | 2.3 KB      | 1.1 KB      |
+| Half-block truecolor      | 124 KB | 117 KB    | 6.3 KB       | 2.2 KB      | 1.1 KB      |
+
+The demo changes every cell each frame, which is the worst case; a camera
+looking at a mostly still room does much better. `<kbps>` is a target for the
+picture: the panel and overlays come on top. The most visible changes are sent
+first and the rest wait for later frames, so under a tight budget the picture
+builds up and settles instead of the link falling behind. The screen is also
+fully repainted every ten seconds, and whenever it is cleared or an overlay
+goes away. `python3 tests/measure_bandwidth.py build/webcam_ascii` reproduces
+the table. (Recordings and screenshots always hold the full frame.)
 
 ### Loader hardening
 
