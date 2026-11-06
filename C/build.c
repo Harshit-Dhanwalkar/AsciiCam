@@ -39,11 +39,11 @@ static int jobs = 4;
 #endif
 
 static const char *core_src[] = {
-    "src/app_paths.c",      "src/ascii.c",          "src/browser.c",
-    "src/capture_demo.c",   "src/capture_reinit.c", "src/gfx.c",
-    "src/main.c",           "src/mouse.c",          "src/plugins.c",
-    "src/plugin_catalog.c", "src/plugin_picker.c",  "src/recorder.c",
-    "src/thread_sharing.c", "src/timing.c"};
+    "src/app_paths.c",    "src/ascii.c",          "src/browser.c",
+    "src/capture_demo.c", "src/capture_reinit.c", "src/gfx.c",
+    "src/main.c",         "src/mouse.c",          "src/netenc.c",
+    "src/plugins.c",      "src/plugin_catalog.c", "src/plugin_picker.c",
+    "src/recorder.c",     "src/thread_sharing.c", "src/timing.c"};
 static const char *lib_src[] = {
     "lib/nl_alloc.c",  "lib/nl_gc.c",  "lib/nl_dlfcn.c",  "lib/nl_errno.c",
     "lib/nl_getopt.c", "lib/nl_mem.c", "lib/nl_printf.c", "lib/nl_start.c"};
@@ -177,7 +177,7 @@ static int build_all(void) {
     return 0;
   }
 
-  const char *target = BUILD "/webcam_ascii";
+  const char *target = BUILD "/asciicam";
   if (nb_needs_rebuild(target, (const char **)link.v + 1, link.n - 1)) {
     nb_cmd_add(&link, "-o", target);
     ldflags(&link);
@@ -224,7 +224,7 @@ static int install(int sdk) {
   nb_mkdir(bin);
   nb_mkdir(nb_fmt("%s/plugins", share));
   nb_mkdir(nb_fmt("%s/charsets", share));
-  int ok = nb_copy(BUILD "/webcam_ascii", nb_fmt("%s/asciicam", bin), "755");
+  int ok = nb_copy(BUILD "/asciicam", nb_fmt("%s/asciicam", bin), "755");
   for (size_t i = 0; i < COUNT(plugin_name); i++) {
     ok &= nb_copy(nb_fmt(BUILD "/%s." SO_EXT, plugin_name[i]),
                   nb_fmt("%s/plugins", share), "755");
@@ -447,8 +447,7 @@ static int run_e2e(void) {
   }
 
   nb_cmd py = {0};
-  nb_cmd_add(&py, "python3", "tests/e2e_capture.py", bin,
-             BUILD "/webcam_ascii");
+  nb_cmd_add(&py, "python3", "tests/e2e_capture.py", bin, BUILD "/asciicam");
 
   return nb_run(&py);
 }
@@ -506,7 +505,7 @@ int main(int argc, char **argv) {
   } else if (!strcmp(target, "plugins")) {
     ok = build_plugins();
   } else if (!strcmp(target, "test")) {
-    ok = build_all() && run_tests(); // tests read build/webcam_ascii
+    ok = build_all() && run_tests(); // tests read build/asciicam
   } else if (!strcmp(target, "e2e")) {
     ok = run_e2e();
   } else if (!strcmp(target, "info")) {

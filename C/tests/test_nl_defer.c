@@ -7,6 +7,7 @@
  *     -nostdlib -static tests/test_nl_defer.c lib/nl_printf.c lib/nl_errno.c \
  *     lib/nl_alloc.c lib/nl_start.c -Iinclude -Ilib -o /tmp/td
  */
+
 #include "../lib/nl_defer.h"
 #include "../lib/nolibc.h"
 #include "nl_alloc_priv.h"
@@ -110,9 +111,9 @@ static int take_fd(const char *path) {
 }
 
 int main(void) {
-  int fx = open("build/webcam_ascii", O_RDONLY, 0);
+  int fx = open("build/asciicam", O_RDONLY, 0);
   if (fx < 0) {
-    fprintf(stderr, "error: build/webcam_ascii missing - run `make`\n");
+    fprintf(stderr, "error: build/asciicam missing - run `make`\n");
     return 2;
   }
 
@@ -156,9 +157,9 @@ int main(void) {
   CHECK(live() == base, "caller frees what it took");
 
   int seen = -5;
-  CHECK(open_twice("build/webcam_ascii", &seen) == 0 && seen >= 0,
+  CHECK(open_twice("build/asciicam", &seen) == 0 && seen >= 0,
         "open succeeded");
-  int fd_after = open("build/webcam_ascii", O_RDONLY, 0);
+  int fd_after = open("build/asciicam", O_RDONLY, 0);
   CHECK(fd_after == seen,
         "descriptor %d was closed at scope end (next open "
         "got %d)",
@@ -167,9 +168,9 @@ int main(void) {
   CHECK(open_twice("/nonexistent/x", &seen) == -1 && seen < 0,
         "failed open: nothing to close, no crash");
 
-  int taken = take_fd("build/webcam_ascii");
+  int taken = take_fd("build/asciicam");
   CHECK(taken >= 0, "NL_TAKE returns descriptor");
-  int probe = open("build/webcam_ascii", O_RDONLY, 0);
+  int probe = open("build/asciicam", O_RDONLY, 0);
   CHECK(probe > taken, "descriptor taken out of scope is still open");
   close(probe);
   close(taken);
