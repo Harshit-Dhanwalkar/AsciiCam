@@ -215,8 +215,18 @@ int gfx_kitty_encode(const uint8_t *rgb, int w, int h, int cols, int rows,
 
       put(&o, B64[(v >> 18u) & 63u]);
       put(&o, B64[(v >> 12u) & 63u]);
-      put(&o, left > 1 ? B64[(v >> 6u) & 63u] : '=');
-      put(&o, left > 2 ? B64[v & 63u] : '=');
+      // put(&o, left > 1 ? B64[(v >> 6u) & 63u] : '=');
+      // put(&o, left > 2 ? B64[v & 63u] : '=');
+      if (left > 1) {
+        put(&o, B64[(v >> 6u) & 63u]);
+      } else {
+        put(&o, '=');
+      }
+      if (left > 2) {
+        put(&o, B64[v & 63u]);
+      } else {
+        put(&o, '=');
+      }
     }
 
     puts_(&o, "\033\\");
