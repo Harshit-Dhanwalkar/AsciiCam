@@ -186,6 +186,7 @@ static void print_usage(const char *prog) {
       "  -L <dir>      plugin source dir for live picker (default: %s)       \n"
       "  -m <mode>     render mode: braille|blocks|ascii|halfblock|dots      \n"
       "  -k <dir>      charset directory (hot-reloadable .txt ramps)         \n"
+      "  --debug-input <file>  log raw input bytes and mouse events there    \n"
       "\n"
       "Image adjustments:\n"
       "  -b <val>      brightness offset        -128..128  (default: 0)      \n"
@@ -753,6 +754,41 @@ static void query_term_size(int *w, int *h) {
   }
 }
 
+// --debug-input log (-1 = off)
+static int input_log_fd = -1;
+
+static void input_log(const char *fmt, int a, int b, int c, int d) {
+  if (input_log_fd < 0) {
+    return;
+  }
+
+  char line[160];
+  int n = nl_snprintf(line, sizeof(line), fmt, a, b, c, d);
+  if (n > 0) {
+    (void)write(input_log_fd, line, (size_t)n);
+  }
+}
+
+// Next byte of an escape sequence
+// A terminal writes a whole sequence at once but it may arrive in pieces; give
+// rest up to ~25 ms to show up
+// Returns 1 and stores byte, or 0 when nothing came (a lone ESC key)
+static int read_escape_byte(char *c) {
+  for (int i = 0; i < 25; i++) {
+    if (read(STDIN_FILENO, c, 1) == 1) {
+      input_log("  esc byte 0x%02x after %d ms\n", (unsigned char)*c, i, 0, 0);
+
+      return 1;
+    }
+
+    nl_usleep(1000);
+  }
+
+  input_log("  esc: nothing more after 25 ms\n", 0, 0, 0, 0);
+
+  return 0;
+}
+
 // Row status panel starts on: bottom of terminal, so it stays put wherever
 // frame is
 // Without a known size it goes under frame as before
@@ -868,6 +904,8 @@ static long parse_count(const char *s, long max) {
 }
 
 int main(int argc, char *argv[]) {
+  char **envp_base = argv + argc + 1;
+
   for (int i = 1; i < argc; i++) {
     if (nl_strcmp(argv[i], "--help") == 0) {
       print_usage(argv[0]);
@@ -900,6 +938,37 @@ int main(int argc, char *argv[]) {
     }
 
     net_kbps = (int)v;
+    for (int k = i; k + 2 < argc; k++) {
+      argv[k] = argv[k + 2];
+    }
+
+    argc -= 2;
+    argv[argc] = NULL;
+    i--;
+  }
+
+  // --debug-input <file>: write every input byte and every decoded mouse event
+  for (int i = 1; i < argc; i++) {
+    if (nl_strcmp(argv[i], "--debug-input") != 0) {
+      continue;
+    }
+
+    if (i + 1 >= argc) {
+      fprintf(stderr, "--debug-input needs a file name\n");
+
+      return 2;
+    }
+
+    input_log_fd =
+        open(argv[i + 1],
+             (int)((unsigned)O_WRONLY | (unsigned)O_CREAT | (unsigned)O_TRUNC),
+             0600);
+    if (input_log_fd < 0) {
+      fprintf(stderr, "--debug-input: cannot write %s\n", argv[i + 1]);
+
+      return 2;
+    }
+
     for (int k = i; k + 2 < argc; k++) {
       argv[k] = argv[k + 2];
     }
@@ -1148,7 +1217,7 @@ int main(int argc, char *argv[]) {
   // Catalog of plugin sources that can be built and loaded while running
   char **envp =
 #ifdef __LINUX_NOLIBC__
-      argv + argc + 1; // envp follows argv NULL terminator
+      envp_base; // envp follows original argv NULL terminator
 #else
       (char **)0;
 #endif
@@ -1480,6 +1549,8 @@ int main(int argc, char *argv[]) {
     // Keypress handling
     char ch;
     while (read(STDIN_FILENO, &ch, 1) == 1) {
+      input_log("byte 0x%02x\n", (unsigned char)ch, 0, 0, 0);
+
       // Inside an SGR mouse report (ESC [ < b ; x ; y M|m): bytes must not
       // reach key handler, 'M' would cycle render mode
       if (mouse_parser_active(&mouse_parser)) {
@@ -1501,6 +1572,14 @@ int main(int argc, char *argv[]) {
                                 DRAG_MAX_ASCII_H};
           frame_rect_t nr = cur;
           int act = mouse_drag_event(&mouse_drag, &mev, &cur, &lim, &nr);
+          input_log("mouse pressed=%d btn=%d x=%d y=%d", mev.pressed,
+                    mev.button, mev.x, mev.y);
+          input_log(" motion=%d wheel=%d -> action=%d dragging=%d\n",
+                    mev.motion, mev.wheel, act, mouse_drag.dragging);
+          input_log("  frame %d,%d %dx%d", cur.x, cur.y, cur.w, cur.h);
+          input_log(" terminal %dx%d panel rows %d\n", term_w, term_h,
+                    PANEL_ROWS, 0);
+
           if (act == MOUSE_RESIZE) {
             if (outline_on) {
               draw_drag_outline(&outline, opts.color, 1);
@@ -1540,9 +1619,23 @@ int main(int argc, char *argv[]) {
       }
 
       if (ch == '\033') {
+        // Bytes of one escape sequence may reach us in separate reads (slow
+        // terminal, ssh, tmux): wait briefly for each next byte before deciding
+        // that this was a lone ESC
+        // Otherwise rest of a mouse report lands in hotkey switch ('[', 'M',
+        // digits ...)
         char seq[2] = {0, 0};
-        if (read(STDIN_FILENO, &seq[0], 1) == 1 && seq[0] == '[') {
-          if (read(STDIN_FILENO, &seq[1], 1) == 1) {
+        if (read_escape_byte(&seq[0]) && seq[0] == 'O') {
+          // SS3 (application cursor keys): ESC O A..D; not bound, but its
+          // last byte must not be taken for a hotkey
+          char ss3;
+          (void)read_escape_byte(&ss3);
+
+          continue;
+        }
+
+        if (seq[0] == '[') {
+          if (read_escape_byte(&seq[1])) {
             if (seq[1] == '<') {
               mouse_parser_begin(&mouse_parser);
 
@@ -1555,7 +1648,7 @@ int main(int argc, char *argv[]) {
               // coordinate byte can equal 'q')
               char junk;
               for (int k = 0; k < 3; k++) {
-                if (read(STDIN_FILENO, &junk, 1) != 1) {
+                if (!read_escape_byte(&junk)) {
                   break;
                 }
               }

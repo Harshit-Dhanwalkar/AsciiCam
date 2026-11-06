@@ -10,6 +10,7 @@
  *     -nostdlib -static tests/test_nl_gc.c lib/nl_gc.c lib/nl_printf.c \
  *     lib/nl_errno.c lib/nl_alloc.c lib/nl_start.c -Iinclude -Ilib -o /tmp/gc
  */
+
 #include "../lib/nolibc.h"
 #include "nl_alloc_priv.h"
 #include "nl_gc.h"
@@ -380,6 +381,18 @@ test_stack_and_registers(void) {
   CHECK(was_live((void *)bp), "b live");
 }
 
+// Own frame, so stale pointers to blocks die with it instead of keeping them
+// alive through conservative stack scan of caller
+__attribute__((noinline)) static void alloc_large_garbage(int n) {
+  for (int i = 0; i < n; i++) {
+    volatile char *p = nl_gc_alloc(3 * 1024 * 1024);
+    CHECK(p != NULL, "large GC block %d", i);
+    if (p) {
+      p[3 * 1024 * 1024 - 1] = 1;
+    }
+  }
+}
+
 __attribute__((noinline)) static void test_out_of_memory(void) {
   collect_clean();
   nl_gc_stats_t a = st();
@@ -409,13 +422,7 @@ __attribute__((noinline)) static void test_out_of_memory(void) {
   // blocks above mmap threshold
   collect_clean();
   nl_gc_stats_t b = st();
-  for (int i = 0; i < 6; i++) {
-    volatile char *p = nl_gc_alloc(3 * 1024 * 1024);
-    CHECK(p != NULL, "large GC block %d", i);
-    if (p) {
-      p[3 * 1024 * 1024 - 1] = 1;
-    }
-  }
+  alloc_large_garbage(6);
 
   collect_clean();
   CHECK(st().live_blocks <= b.live_blocks + 1,
