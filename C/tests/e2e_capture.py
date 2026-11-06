@@ -241,6 +241,19 @@ for label, extra in (("threaded", []), ("inline -T", ["-T"])):
     check(last_origin(out[marks[-3]:marks[-2]]) == (1, 1), f"{label}: 'a' returns frame to top-left")
     check(last_frame(out[marks[-3]:marks[-2]]) == (120, 46), f"{label}: 'a' fits terminal ({last_frame(out[marks[-3]:marks[-2]])})")
 
+    # a terminal may deliver one mouse report in pieces (slow link, tmux, ssh):
+    # same drag byte by byte must resize just same
+    def trickle(data):
+        return [(bytes([c]), 0.004) for c in data]
+
+    steps = trickle(mouse(0, 40, 20))
+    steps += [(b"", 0.15)] + trickle(mouse(32, 30, 15))
+    steps += [(b"", 0.2)] + trickle(mouse(0, 30, 15, True)) + [(b"", 0.5)]
+    out, marks = session(ARGS + extra, steps)
+    check(last_frame(out) == (30, 15),
+          f"{label}: drag delivered byte by byte still resizes ({last_frame(out)})")
+    check(out.count(b"frame: ") >= 1 and b"frame: 30x15" in out,
+          f"{label}: no hotkeys triggered by a split report")
 
 # Recorder + screenshot: keys, red REC clock, toasts, files that really decode
 def check_png(path):
@@ -263,6 +276,14 @@ def check_png(path):
     ch = 3 if ct == 2 else 1
     return (w, h, ch) if len(raw) == h * (1 + w * ch) else None
 
+# options cut out of argv (--net) must not hide environment
+cap_root = tempfile.mkdtemp(prefix="asciicam_net_")
+os.environ["HOME"] = cap_root
+out, marks = session(ARGS + ["--net", "100"], [(b"s", 0.8)])
+os.environ["HOME"] = REAL_HOME
+net_dir = os.path.join(cap_root, "Pictures", "asciicam")
+check(os.path.isdir(net_dir) and any(f.endswith(".png") for f in os.listdir(net_dir)),
+      "--net keeps HOME: screenshot saved under ~/Pictures/asciicam")
 
 for label, extra in (("colour", ["-C"]), ("mono", [])):
     # captures go to ~/Pictures/asciicam: point HOME at a scratch directory so 
