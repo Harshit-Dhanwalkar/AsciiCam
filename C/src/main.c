@@ -125,14 +125,15 @@ void handle_signal(int sig) {
   case SIGSEGV:
   case SIGABRT:
   case SIGQUIT:
-  case SIGHUP:
+  case SIGHUP: {
     emergency_terminal_restore();
     nl_exit(128 + sig);
 
     break;
-
-  default:
+  }
+  default: {
     keep_running = 0;
+  }
   }
 }
 
@@ -541,9 +542,7 @@ static void overlay_panel(int panel_row, const frame_rect_t *frame,
                     "\033[%d;1H\033[38;2;0;220;0m\033[48;2;18;18;18m"
                     " FPS: %s  │  / catalog  ↑↓ select  [ ] ±1  { } ±10  "
                     "r reset  s shot  t rec  b browse  q quit  │  frame: "
-                    "%dx%d%s  cap: %dx%d  "
-                    "◤◥◣◢ drag"
-                    "\033[0m\033[K",
+                    "%dx%d%s  cap: %dx%d  ◤◥◣◢ drag\033[0m\033[K",
                     base_row, fpsbuf, ascii_w_now, ascii_h,
                     ascii_size_manual ? " [manual]" : "", cap_w, cap_h);
   } else {
@@ -551,8 +550,7 @@ static void overlay_panel(int panel_row, const frame_rect_t *frame,
         buf, sizeof(buf),
         "\033[%d;1H FPS: %s  |  / catalog  up/dn select  "
         "[ ] +-1  { } +-10  r reset  s shot  t rec  b browse  q quit  |  "
-        "frame: %dx%d%s  cap: %dx%d  drag +"
-        "\033[K",
+        "frame: %dx%d%s  cap: %dx%d  drag +\033[K",
         base_row, fpsbuf, ascii_w_now, ascii_h,
         ascii_size_manual ? " [manual]" : "", cap_w, cap_h);
   }
@@ -576,7 +574,7 @@ static void overlay_panel(int panel_row, const frame_rect_t *frame,
         buf, sizeof(buf),
         "\033[38;2;0;180;220m mode: %s (m/M)  edges: %s (x/X)  "
         "charset: %s (n/N)  depth-pop: %d%s (+/-, v)  gamma: %d (g/G)"
-        "\033[0m\033[K",
+        "%s\033[0m\033[K",
         render_mode_name(opts->render_mode), edge_mode_name(opts->edges),
         cset_name, opts->depth_pop, opts->depth_invert ? " [inv]" : "",
         opts->gamma);
@@ -682,8 +680,8 @@ static void overlay_panel(int panel_row, const frame_rect_t *frame,
 // reallocates *out_buf, updates *out_size
 //
 // Returns >0 if size changed, 0 if unchanged or OOM (in which case old buffer
-// is kept and *ascii_w / *ascii_h are left at their previous values so caller
-// is not left with a size that has no buffer to match)
+// {} is kept and *ascii_w / *ascii_h are left at their previous values so
+// caller is not left with a size that has no buffer to match)
 static int apply_ascii_size(int new_w, int new_h, int *ascii_w, int *ascii_h,
                             char **out_buf, size_t *out_size, int color) {
   if (new_h < MIN_ASCII_H) {
@@ -1062,7 +1060,7 @@ int main(int argc, char *argv[]) {
   // CLI parsing
   int opt;
   while ((opt = nl_getopt(argc, argv,
-                          "d:W:H:w:h:r:b:c:g:iCD2s:p:L:m:E:k:P:Tf")) != -1)
+                          "d:W:H:w:h:r:b:c:g:iCD2s:p:L:m:E:k:P:TfF")) != -1)
     switch (opt) {
     case 'd': {
       device = optarg;
@@ -1342,11 +1340,16 @@ int main(int argc, char *argv[]) {
 
   fprintf(stderr,
           "Device: %s | capture %dx%d | ASCII %dx%d | %d fps | %d "
-          "plugin(s) | mode: %s%s%s%s | gamma: %d\n",
+          "plugin(s) | mode: %s%s%s%s | gamma: %d  gfx: %s%s\n",
           device, cam.width, cam.height, ascii_w, ascii_h, fps, plugin_count,
           render_mode_name(opts.render_mode), opts.color ? " | color" : "",
           opts.edges != EDGE_OFF ? " | edges" : "",
-          opts.dither ? " | dither" : "", opts.gamma);
+          opts.dither ? " | dither" : "", opts.gamma,
+          gfx_name ? gfx_name : "off",
+          gfx_mode != GFX_OFF
+              ? "  (mode/edges/charset/depth-pop/gamma: text+shots only; "
+                "-b/-c/-i: live)"
+              : "");
 
   int hw_exposure = -1;
   int hw_contrast = -1;
@@ -1778,10 +1781,12 @@ int main(int argc, char *argv[]) {
         } else {
           ba = browser_key(&browser, BR_KEY_CHAR, ch, br_path, sizeof(br_path));
         }
+
         switch (ba) {
         case BROWS_ACT_CLOSE: {
           browser.active = 0;
           browser_clear_area(term_h, term_w);
+
           break;
         }
         case BROWS_ACT_PREVIEW_ANSI: {
@@ -1790,6 +1795,7 @@ int main(int argc, char *argv[]) {
           browser_clear_area(term_h, term_w);
           browser_preview_ansi(br_path, &aborted);
           // Live UI will fully redraw on next frame
+
           break;
         }
         case BROWS_ACT_REPLAY_CAST: {
@@ -1798,16 +1804,21 @@ int main(int argc, char *argv[]) {
           // with main loop and corrupt in-flight .cast
           if (rec.active) {
             TOAST("stop recording (t) before replaying a .cast");
+
             break;
           }
+
           browser_clear_area(term_h, term_w);
           browser_replay_cast(br_path, &aborted);
+
           break;
         }
         case BROWS_ACT_INFO: {
           TOAST("%s", browser.info_msg);
+
           break;
         }
+
         default: {
           break;
         }
@@ -1869,100 +1880,145 @@ int main(int argc, char *argv[]) {
       int *pp = (plugin_count > 0) ? &plugin_params[selected] : NULL;
       switch (ch) {
       case 'q':
-      case 'Q':
+      case 'Q': {
         keep_running = 0;
 
         break;
-      case ']':
+      }
+      case ']': {
         if (pp && *pp < 255) {
           (*pp)++;
         }
 
         break;
-      case '[':
+      }
+      case '[': {
         if (pp && *pp > 0) {
           (*pp)--;
         }
 
         break;
-      case '}':
+      }
+      case '}': {
         if (pp) {
           *pp = (*pp + 10 > 255) ? 255 : *pp + 10;
         }
 
         break;
-      case '{':
+      }
+      case '{': {
         if (pp) {
           *pp = (*pp - 10 < 0) ? 0 : *pp - 10;
         }
 
         break;
+      }
       case 'r':
-      case 'R':
+      case 'R': {
         if (pp) {
           *pp = plugin_default_param(plugins[selected].plugin);
         }
 
         break;
-      case 'm':
+      }
+      case 'm': {
         opts.render_mode = (opts.render_mode + 1) % RENDER_MODE_COUNT;
+        if (gfx_mode != GFX_OFF) {
+          TOAST("mode is text/shot only (--gfx %s is live)", gfx_name);
+        }
 
         break;
-      case 'M':
+      }
+      case 'M': {
         opts.render_mode =
             (opts.render_mode - 1 + RENDER_MODE_COUNT) % RENDER_MODE_COUNT;
+        if (gfx_mode != GFX_OFF) {
+          TOAST("mode is text/shot only (--gfx %s is live)", gfx_name);
+        }
 
         break;
-      case 'x':
+      }
+      case 'x': {
         opts.edges = (opts.edges + 1) % EDGE_MODE_COUNT;
+        if (gfx_mode != GFX_OFF) {
+          TOAST("edges is text/shot only (--gfx %s is live)", gfx_name);
+        }
 
         break;
-      case 'X':
+      }
+      case 'X': {
         opts.edges = (opts.edges - 1 + EDGE_MODE_COUNT) % EDGE_MODE_COUNT;
+        if (gfx_mode != GFX_OFF) {
+          TOAST("edges is text/shot only (--gfx %s is live)", gfx_name);
+        }
 
         break;
+      }
       case 'n':
+      case 'N': {
         if (charsets.count > 0) {
-          charsets.active = (charsets.active + 1) % charsets.count;
+          if (ch == 'n') {
+            charsets.active = (charsets.active + 1) % charsets.count;
+          } else {
+            charsets.active =
+                (charsets.active - 1 + charsets.count) % charsets.count;
+          }
           opts.charset = charset_registry_active_ramp(&charsets);
+        }
+        if (gfx_mode != GFX_OFF) {
+          TOAST("charset is text/shot only (--gfx %s is live)", gfx_name);
         }
 
         break;
-      case 'N':
-        if (charsets.count > 0) {
-          charsets.active =
-              (charsets.active - 1 + charsets.count) % charsets.count;
-          opts.charset = charset_registry_active_ramp(&charsets);
-        }
-
-        break;
-      case 'g':
+      }
+      case 'g': {
         opts.gamma = (opts.gamma - 10 < 10) ? 10 : opts.gamma - 10;
+        if (gfx_mode != GFX_OFF) {
+          TOAST("gamma is text/shot only (--gfx %s is live)", gfx_name);
+        }
 
         break;
-      case 'G':
+      }
+      case 'G': {
         opts.gamma = (opts.gamma + 10 > 400) ? 400 : opts.gamma + 10;
+        if (gfx_mode != GFX_OFF) {
+          TOAST("gamma is text/shot only (--gfx %s is live)", gfx_name);
+        }
 
         break;
-      case '+':
+      }
+      case '+': {
         opts.depth_pop = (opts.depth_pop + 5 > 100) ? 100 : opts.depth_pop + 5;
+        if (gfx_mode != GFX_OFF) {
+          TOAST("depth-pop is text/shot only (--gfx %s is live)", gfx_name);
+        }
 
         break;
-      case '-':
+      }
+      case '-': {
         opts.depth_pop = (opts.depth_pop - 5 < 0) ? 0 : opts.depth_pop - 5;
+        if (gfx_mode != GFX_OFF) {
+          TOAST("depth-pop is text/shot only (--gfx %s is live)", gfx_name);
+        }
 
         break;
-      case 'v':
+      }
+      case 'v': {
         opts.depth_invert = !opts.depth_invert;
+        if (gfx_mode != GFX_OFF) {
+          TOAST("depth-invert is text/shot only (--gfx %s is live)", gfx_name);
+        }
 
         break;
+      }
       case 's':
-      case 'S':
+      case 'S': {
         want_shot = 1; // taken from next frame that is rendered
 
         break;
+      }
       case 'b':
-      case 'B':
+      case 'B': {
         // Toggle captures browser panel. Re-scan on open so freshly saved
         // screenshots / recordings show up without a restart
         browser_toggle(&browser);
@@ -1973,8 +2029,9 @@ int main(int argc, char *argv[]) {
         }
 
         break;
+      }
       case 't':
-      case 'T':
+      case 'T': {
         if (rec.active) {
           double secs = 0;
           char tb[REC_TOAST_W + 8];
@@ -1993,8 +2050,9 @@ int main(int argc, char *argv[]) {
         }
 
         break;
+      }
       case 'u':
-      case 'U':
+      case 'U': {
         if (plugin_count > 0) {
           const char *uname =
               plugins[selected].plugin ? plugins[selected].plugin->name : "?";
@@ -2005,38 +2063,46 @@ int main(int argc, char *argv[]) {
         }
 
         break;
+      }
       case 'a':
-      case 'A':
+      case 'A': {
         // hand control of frame size back to SIGWINCH; next loop iteration
         // picks up current terminal size
         ascii_size_manual = 0;
         term_resized = 1;
 
         break;
-      case 'e':
+      }
+      case 'e': {
         webcam_adjust_exposure(&cam, -10, &hw_exposure);
 
         break;
-      case 'E':
+      }
+      case 'E': {
         webcam_adjust_exposure(&cam, 10, &hw_exposure);
 
         break;
-      case 'w':
+      }
+      case 'w': {
         webcam_adjust_white_balance(&cam, -100, &hw_wb);
 
         break;
-      case 'W':
+      }
+      case 'W': {
         webcam_adjust_white_balance(&cam, 100, &hw_wb);
 
         break;
-      case 'c':
+      }
+      case 'c': {
         webcam_adjust_contrast(&cam, -5, &hw_contrast);
 
         break;
-      case 'C':
+      }
+      case 'C': {
         webcam_adjust_contrast(&cam, 5, &hw_contrast);
 
         break;
+      }
       default:
         break;
       }
@@ -2158,22 +2224,25 @@ int main(int argc, char *argv[]) {
     int subpixel_h;
 
     switch (opts.render_mode) {
-    case RENDER_BRAILLE:
+    case RENDER_BRAILLE: {
       subpixel_w = ascii_w * 2;
       subpixel_h = ascii_h * 4;
 
       break;
-    case RENDER_HALF_BLOCK:
+    }
+    case RENDER_HALF_BLOCK: {
       subpixel_w = ascii_w * 1;
       subpixel_h = ascii_h * 2;
 
       break;
-    default:
+    }
+    default: {
       // RENDER_BLOCKS, RENDER_ASCII_RAMP, RENDER_DOTS are 1x1 per cell
       subpixel_w = ascii_w * 2;
       subpixel_h = ascii_h * 4;
 
       break;
+    }
     }
 
     opts.origin_x = frame_x;
@@ -2232,6 +2301,19 @@ int main(int argc, char *argv[]) {
           gfx_resample(rgb && opts.color && raw ? NULL : frame,
                        rgb && opts.color && raw ? rgb : NULL, cam.width,
                        cam.height, pw, ph, gfx_img) == 0) {
+        if (opts.brightness != 0 || opts.contrast != 100 || opts.invert) {
+          size_t npix = (size_t)pw * (size_t)ph * 3u;
+          for (size_t i = 0; i < npix; i++) {
+            int v = gfx_img[i] + opts.brightness;
+            v = (v - 128) * opts.contrast / 100 + 128;
+            if (opts.invert) {
+              v = 255 - v;
+            }
+
+            gfx_img[i] = v < 0 ? 0 : v > 255 ? 255 : (uint8_t)v;
+          }
+        }
+
         char cup[24];
         int cn = nl_snprintf(cup, sizeof(cup), "\033[%d;%dH", frame_y, frame_x);
         int en =
