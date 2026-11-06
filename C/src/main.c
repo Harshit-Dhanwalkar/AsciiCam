@@ -936,7 +936,7 @@ int main(int argc, char *argv[]) {
   for (int i = 1; i < argc; i++) {
     if (nl_strcmp(argv[i], "--gfx") == 0) {
       if (i + 1 >= argc) {
-        fprintf(stderr, "--gfx needs kitty, sixel, auto or off\n");
+        fprintf(stderr, "--gfx require kitty, sixel, auto or off\n");
 
         return 2;
       }
