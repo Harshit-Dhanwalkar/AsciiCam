@@ -129,6 +129,7 @@ CORE_SRCS := $(SRCDIR)/app_paths.c \
              $(SRCDIR)/capture_reinit.c \
              $(SRCDIR)/main.c  \
              $(SRCDIR)/mouse.c \
+             $(SRCDIR)/netenc.c \
              $(SRCDIR)/plugins.c \
              $(SRCDIR)/plugin_catalog.c \
              $(SRCDIR)/plugin_picker.c \
@@ -300,6 +301,8 @@ test: all
 	$(CC) -O2 $(TEST_FLAGS) tests/test_browser.c $(SRCDIR)/browser.c $(SRCDIR)/recorder.c $(TEST_LIBS) -o $(TESTDIR)/browser_O2
 	$(CC) -O0 -DTESTING $(TEST_FLAGS) tests/test_effects.c $(TEST_LIBS) -o $(TESTDIR)/effects_O0
 	$(CC) -O2 -DTESTING $(TEST_FLAGS) tests/test_effects.c $(TEST_LIBS) -o $(TESTDIR)/effects_O2
+	$(CC) -O0 $(TEST_FLAGS) tests/test_netenc.c $(SRCDIR)/netenc.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/netenc_O0
+	$(CC) -O2 $(TEST_FLAGS) tests/test_netenc.c $(SRCDIR)/netenc.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/netenc_O2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_copy_file.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/copy_file
 	$(CC) -O2 $(TEST_FLAGS) tests/test_plugin_catalog.c $(SRCDIR)/plugin_catalog.c $(SRCDIR)/plugin_picker.c $(SRCDIR)/plugins.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/catalog
 	$(CC) -O0 $(TEST_FLAGS) tests/test_nl_gc.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/gc_O0
@@ -308,6 +311,8 @@ test: all
 	$(CC) -O2 $(TEST_FLAGS) tests/test_capture_pipe.c $(SRCDIR)/thread_sharing.c $(TEST_LIBS) -o $(TESTDIR)/capture_pipe
 	$(CC) -DTESTING $(TEST_FLAGS) tests/security_tests.c $(FILTER_SRC) $(TEST_LIBS) -o $(TESTDIR)/security
 	$(TESTDIR)/alloc
+	$(TESTDIR)/netenc_O0
+	$(TESTDIR)/netenc_O2
 	$(TESTDIR)/printf
 	$(TESTDIR)/slice
 	$(TESTDIR)/slice_O2
