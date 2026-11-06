@@ -2,7 +2,7 @@
  * tests/test_nl_alloc.c - unit tests for nl_alloc arena allocator
  *
  * Exercises nl_malloc / nl_calloc / nl_free against two allocation
- * paths (arena for small requests, mmap for > 1 MiB) and forward +
+ * paths (arena for small requests, mmap for > 256 KiB) and forward +
  * backward coalescing logic
  *
  * gcc -D__LINUX_NOLIBC__ -nostdlib -static  test_nl_alloc.c \
@@ -13,7 +13,7 @@
 
 // constants mirrored from nl_alloc.c (must stay in sync)
 #define ARENA_SIZE (2 * 1024 * 1024)
-#define MMAP_THRESHOLD (ARENA_SIZE / 2) // 1 MiB
+#define MMAP_THRESHOLD (ARENA_SIZE / 8) // 256 KiB
 #define ALLOC_ALIGN 16
 
 // Test framework

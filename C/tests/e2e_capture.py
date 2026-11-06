@@ -216,6 +216,18 @@ for label, extra in (("threaded", []), ("inline -T", ["-T"])):
     check(last_frame(after) == (45, 23), f"{label}: TL corner resize -> 45x23 ({last_frame(after)})")
     check(last_origin(after) == (16, 8), f"{label}: TL resize keeps bottom-right fixed ({last_origin(after)})")
 
+    # colour at full camera size: RGB copy and colour output buffer used to
+    # fill allocator arena, so every resize silently failed
+    out, marks = session(
+        ["-d", "fake", "-w", "640", "-h", "480", "-C", "-W", "100", "-H", "40",
+         "-r", "20"] + extra,
+        [
+            (mouse(0, 100, 40), 0.15), (mouse(32, 90, 35), 0.25), (mouse(0, 90, 35, True), 0.5),
+        ],
+    )
+    after = out[marks[-3]:]
+    check(last_frame(after) == (90, 35), f"{label}: colour 640x480 BR resize -> 90x35 ({last_frame(after)})")
+
     # a click without dragging changes nothing; 'a' goes back to top-left
     out, marks = session(
         ARGS + extra,

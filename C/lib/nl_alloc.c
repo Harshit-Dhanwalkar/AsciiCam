@@ -5,8 +5,7 @@
 #include "nl_syscall.h"
 #include "nl_types.h"
 
-/*
- * ASan coverage note for this allocator
+/* ASan coverage note for this allocator
  *
  * nl_alloc manages 1 contiguous 2 MB static arena (arena_buf[]). ASan sees
  * whole array as a single allocation, it cannot automatically detect reads or
@@ -37,13 +36,15 @@
  *   #endif
  *
  * TODO: note: Implement above; current build is sufficient for catching
- * stack/UB/heap regressions in rendering path
- */
+ * stack/UB/heap regressions in rendering path */
 
 #define ARENA_SIZE NL_ARENA_SIZE
 #define ALIGN 16
 #define HDR_MAGIC 0xDEAD
-#define MMAP_THRESHOLD (ARENA_SIZE / 2) // 1 MB
+// Large blocks (camera RGB copy, colour output buffer) go to mmap: a 640x480
+// RGB copy plus colour output buffer used to fill it and resizing frame in
+// colour mode
+#define MMAP_THRESHOLD (ARENA_SIZE / 8) // 256 KiB
 
 // Every block comes from either arena or an mmap, and nl_free validates a
 // pointer against both before touching it: a pointer that is not start of a
