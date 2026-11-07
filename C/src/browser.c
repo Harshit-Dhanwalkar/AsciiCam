@@ -689,18 +689,25 @@ static int parse_event(const char *line, size_t line_len, double *out_time,
   return 0;
 }
 
-int browser_replay_cast(const char *path, int *aborted) {
+// Core of both replays (browser panel and --play)
+//   speed  1.0 = recorded pace
+//   loop   start again at the end
+//   keys   0: any key aborts, footer waits for a key (panel replay)
+//          1: q aborts, space pauses, + / - change speed, no footer
+static int replay_core(const char *path, double speed, int loop, int keys,
+                       int *events_out, int *aborted) {
   *aborted = 0;
   int fd = open(path, O_RDONLY, 0);
   if (fd < 0) {
     return -1;
   }
 
-  // Streaming line reader: read into a sliding buffer, find newlines, hand each
-  // complete line to parse_event. Buffer must be big enough for one frame's
-  // worth of escape codes. Over 1 MiB on purpose: nl_malloc serves up to 1 MiB
-  // from 2 MiB arena, where two such buffers cannot both fit and replay failed
-  // every time; larger ones are mmap'd and only touched pages cost
+  // NOTE: Streaming line reader: read into a sliding buffer, find newlines,
+  // hand each complete line to parse_event
+  // Buffer must be big enough for one frame's worth of escape codes
+  // Over 1 MiB on purpose: nl_malloc serves up to 1 MiB from 2 MiB arena, where
+  // two such buffers cannot both fit and replay failed every time; larger ones
+  // are mmap'd and only touched pages cost
   size_t cap = 4 * 1024 * 1024;
   char *buf = nl_malloc(cap);
   if (!buf) {
@@ -723,12 +730,15 @@ int browser_replay_cast(const char *path, int *aborted) {
 
   drain_keys();
 
-  // Replay timing: track when started so can sleep until each event's scheduled
-  // time, preserving original pacing
-  struct timespec start_ts = {0};
-  clock_gettime(CLOCK_MONOTONIC, &start_ts);
-  uint64_t start_ns =
-      (uint64_t)start_ts.tv_sec * 1000000000ULL + (uint64_t)start_ts.tv_nsec;
+  // Replay clock: recording time reached so far
+  // NOTE: Advances with wall time scaled by speed, stands still while paused,
+  // so pause and speed changes need no bookkeeping of absolute start times
+  double cur_t = 0.0;
+  int paused = 0;
+  struct timespec last_ts = {0};
+  clock_gettime(CLOCK_MONOTONIC, &last_ts);
+  uint64_t last_ns =
+      (uint64_t)last_ts.tv_sec * 1000000000ULL + (uint64_t)last_ts.tv_nsec;
 
   size_t buf_len = 0;
   int eof = 0;
@@ -758,27 +768,49 @@ int browser_replay_cast(const char *path, int *aborted) {
           size_t dlen = 0;
           if (parse_event(buf + line_start, line_len, &t, data, cap, &dlen) ==
               0) {
-            // Sleep until start_ns + t*1e9, polling for abort key
-            uint64_t target_ns = start_ns + (uint64_t)(t * 1e9);
-            struct timespec now_ts = {0};
-            clock_gettime(CLOCK_MONOTONIC, &now_ts);
-            uint64_t now_ns = (uint64_t)now_ts.tv_sec * 1000000000ULL +
-                              (uint64_t)now_ts.tv_nsec;
-            while (now_ns < target_ns) {
-              // Check for abort key
+            // Wait until recording time t is reached, watching the keyboard
+            while (cur_t < t || paused) {
               char ch = 0;
               if (poll_key(&ch)) {
-                aborted_local = 1;
-                break;
+                if (!keys) {
+                  aborted_local = 1;
+                  break;
+                }
+
+                if (ch == 'q' || ch == 'Q') {
+                  aborted_local = 1;
+                  break;
+                }
+
+                if (ch == ' ') {
+                  paused = !paused;
+                } else if ((ch == '+' || ch == '=') && speed < 16.0) {
+                  speed *= 2.0;
+                } else if (ch == '-' && speed > 0.0625) {
+                  speed /= 2.0;
+                }
               }
-              // Sleep up to 50ms or until target, whichever is sooner
-              uint64_t remain = target_ns - now_ns;
-              uint64_t step = remain > 50000000ULL ? 50000000ULL : remain;
+
+              uint64_t step = 50000000ULL;
+              if (!paused) {
+                double need_ns = (t - cur_t) * 1e9 / speed;
+                if (need_ns < (double)step) {
+                  step = (uint64_t)need_ns + 1;
+                }
+              }
+
               my_nanosleep((long)step);
+              struct timespec now_ts = {0};
               clock_gettime(CLOCK_MONOTONIC, &now_ts);
-              now_ns = (uint64_t)now_ts.tv_sec * 1000000000ULL +
-                       (uint64_t)now_ts.tv_nsec;
+              uint64_t now_ns = (uint64_t)now_ts.tv_sec * 1000000000ULL +
+                                (uint64_t)now_ts.tv_nsec;
+              if (!paused) {
+                cur_t += (double)(now_ns - last_ns) * speed / 1e9;
+              }
+
+              last_ns = now_ns;
             }
+
             if (aborted_local) {
               break;
             }
@@ -811,8 +843,10 @@ int browser_replay_cast(const char *path, int *aborted) {
         if (dlen > 0) {
           write_all_fd(STDOUT_FILENO, data, dlen);
         }
+
         events_played++;
       }
+
       line_start = buf_len; // mark consumed
     }
 
@@ -830,6 +864,24 @@ int browser_replay_cast(const char *path, int *aborted) {
     //   - EOF and everything consumed -> done
     //   - Buffer full and no newline found -> line longer than cap, bail
     if (eof && buf_len == 0) {
+      if (loop && events_played > 0) {
+        // again from top: reopen (no lseek wrapper) and restart clock
+        close(fd);
+        fd = open(path, O_RDONLY, 0);
+        if (fd < 0) {
+          break;
+        }
+
+        eof = 0;
+        cur_t = 0.0;
+        write_all_fd(STDOUT_FILENO, "\033[2J\033[H", 7);
+        struct timespec lt = {0};
+        clock_gettime(CLOCK_MONOTONIC, &lt);
+        last_ns = (uint64_t)lt.tv_sec * 1000000000ULL + (uint64_t)lt.tv_nsec;
+
+        continue;
+      }
+
       break;
     }
     if (buf_len == cap && line_start == 0) {
@@ -839,30 +891,103 @@ int browser_replay_cast(const char *path, int *aborted) {
 
   nl_free(buf);
   nl_free(data);
-  close(fd);
-
-  // Footer prompt before returning
-  if (aborted_local) {
-    static const char MSG[] =
-        "\n\033[7m replay aborted - press any key to return \033[0m";
-    write_all_fd(STDOUT_FILENO, MSG, sizeof(MSG) - 1);
-  } else {
-    char msg[96];
-    int n = nl_snprintf(msg, sizeof(msg),
-                        "\n\033[7m replay finished (%d events) - press any "
-                        "key to return \033[0m",
-                        events_played);
-    if (n > 0) {
-      write_all_fd(STDOUT_FILENO, msg, (size_t)n);
-    }
+  if (fd >= 0) {
+    close(fd);
   }
 
-  drain_keys();
-  (void)wait_for_any_key();
-  *aborted = 1; // always block until a keypress on way out
+  if (events_out) {
+    *events_out = events_played;
+  }
 
-  // Clear so live UI redraws cleanly
-  write_all_fd(STDOUT_FILENO, "\033[2J\033[H", 8);
+  if (!keys) {
+    // Footer prompt before returning
+    if (aborted_local) {
+      static const char MSG[] =
+          "\n\033[7m replay aborted - press any key to return \033[0m";
+      write_all_fd(STDOUT_FILENO, MSG, sizeof(MSG) - 1);
+    } else {
+      char msg[96];
+      int n = nl_snprintf(msg, sizeof(msg),
+                          "\n\033[7m replay finished (%d events) - press any "
+                          "key to return \033[0m",
+                          events_played);
+      if (n > 0) {
+        write_all_fd(STDOUT_FILENO, msg, (size_t)n);
+      }
+    }
+
+    drain_keys();
+    (void)wait_for_any_key();
+    *aborted = 1; // always block until a keypress on way out
+
+    // Clear so live UI redraws cleanly
+    write_all_fd(STDOUT_FILENO, "\033[2J\033[H", 8);
+  } else {
+    *aborted = aborted_local;
+  }
 
   return 0;
+}
+
+int browser_replay_cast(const char *path, int *aborted) {
+  return replay_core(path, 1.0, 0, 0, NULL, aborted);
+}
+
+int browser_play_cast(const char *path, double speed, int loop, int *events) {
+  int aborted = 0;
+
+  return replay_core(path, speed, loop, 1, events, &aborted);
+}
+
+// Width and height from the header line of a .cast (0 when missing)
+void browser_cast_size(const char *path, int *w, int *h) {
+  *w = *h = 0;
+  int fd = open(path, O_RDONLY, 0);
+  if (fd < 0) {
+    return;
+  }
+
+  char head[512];
+  ssize_t n = read(fd, head, sizeof(head) - 1);
+  close(fd);
+  if (n <= 0) {
+    return;
+  }
+
+  head[n] = 0;
+  for (int k = 0; k < 2; k++) {
+    const char *key = k == 0 ? "\"width\"" : "\"height\"";
+    size_t kl = nl_strlen(key);
+    for (ssize_t i = 0; i + (ssize_t)kl < n; i++) {
+      if (head[i] == '\n') {
+        break;
+      }
+
+      size_t m = 0;
+      while (m < kl && head[i + (ssize_t)m] == key[m]) {
+        m++;
+      }
+
+      if (m == kl) {
+        const char *q = head + i + kl;
+        while (*q == ' ' || *q == ':') {
+          q++;
+        }
+
+        int v = 0;
+        while (*q >= '0' && *q <= '9' && v < 100000) {
+          v = v * 10 + (*q - '0');
+          q++;
+        }
+
+        if (k == 0) {
+          *w = v;
+        } else {
+          *h = v;
+        }
+
+        break;
+      }
+    }
+  }
 }

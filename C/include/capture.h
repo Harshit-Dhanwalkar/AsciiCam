@@ -38,14 +38,13 @@ void webcam_cleanup(webcam_t *cam);
 // Stop streaming and clean up resources
 void webcam_cleanup(webcam_t *cam);
 
-/* Reopen camera at (w, h) (rounded up to even) and reallocate pixel buffers for
- * size driver actually picked (cam->width/height); color selects whether *rgb
- * is allocated. Hardware control values are re-read.
- *
- * Returns 0 on success. On failure camera is left closed (fd == -1, safe for
- * webcam_cleanup) and *gray / *rgb are old buffers (open failed) or NULL
- * (allocation failed); either is valid input for a retry
- */
+// Reopen camera at (w, h) (rounded up to even) and reallocate pixel buffers for
+// size driver actually picked (cam->width/height); color selects whether *rgb
+// is allocated. Hardware control values are re-read
+//
+// Returns 0 on success. On failure camera is left closed (fd == -1, safe for
+// webcam_cleanup) and *gray / *rgb are old buffers (open failed) or NULL
+// (allocation failed); either is valid input for a retry
 int capture_reinit(webcam_t *cam, const char *device, int w, int h,
                    uint8_t **gray, uint8_t **rgb, int color, int *hw_exposure,
                    int *hw_contrast, int *hw_wb);

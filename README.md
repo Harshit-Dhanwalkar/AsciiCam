@@ -365,6 +365,21 @@ full paths are printed again when the program exits.
 
 ---
 
+## Playing a recording: `--play`
+
+```
+asciicam --play asciicam-20261103T101500Z.cast [--speed 2] [--loop]
+```
+
+Replays a `.cast` with its original timing. No camera and no other program is
+needed, so it works anywhere the binary does, including over ssh
+(`ssh host asciicam --play file.cast`), where only the saved bytes cross the
+wire. Keys: `q` quits, space pauses, `+` / `-` halve or double the speed.
+If your terminal is smaller than the one it was recorded in, a note says so
+before it starts (enlarge the window first, otherwise lines wrap).
+
+---
+
 ## Slow links and ssh
 
 `--net <kbps>` sends only what changed since the last frame, so the picture is

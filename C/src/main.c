@@ -175,6 +175,10 @@ static void print_usage(const char *prog) {
       "  -r <fps>      target framerate         (default: %d)                \n"
       "  -T            capture in main loop     (Linux default: a separate   \n"
       "                capture thread keeps UI responsive)                   \n"
+      "  --play <file> play a saved .cast recording, no camera needed (also  \n"
+      "                over ssh); keys: q quit, space pause, + / - speed     \n"
+      "  --speed <x>   playback speed for --play (default 1, e.g. 0.5, 2)    \n"
+      "  --loop        repeat --play until quit                              \n"
       "  --net <kbps>  slow-link mode: send only changed pixels,             \n"
       "                <kbps> kbit/s (0 = lossless changes only)            \n"
       "\n"
@@ -881,6 +885,40 @@ static int plugin_activate(plugin_catalog_t *cc, int ci,
 
 fps_counter_t fps_calc = {0};
 
+// "2", "0.5", "1.25" -> 2.0 ... ; -1.0 when not a positive number up to 16
+static double parse_speed(const char *s) {
+  if (!s || *s == '\0') {
+    return -1.0;
+  }
+
+  double v = 0.0;
+  double frac = 0.1;
+  int dot = 0;
+  int digits = 0;
+  for (; *s; s++) {
+    if (*s >= '0' && *s <= '9') {
+      if (dot) {
+        v += (*s - '0') * frac;
+        frac /= 10.0;
+      } else {
+        v = v * 10.0 + (*s - '0');
+      }
+
+      digits++;
+    } else if (*s == '.' && !dot) {
+      dot = 1;
+    } else {
+      return -1.0;
+    }
+  }
+
+  return digits > 0 && v >= 0.0625 && v <= 16.0 ? v : -1.0;
+}
+
+// Alternate screen on / off (cursor hidden while on)
+static const char SCREEN_ENTER[] = "\033[?1049h\033[2J\033[H\033[?25l";
+static const char SCREEN_LEAVE[] = "\033[0m\033[?25h\033[?1049l";
+
 // Main
 // A non-negative decimal number not larger than max, or -1
 static long parse_count(const char *s, long max) {
@@ -978,6 +1016,47 @@ int main(int argc, char *argv[]) {
     i--;
   }
 
+  // --play <file> [--speed <x>] [--loop]: replay a recording
+  const char *play_path = NULL;
+  double play_speed = 1.0;
+  int play_loop = 0;
+  for (int i = 1; i < argc; i++) {
+    int takes_value =
+        nl_strcmp(argv[i], "--play") == 0 || nl_strcmp(argv[i], "--speed") == 0;
+    int is_loop = nl_strcmp(argv[i], "--loop") == 0;
+    if (!takes_value && !is_loop) {
+      continue;
+    }
+
+    int width = takes_value ? 2 : 1;
+    if (takes_value && i + 1 >= argc) {
+      fprintf(stderr, "%s needs a value\n", argv[i]);
+
+      return 2;
+    }
+
+    if (is_loop) {
+      play_loop = 1;
+    } else if (nl_strcmp(argv[i], "--play") == 0) {
+      play_path = argv[i + 1];
+    } else {
+      play_speed = parse_speed(argv[i + 1]);
+      if (play_speed < 0.0) {
+        fprintf(stderr, "--speed needs a number from 0.0625 to 16\n");
+
+        return 2;
+      }
+    }
+
+    for (int k = i; k + width < argc; k++) {
+      argv[k] = argv[k + width];
+    }
+
+    argc -= width;
+    argv[argc] = NULL;
+    i--;
+  }
+
   nl_signal(SIGINT, handle_signal);
   nl_signal(SIGTERM, handle_signal);
   nl_signal(SIGHUP, handle_signal);
@@ -985,6 +1064,49 @@ int main(int argc, char *argv[]) {
   nl_signal(SIGABRT, handle_signal);
   nl_signal(SIGSEGV, handle_signal);
   nl_signal(SIGWINCH, handle_winch);
+
+  if (play_path) {
+    int probe = open(play_path, O_RDONLY, 0);
+    if (probe < 0) {
+      fprintf(stderr, "cannot read %s\n", play_path);
+
+      return 1;
+    }
+
+    close(probe);
+
+    int rw = 0;
+    int rh = 0;
+    browser_cast_size(play_path, &rw, &rh);
+
+    int tw = 0;
+    int th = 0;
+    query_term_size(&tw, &th);
+
+    if (rw > 0 && ((tw > 0 && tw < rw) || (th > 0 && th < rh))) {
+      fprintf(stderr,
+              "note: recorded at %dx%d, this terminal is %dx%d: the picture "
+              "will wrap; enlarge the window first\n",
+              rw, rh, tw, th);
+      nl_usleep(1500000);
+    }
+
+    (void)write(STDOUT_FILENO, SCREEN_ENTER, sizeof(SCREEN_ENTER) - 1);
+    term_raw_mode();
+
+    int played = 0;
+    int rc = browser_play_cast(play_path, play_speed, play_loop, &played);
+    term_restore();
+
+    (void)write(STDOUT_FILENO, SCREEN_LEAVE, sizeof(SCREEN_LEAVE) - 1);
+    if (rc < 0) {
+      fprintf(stderr, "cannot read %s\n", play_path);
+
+      return 1;
+    }
+
+    return 0;
+  }
 
   // Config
   char *device = "/dev/video0";
@@ -1373,7 +1495,7 @@ int main(int argc, char *argv[]) {
 #endif
 
   // Initial screen setup
-  (void)write(STDOUT_FILENO, "\033[?1049h\033[2J\033[H\033[?25l", 19);
+  (void)write(STDOUT_FILENO, SCREEN_ENTER, sizeof(SCREEN_ENTER) - 1);
 
   term_raw_mode();
   mouse_enable();

@@ -87,8 +87,7 @@ static char out_file[] = DIR "/captured.out";
 static int key_pipe_w = -1;
 static long long key_delay_ns;
 static char key_byte;
-static int
-    key_twice; // second key 300 ms after first (abort, then "return")
+static int key_twice; // second key 300 ms after first (abort, then "return")
 
 static void *key_feeder(void *arg) {
   (void)arg;
@@ -489,8 +488,30 @@ static void clean_dir(void) {
   rm("captured.out");
 }
 
+static void test_cast_size(void) {
+  int w = -1;
+  int h = -1;
+  touch("sz.cast", "{\"version\":2,\"width\":132,\"height\":43,\"env\":{}}\n"
+                   "[0.1,\"o\",\"x\"]\n");
+  browser_cast_size(DIR "/sz.cast", &w, &h);
+  CHECK(w == 132 && h == 43, "header size %dx%d", w, h);
+
+  touch("sz.cast", "{\"version\": 2, \"height\": 7,\n\"width\": 9}\n");
+  browser_cast_size(DIR "/sz.cast", &w, &h);
+  CHECK(w == 0 && h == 7, "only the first line counts: %dx%d", w, h);
+
+  touch("sz.cast", "[0.1,\"o\",\"x\"]\n");
+  browser_cast_size(DIR "/sz.cast", &w, &h);
+  CHECK(w == 0 && h == 0, "no header: %dx%d", w, h);
+
+  browser_cast_size(DIR "/nope.cast", &w, &h);
+  CHECK(w == 0 && h == 0, "missing file: %dx%d", w, h);
+  rm("sz.cast");
+}
+
 int main(void) {
   clean_dir();
+  test_cast_size();
   test_scan();
   test_keys();
   test_render();

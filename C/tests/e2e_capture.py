@@ -392,6 +392,81 @@ if REAL and os.access(REAL, os.X_OK):
     _, code, out, _ = run(["--demo", "--net"], 1.0)
     check(code == 2, "--net without a value is refused")
 
+    # --play: replay a .cast with its timing, no camera (this is what runs over ssh)
+    play_dir = tempfile.mkdtemp(prefix="asciicam_play_")
+    cast = os.path.join(play_dir, "t.cast")
+    with open(cast, "w", encoding="utf-8") as f:
+        f.write(json.dumps({"version": 2, "width": 60, "height": 20}) + "\n")
+        f.writelines(json.dumps([t, "o", d]) + "\n" for t, d in ((0.0, "\x1b[2J\x1b[Hone"), (0.5, "\x1b[Htwo"), (1.0, "\x1b[Hthree \u00e9")))
+
+    def play(args, steps=(), total=3.0):
+        """Run --play in a pty; steps = [(seconds, bytes)]. Returns (code, [(t, data)])."""
+        pid, fd = pty.fork()
+        if pid == 0:
+            fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
+            os.execv(BIN, [BIN] + args)
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
+        t0, chunks, pending, status = time.monotonic(), [], sorted(steps), None
+        while time.monotonic() - t0 < total and status is None:
+            while pending and time.monotonic() - t0 >= pending[0][0]:
+                os.write(fd, pending.pop(0)[1])
+            r, _, _ = select.select([fd], [], [], 0.02)
+            if r:
+                try:
+                    d = os.read(fd, 65536)
+                except OSError:
+                    d = b""
+                if d:
+                    chunks.append((time.monotonic() - t0, d))
+            done, st = os.waitpid(pid, os.WNOHANG)
+            if done:
+                status = st
+        if status is None:
+            os.kill(pid, 9)
+            os.waitpid(pid, 0)
+            return None, chunks
+        return os.waitstatus_to_exitcode(status), chunks
+
+    def when(chunks, word):
+        for t, d in chunks:
+            if word in d:
+                return t
+        return None
+
+    code, ch = play(["--play", cast])
+    t_two, t_three = when(ch, b"two"), when(ch, b"three")
+    check(code == 0 and t_two and t_three, f"--play: plays to the end, exit {code}")
+    check(t_two and 0.4 < t_two < 0.8 and t_three and 0.9 < t_three < 1.4,
+          f"--play: keeps recorded timing (0.5 s / 1.0 s, got {t_two and round(t_two, 2)} / {t_three and round(t_three, 2)})")
+    check(b"\xc3\xa9" in b"".join(d for _, d in ch), "--play: UTF-8 bytes arrive intact")
+    check(b"\x1b[?1049l" in ch[-1][1] and b"\x1b[?25h" in b"".join(d for _, d in ch), "--play: screen and cursor restored")
+
+    code, ch = play(["--play", cast, "--speed", "2"])
+    t_three = when(ch, b"three")
+    check(code == 0 and t_three and t_three < 0.8, f"--play --speed 2: twice as fast ({t_three and round(t_three, 2)})")
+
+    code, ch = play(["--play", cast], steps=[(0.7, b" "), (2.2, b" ")], total=4.0)
+    t_three = when(ch, b"three")
+    check(code == 0 and t_three and 2.3 < t_three < 3.0,
+          f"--play: space pauses and resumes ({t_three and round(t_three, 2)})")
+
+    code, ch = play(["--play", cast, "--loop"], steps=[(2.6, b"q")], total=5.0)
+    check(code == 0 and sum(1 for _, d in ch if b"two" in d) >= 2, "--play --loop: repeats, q quits with exit 0")
+
+    code, ch = play(["--play", cast], steps=[(0.2, b"q")], total=3.0)
+    check(code == 0 and when(ch, b"three") is None, "--play: q stops early")
+
+    code, ch = play(["--play", os.path.join(play_dir, "missing.cast")])
+    check(code == 1 and b"cannot read" in b"".join(d for _, d in ch) and b"\x1b[?1049h" not in b"".join(d for _, d in ch),
+          f"--play: missing file refused before touching the screen (exit {code})")
+    code, ch = play(["--play", cast, "--speed", "fast"])
+    check(code == 2 and b"--speed needs" in b"".join(d for _, d in ch), "--play: bad --speed refused")
+    code, ch = play(["--play"])
+    check(code == 2, "--play without a file is refused")
+    shutil.rmtree(play_dir, ignore_errors=True)
+
+
+
     # a missing camera explains how to get a picture
     frames, code, out, _ = run(["-d", "/dev/definitely-not-a-camera"], 0.3)
     check(code != 0 and b"--demo" in out, "missing camera: error mentions --demo")
