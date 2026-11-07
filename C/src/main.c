@@ -1670,14 +1670,23 @@ int main(int argc, char *argv[]) {
 
     // Keypress handling
     char ch;
-    while (read(STDIN_FILENO, &ch, 1) == 1) {
-      input_log("byte 0x%02x\n", (unsigned char)ch, 0, 0, 0);
+    mouse_event_t x10_ev = {0, 0, 0, 0, 0, 0};
+    int have_x10 = 0;
+    while (have_x10 || read(STDIN_FILENO, &ch, 1) == 1) {
+      if (!have_x10) {
+        input_log("byte 0x%02x\n", (unsigned char)ch, 0, 0, 0);
+      }
 
       // Inside an SGR mouse report (ESC [ < b ; x ; y M|m): bytes must not
       // reach key handler, 'M' would cycle render mode
-      if (mouse_parser_active(&mouse_parser)) {
-        mouse_event_t mev;
-        int prc = mouse_parser_feed(&mouse_parser, ch, &mev);
+      if (have_x10 || mouse_parser_active(&mouse_parser)) {
+        mouse_event_t mev = x10_ev;
+        int prc = MOUSE_PARSE_DONE;
+        if (!have_x10) {
+          prc = mouse_parser_feed(&mouse_parser, ch, &mev);
+        }
+
+        have_x10 = 0;
         if (prc == MOUSE_PARSE_MORE) {
           continue;
         }
@@ -1765,16 +1774,36 @@ int main(int argc, char *argv[]) {
             }
 
             if (seq[1] == 'M') {
-              // Legacy X10 report (ESC [ M b x y) from a terminal that has
-              // no SGR mode: swallow 3 payload bytes, they are not keys (a
-              // coordinate byte can equal 'q')
-              char junk;
-              for (int k = 0; k < 3; k++) {
+              // Legacy X10 report (ESC [ M b x y) from a terminal that ignores
+              // SGR mode (?1006): three payload bytes, each offset by 32; a
+              // coordinate byte can equal 'q', so they are never keys
+              // A release carries no button number (b & 3 == 3)
+              unsigned char pl[3] = {0, 0, 0};
+              int got = 0;
+              for (; got < 3; got++) {
+                char junk;
                 if (!read_escape_byte(&junk)) {
                   break;
                 }
+
+                pl[got] = (unsigned char)junk;
               }
 
+              if (got == 3 && pl[0] >= 32u && pl[1] > 32u && pl[2] > 32u) {
+                unsigned cb = (unsigned)pl[0] - 32u;
+                x10_ev.x = (int)pl[1] - 32;
+                x10_ev.y = (int)pl[2] - 32;
+                x10_ev.wheel = (cb & 64u) != 0;
+                x10_ev.motion = !x10_ev.wheel && (cb & 32u) != 0;
+                x10_ev.pressed = (cb & 3u) != 3u || x10_ev.wheel;
+                x10_ev.button =
+                    x10_ev.wheel ? 3 : ((cb & 3u) == 3u ? 0 : (int)(cb & 3u));
+                have_x10 = 1;
+                input_log("x10 report b=%d x=%d y=%d\n", (int)cb, x10_ev.x,
+                          x10_ev.y, 0);
+              }
+
+              // have_x10 set: loop condition re-enters with the decoded event
               continue;
             }
 

@@ -228,6 +228,20 @@ for label, extra in (("threaded", []), ("inline -T", ["-T"])):
     after = out[marks[-3]:]
     check(last_frame(after) == (90, 35), f"{label}: colour 640x480 BR resize -> 90x35 ({last_frame(after)})")
 
+    # terminal without SGR mouse mode (?1006): legacy X10 reports, ESC [ M b x y
+    def x10(b, x, y):
+        return b"\x1b[M" + bytes([32 + b, 32 + x, 32 + y])
+
+    out, marks = session(
+        ARGS + extra,
+        [
+            (x10(0, 10, 5), 0.15), (x10(32, 30, 15), 0.3), (x10(3, 30, 15), 0.5),
+        ],
+    )
+    after = out[marks[-3]:]
+    check(last_origin(after) == (21, 11), f"{label}: legacy X10 drag moves frame ({last_origin(after)})")
+    check(last_frame(after) == (40, 20), f"{label}: legacy X10 drag keeps size ({last_frame(after)})")
+
     # a click without dragging changes nothing; 'a' goes back to top-left
     out, marks = session(
         ARGS + extra,
