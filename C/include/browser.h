@@ -13,11 +13,11 @@
  *   .png   -> not previewable in this build (would need a PNG decoder); panel
  *             shows an info toast pointing at .ansi sibling
  *
- * Toggle with 'b' when panel is closed. While open, panel owns keyboard:
- * up/down or j/k move, enter opens, esc or 'b' closes. Panel overlays right
- * side of live ASCII frame; opening it does not resize frame, so part of frame
- * may be hidden behind it - press 'a' to auto-fit frame to remaining width if
- * you want
+ * Toggle with 'b' when panel is closed
+ * While open, panel owns keyboard: up/down or j/k move, enter opens, esc or 'b'
+ * closes. Panel overlays right side of live ASCII frame; opening it does not
+ * resize frame, so part of frame may be hidden behind it - press 'a' to
+ * auto-fit frame to remaining width if wanted
  */
 
 #include "nl_types.h"
@@ -97,5 +97,16 @@ void browser_clear_area(int term_h, int term_w);
 // On return caller is expected to redraw live UI
 int browser_preview_ansi(const char *path, int *aborted);
 int browser_replay_cast(const char *path, int *aborted);
+
+// Standalone playback (asciicam --play): speed 1.0 = recorded pace, loop
+// restarts at end
+// Keys: q quits, space pauses, + / - change speed
+// Needs terminal in raw mode (non-blocking stdin)
+// *events = events written
+// Returns 0, or -1 when file cannot be opened
+int browser_play_cast(const char *path, double speed, int loop, int *events);
+
+// Terminal size recorded in header of a .cast (0, 0 when unknown)
+void browser_cast_size(const char *path, int *w, int *h);
 
 #endif
