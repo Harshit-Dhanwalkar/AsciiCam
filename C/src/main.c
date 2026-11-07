@@ -1616,494 +1616,537 @@ int main(int argc, char *argv[]) {
     // Keypress handling
     char ch;
     while (read(STDIN_FILENO, &ch, 1) == 1) {
-      input_log("byte 0x%02x\n", (unsigned char)ch, 0, 0, 0);
+      // input_log("byte 0x%02x\n", (unsigned char)ch, 0, 0, 0);
+      mouse_event_t x10_ev = {0, 0, 0, 0, 0, 0};
+      int have_x10 = 0;
+      int first = 1;
 
-      // Inside an SGR mouse report (ESC [ < b ; x ; y M|m): bytes must not
-      // reach key handler, 'M' would cycle render mode
-      if (mouse_parser_active(&mouse_parser)) {
-        mouse_event_t mev;
-        int prc = mouse_parser_feed(&mouse_parser, ch, &mev);
-        if (prc == MOUSE_PARSE_MORE) {
-          continue;
+      while (have_x10 || first || read(STDIN_FILENO, &ch, 1) == 1) {
+        first = 0;
+        if (!have_x10) {
+          input_log("byte 0x%02x\n", (unsigned char)ch, 0, 0, 0);
         }
 
-        if (prc == MOUSE_PARSE_DONE) {
-          // Corners resize ASCII frame 1:1 in cells, dragging body moves it
-          // Capture resolution is controlled only by -w/-h at startup and
-          // is not touched here, so frame's aspect and camera's aspect stay
-          // independent. Nothing changes until release: meanwhile an
-          // outline shows where frame will go
-          frame_rect_t cur = {frame_x, frame_y, ascii_w, ascii_h};
-          mouse_limits_t lim = {term_w,          term_h,      PANEL_ROWS,
-                                MIN_ASCII_W,     MIN_ASCII_H, DRAG_MAX_ASCII_W,
-                                DRAG_MAX_ASCII_H};
-          frame_rect_t nr = cur;
-          int act = mouse_drag_event(&mouse_drag, &mev, &cur, &lim, &nr);
-          input_log("mouse pressed=%d btn=%d x=%d y=%d", mev.pressed,
-                    mev.button, mev.x, mev.y);
-          input_log(" motion=%d wheel=%d -> action=%d dragging=%d\n",
-                    mev.motion, mev.wheel, act, mouse_drag.dragging);
-          input_log("  frame %d,%d %dx%d", cur.x, cur.y, cur.w, cur.h);
-          input_log(" terminal %dx%d panel rows %d\n", term_w, term_h,
-                    PANEL_ROWS, 0);
+        // Inside an SGR mouse report (ESC [ < b ; x ; y M|m): bytes must not
+        // reach key handler, 'M' would cycle render mode
+        if (have_x10 || mouse_parser_active(&mouse_parser)) {
+          mouse_event_t mev = x10_ev;
+          int prc = MOUSE_PARSE_DONE;
+          if (!have_x10) {
+            prc = mouse_parser_feed(&mouse_parser, ch, &mev);
+          }
 
-          if (act == MOUSE_RESIZE) {
-            if (outline_on) {
-              draw_drag_outline(&outline, opts.color, 1);
-            }
+          have_x10 = 0;
 
-            outline = nr;
-            outline_on = 1;
-            draw_drag_outline(&outline, opts.color, 0);
-          } else if (act == MOUSE_RELEASE || act == MOUSE_APPLY) {
-            if (outline_on) {
-              draw_drag_outline(&outline, opts.color, 1);
-              outline_on = 0;
-            }
+          if (prc == MOUSE_PARSE_MORE) {
+            continue;
+          }
 
-            if (act == MOUSE_APPLY) {
-              ascii_size_manual = 1;
-              apply_ascii_size(nr.w, nr.h, &ascii_w, &ascii_h, &out_buf,
-                               &out_size, opts.color);
-              if (ascii_w == nr.w && ascii_h == nr.h) { // else: out of memory
-                frame_x = nr.x;
-                frame_y = nr.y;
+          if (prc == MOUSE_PARSE_DONE) {
+            // NOTE: Corners resize ASCII frame 1:1 in cells, dragging body
+            // moves it Capture resolution is controlled only by -w/-h at
+            // startup and is not touched here, so frame's aspect and camera's
+            // aspect stay independent. Nothing changes until release: meanwhile
+            // an outline shows where frame will go
+            frame_rect_t cur = {frame_x, frame_y, ascii_w, ascii_h};
+            mouse_limits_t lim = {
+                term_w,      term_h,           PANEL_ROWS,      MIN_ASCII_W,
+                MIN_ASCII_H, DRAG_MAX_ASCII_W, DRAG_MAX_ASCII_H};
+            frame_rect_t nr = cur;
+            int act = mouse_drag_event(&mouse_drag, &mev, &cur, &lim, &nr);
+            input_log("mouse pressed=%d btn=%d x=%d y=%d", mev.pressed,
+                      mev.button, mev.x, mev.y);
+            input_log(" motion=%d wheel=%d -> action=%d dragging=%d\n",
+                      mev.motion, mev.wheel, act, mouse_drag.dragging);
+            input_log("  frame %d,%d %dx%d", cur.x, cur.y, cur.w, cur.h);
+            input_log(" terminal %dx%d panel rows %d\n", term_w, term_h,
+                      PANEL_ROWS, 0);
+
+            if (act == MOUSE_RESIZE) {
+              if (outline_on) {
+                draw_drag_outline(&outline, opts.color, 1);
               }
 
-              (void)write(STDOUT_FILENO, "\033[2J", 4);
-              net_dirty = 1;
-            }
-          }
+              outline = nr;
+              outline_on = 1;
+              draw_drag_outline(&outline, opts.color, 0);
+            } else if (act == MOUSE_RELEASE || act == MOUSE_APPLY) {
+              if (outline_on) {
+                draw_drag_outline(&outline, opts.color, 1);
+                outline_on = 0;
+              }
 
-          if (!keep_running) {
-            break;
-          }
-
-          continue;
-        }
-        // MOUSE_PARSE_FAIL: not a mouse report after all, handle byte below
-        // like any other key
-      }
-
-      if (ch == '\033') {
-        // Bytes of one escape sequence may reach us in separate reads (slow
-        // terminal, ssh, tmux): wait briefly for each next byte before deciding
-        // that this was a lone ESC
-        // Otherwise rest of a mouse report lands in hotkey switch ('[', 'M',
-        // digits ...)
-        char seq[2] = {0, 0};
-        if (read_escape_byte(&seq[0]) && seq[0] == 'O') {
-          // SS3 (application cursor keys): ESC O A..D; not bound, but its
-          // last byte must not be taken for a hotkey
-          char ss3;
-          (void)read_escape_byte(&ss3);
-
-          continue;
-        }
-
-        if (seq[0] == '[') {
-          if (read_escape_byte(&seq[1])) {
-            if (seq[1] == '<') {
-              mouse_parser_begin(&mouse_parser);
-
-              continue;
-            }
-
-            if (seq[1] == 'M') {
-              // Legacy X10 report (ESC [ M b x y) from a terminal that has
-              // no SGR mode: swallow 3 payload bytes, they are not keys (a
-              // coordinate byte can equal 'q')
-              char junk;
-              for (int k = 0; k < 3; k++) {
-                if (!read_escape_byte(&junk)) {
-                  break;
+              if (act == MOUSE_APPLY) {
+                ascii_size_manual = 1;
+                apply_ascii_size(nr.w, nr.h, &ascii_w, &ascii_h, &out_buf,
+                                 &out_size, opts.color);
+                if (ascii_w == nr.w && ascii_h == nr.h) { // else: out of memory
+                  frame_x = nr.x;
+                  frame_y = nr.y;
                 }
-              }
 
-              continue;
+                (void)write(STDOUT_FILENO, "\033[2J", 4);
+                net_dirty = 1;
+              }
             }
 
-            switch (seq[1]) {
-            case 'A': { // up arrow key
-              if (browser.active) {
-                browser_key(&browser, BR_KEY_UP, 0, NULL, 0);
-              } else if (picker.active) {
-                picker_key(&picker, &catalog, PK_KEY_UP, NULL);
-              } else if (plugin_count > 0) {
-                selected = (selected - 1 + plugin_count) % plugin_count;
-              }
-
+            if (!keep_running) {
               break;
             }
-            case 'B': { // down arrow key
-              if (browser.active) {
-                browser_key(&browser, BR_KEY_DOWN, 0, NULL, 0);
-              } else if (picker.active) {
-                picker_key(&picker, &catalog, PK_KEY_DOWN, NULL);
-              } else if (plugin_count > 0) {
-                selected = (selected + 1) % plugin_count;
-              }
 
-              break;
-            }
-            default: {
-              // other CSI sequences (Home, End, F1..F12, C/D cursor keys)
-              // are not bound; fall through to outer continue
-              break;
-            }
-            }
+            continue;
           }
-        } else if (browser.active) {
-          // a lone ESC closes browser panel
-          browser_key(&browser, BR_KEY_ESC, 0, NULL, 0);
-          browser.active = 0;
-          browser_clear_area(term_h, term_w);
-        } else if (picker.active) {
-          // a lone ESC closes picker
-          picker_key(&picker, &catalog, PK_KEY_ESC, NULL);
+          // MOUSE_PARSE_FAIL: not a mouse report after all, handle byte below
+          // like any other key
         }
 
-        continue;
-      }
+        if (ch == '\033') {
+          // Bytes of one escape sequence may reach us in separate reads (slow
+          // terminal, ssh, tmux): wait briefly for each next byte before
+          // deciding that this was a lone ESC Otherwise rest of a mouse report
+          // lands in hotkey switch ('[', 'M', digits ...)
+          char seq[2] = {0, 0};
+          if (read_escape_byte(&seq[0]) && seq[0] == 'O') {
+            // SS3 (application cursor keys): ESC O A..D; not bound, but its
+            // last byte must not be taken for a hotkey
+            char ss3;
+            (void)read_escape_byte(&ss3);
 
-      // Browser panel open: it owns keyboard, same convention as plugin
-      // picker
-      // - typing a filename can't accidentally trigger hotkeys below
-      // (b/q/j/k/g/G all have meaning to browser)
-      if (browser.active) {
-        char br_path[BROWS_PATH_LEN];
-        brows_action_t ba;
-        // Enter arrives as '\r' (or '\n' on some terminals) - map it to
-        // dedicated BR_KEY_ENTER kind so browser_key can act on it
-        // regardless of which char terminal sent
-        if (ch == '\r' || ch == '\n') {
-          ba = browser_key(&browser, BR_KEY_ENTER, 0, br_path, sizeof(br_path));
-        } else {
-          ba = browser_key(&browser, BR_KEY_CHAR, ch, br_path, sizeof(br_path));
+            continue;
+          }
+
+          if (seq[0] == '[') {
+            if (read_escape_byte(&seq[1])) {
+              if (seq[1] == '<') {
+                mouse_parser_begin(&mouse_parser);
+
+                continue;
+              }
+
+              if (seq[1] == 'M') {
+                // Legacy X10 report (ESC [ M b x y) from a terminal that
+                // ignores SGR mode (?1006): three payload bytes, each offset by
+                // 32; a coordinate byte can equal 'q', so they are never keys
+                // A release carries no button number (b & 3 == 3)
+                unsigned char pl[3] = {0, 0, 0};
+                int got = 0;
+                for (; got < 3; got++) {
+                  char junk;
+                  if (!read_escape_byte(&junk)) {
+                    break;
+                  }
+
+                  pl[got] = (unsigned char)junk;
+                }
+
+                if (got == 3 && pl[0] >= 32u && pl[1] > 32u && pl[2] > 32u) {
+                  unsigned cb = (unsigned)pl[0] - 32u;
+                  x10_ev.x = (int)pl[1] - 32;
+                  x10_ev.y = (int)pl[2] - 32;
+                  x10_ev.wheel = (cb & 64u) != 0;
+                  x10_ev.motion = !x10_ev.wheel && (cb & 32u) != 0;
+                  x10_ev.pressed = (cb & 3u) != 3u || x10_ev.wheel;
+                  x10_ev.button =
+                      x10_ev.wheel ? 3 : ((cb & 3u) == 3u ? 0 : (int)(cb & 3u));
+                  have_x10 = 1;
+                  input_log("x10 report b=%d x=%d y=%d\n", (int)cb, x10_ev.x,
+                            x10_ev.y, 0);
+                }
+
+                // have_x10 set: loop condition re-enters with the decoded event
+                continue;
+              }
+
+              switch (seq[1]) {
+              case 'A': { // up arrow key
+                if (browser.active) {
+                  browser_key(&browser, BR_KEY_UP, 0, NULL, 0);
+                } else if (picker.active) {
+                  picker_key(&picker, &catalog, PK_KEY_UP, NULL);
+                } else if (plugin_count > 0) {
+                  selected = (selected - 1 + plugin_count) % plugin_count;
+                }
+
+                break;
+              }
+              case 'B': { // down arrow key
+                if (browser.active) {
+                  browser_key(&browser, BR_KEY_DOWN, 0, NULL, 0);
+                } else if (picker.active) {
+                  picker_key(&picker, &catalog, PK_KEY_DOWN, NULL);
+                } else if (plugin_count > 0) {
+                  selected = (selected + 1) % plugin_count;
+                }
+
+                break;
+              }
+              default: {
+                // other CSI sequences (Home, End, F1..F12, C/D cursor keys)
+                // are not bound; fall through to outer continue
+                break;
+              }
+              }
+            }
+          } else if (browser.active) {
+            // a lone ESC closes browser panel
+            browser_key(&browser, BR_KEY_ESC, 0, NULL, 0);
+            browser.active = 0;
+            browser_clear_area(term_h, term_w);
+          } else if (picker.active) {
+            // a lone ESC closes picker
+            picker_key(&picker, &catalog, PK_KEY_ESC, NULL);
+          }
+
+          continue;
         }
 
-        switch (ba) {
-        case BROWS_ACT_CLOSE: {
-          browser.active = 0;
-          browser_clear_area(term_h, term_w);
+        // Browser panel open: it owns keyboard, same convention as plugin
+        // picker
+        // - typing a filename can't accidentally trigger hotkeys below
+        // (b/q/j/k/g/G all have meaning to browser)
+        if (browser.active) {
+          char br_path[BROWS_PATH_LEN];
+          brows_action_t ba;
+          // Enter arrives as '\r' (or '\n' on some terminals) - map it to
+          // dedicated BR_KEY_ENTER kind so browser_key can act on it
+          // regardless of which char terminal sent
+          if (ch == '\r' || ch == '\n') {
+            ba = browser_key(&browser, BR_KEY_ENTER, 0, br_path,
+                             sizeof(br_path));
+          } else {
+            ba = browser_key(&browser, BR_KEY_CHAR, ch, br_path,
+                             sizeof(br_path));
+          }
 
-          break;
-        }
-        case BROWS_ACT_PREVIEW_ANSI: {
-          int aborted = 0;
-          // Hide panel during preview so it doesn't overlap screenshot
-          browser_clear_area(term_h, term_w);
-          browser_preview_ansi(br_path, &aborted);
-          // Live UI will fully redraw on next frame
+          switch (ba) {
+          case BROWS_ACT_CLOSE: {
+            browser.active = 0;
+            browser_clear_area(term_h, term_w);
 
-          break;
-        }
-        case BROWS_ACT_REPLAY_CAST: {
-          int aborted = 0;
-          // Refuse to replay while recording - recording thread would pause
-          // with main loop and corrupt in-flight .cast
-          if (rec.active) {
-            TOAST("stop recording (t) before replaying a .cast");
+            break;
+          }
+          case BROWS_ACT_PREVIEW_ANSI: {
+            int aborted = 0;
+            // Hide panel during preview so it doesn't overlap screenshot
+            browser_clear_area(term_h, term_w);
+            browser_preview_ansi(br_path, &aborted);
+            // Live UI will fully redraw on next frame
+
+            break;
+          }
+          case BROWS_ACT_REPLAY_CAST: {
+            int aborted = 0;
+            // Refuse to replay while recording - recording thread would pause
+            // with main loop and corrupt in-flight .cast
+            if (rec.active) {
+              TOAST("stop recording (t) before replaying a .cast");
+
+              break;
+            }
+
+            browser_clear_area(term_h, term_w);
+            browser_replay_cast(br_path, &aborted);
+
+            break;
+          }
+          case BROWS_ACT_INFO: {
+            TOAST("%s", browser.info_msg);
 
             break;
           }
 
-          browser_clear_area(term_h, term_w);
-          browser_replay_cast(br_path, &aborted);
+          default: {
+            break;
+          }
+          }
 
-          break;
-        }
-        case BROWS_ACT_INFO: {
-          TOAST("%s", browser.info_msg);
-
-          break;
+          continue;
         }
 
-        default: {
-          break;
-        }
-        }
-
-        continue;
-      }
-
-      // Picker open: it owns keyboard, so typing a plugin name can't
-      // trigger hotkeys below (w/e/c would all fire on "water")
-      if (picker.active) {
-        int load_idx = -1;
-        picker_action_t pa =
-            picker_key(&picker, &catalog, (unsigned char)ch, &load_idx);
-        if (pa == PK_LOAD) {
-          catalog_entry_t *ce = &catalog.e[load_idx];
-          if (ce->state == PC_ACTIVE) {
-            TOAST("%s is already loaded", ce->name);
-          } else if (ce->state == PC_COMPILING) {
-            ce->want_load = 1;
-            TOAST("%s is already compiling", ce->name);
-          } else if (ce->state == PC_READY) {
-            // Already built (or shipped prebuilt): load it, no compiler
-            // needed
-            char lmsg[128];
-            plugin_activate(&catalog, load_idx, plugins, plugin_params,
-                            plugin_cat, &plugin_count, lmsg, sizeof(lmsg));
-            TOAST("%s", lmsg);
-          } else {
-            ce->want_load = 1;
-            if (catalog_start_build(&catalog, load_idx) == 0) {
-              TOAST("compiling %s...", ce->name);
+        // Picker open: it owns keyboard, so typing a plugin name can't
+        // trigger hotkeys below (w/e/c would all fire on "water")
+        if (picker.active) {
+          int load_idx = -1;
+          picker_action_t pa =
+              picker_key(&picker, &catalog, (unsigned char)ch, &load_idx);
+          if (pa == PK_LOAD) {
+            catalog_entry_t *ce = &catalog.e[load_idx];
+            if (ce->state == PC_ACTIVE) {
+              TOAST("%s is already loaded", ce->name);
+            } else if (ce->state == PC_COMPILING) {
+              ce->want_load = 1;
+              TOAST("%s is already compiling", ce->name);
+            } else if (ce->state == PC_READY) {
+              // Already built (or shipped prebuilt): load it, no compiler
+              // needed
+              char lmsg[128];
+              plugin_activate(&catalog, load_idx, plugins, plugin_params,
+                              plugin_cat, &plugin_count, lmsg, sizeof(lmsg));
+              TOAST("%s", lmsg);
             } else {
-              ce->want_load = 0;
-              TOAST("%s: %s", ce->name, ce->err);
+              ce->want_load = 1;
+              if (catalog_start_build(&catalog, load_idx) == 0) {
+                TOAST("compiling %s...", ce->name);
+              } else {
+                ce->want_load = 0;
+                TOAST("%s: %s", ce->name, ce->err);
+              }
             }
           }
+
+          continue;
         }
 
-        continue;
-      }
-
-      if (ch == '/') {
-        if (!catalog_supported()) {
-          TOAST("runtime plugin build not supported on this platform yet");
-        } else {
-          catalog_scan(&catalog); // pick up sources added since startup
-          if (catalog.count == 0) {
-            TOAST("no plugin sources in %s", catalog.src_dir);
+        if (ch == '/') {
+          if (!catalog_supported()) {
+            TOAST("runtime plugin build not supported on this platform yet");
           } else {
-            picker_open(&picker);
+            catalog_scan(&catalog); // pick up sources added since startup
+            if (catalog.count == 0) {
+              TOAST("no plugin sources in %s", catalog.src_dir);
+            } else {
+              picker_open(&picker);
+            }
           }
+
+          continue;
         }
 
-        continue;
-      }
+        // Adjust plugin param if selected
+        int *pp = (plugin_count > 0) ? &plugin_params[selected] : NULL;
+        switch (ch) {
+        case 'q':
+        case 'Q': {
+          keep_running = 0;
 
-      // Adjust plugin param if selected
-      int *pp = (plugin_count > 0) ? &plugin_params[selected] : NULL;
-      switch (ch) {
-      case 'q':
-      case 'Q': {
-        keep_running = 0;
-
-        break;
-      }
-      case ']': {
-        if (pp && *pp < 255) {
-          (*pp)++;
+          break;
         }
+        case ']': {
+          if (pp && *pp < 255) {
+            (*pp)++;
+          }
 
-        break;
-      }
-      case '[': {
-        if (pp && *pp > 0) {
-          (*pp)--;
+          break;
         }
+        case '[': {
+          if (pp && *pp > 0) {
+            (*pp)--;
+          }
 
-        break;
-      }
-      case '}': {
-        if (pp) {
-          *pp = (*pp + 10 > 255) ? 255 : *pp + 10;
+          break;
         }
+        case '}': {
+          if (pp) {
+            *pp = (*pp + 10 > 255) ? 255 : *pp + 10;
+          }
 
-        break;
-      }
-      case '{': {
-        if (pp) {
-          *pp = (*pp - 10 < 0) ? 0 : *pp - 10;
+          break;
         }
+        case '{': {
+          if (pp) {
+            *pp = (*pp - 10 < 0) ? 0 : *pp - 10;
+          }
 
-        break;
-      }
-      case 'r':
-      case 'R': {
-        if (pp) {
-          *pp = plugin_default_param(plugins[selected].plugin);
+          break;
         }
+        case 'r':
+        case 'R': {
+          if (pp) {
+            *pp = plugin_default_param(plugins[selected].plugin);
+          }
 
-        break;
-      }
-      case 'm': {
-        opts.render_mode = (opts.render_mode + 1) % RENDER_MODE_COUNT;
-        if (gfx_mode != GFX_OFF) {
-          TOAST("mode is text/shot only (--gfx %s is live)", gfx_name);
+          break;
         }
+        case 'm': {
+          opts.render_mode = (opts.render_mode + 1) % RENDER_MODE_COUNT;
+          if (gfx_mode != GFX_OFF) {
+            TOAST("mode is text/shot only (--gfx %s is live)", gfx_name);
+          }
 
-        break;
-      }
-      case 'M': {
-        opts.render_mode =
-            (opts.render_mode - 1 + RENDER_MODE_COUNT) % RENDER_MODE_COUNT;
-        if (gfx_mode != GFX_OFF) {
-          TOAST("mode is text/shot only (--gfx %s is live)", gfx_name);
+          break;
         }
+        case 'M': {
+          opts.render_mode =
+              (opts.render_mode - 1 + RENDER_MODE_COUNT) % RENDER_MODE_COUNT;
+          if (gfx_mode != GFX_OFF) {
+            TOAST("mode is text/shot only (--gfx %s is live)", gfx_name);
+          }
 
-        break;
-      }
-      case 'x': {
-        opts.edges = (opts.edges + 1) % EDGE_MODE_COUNT;
-        if (gfx_mode != GFX_OFF) {
-          TOAST("edges is text/shot only (--gfx %s is live)", gfx_name);
+          break;
         }
+        case 'x': {
+          opts.edges = (opts.edges + 1) % EDGE_MODE_COUNT;
+          if (gfx_mode != GFX_OFF) {
+            TOAST("edges is text/shot only (--gfx %s is live)", gfx_name);
+          }
 
-        break;
-      }
-      case 'X': {
-        opts.edges = (opts.edges - 1 + EDGE_MODE_COUNT) % EDGE_MODE_COUNT;
-        if (gfx_mode != GFX_OFF) {
-          TOAST("edges is text/shot only (--gfx %s is live)", gfx_name);
+          break;
         }
+        case 'X': {
+          opts.edges = (opts.edges - 1 + EDGE_MODE_COUNT) % EDGE_MODE_COUNT;
+          if (gfx_mode != GFX_OFF) {
+            TOAST("edges is text/shot only (--gfx %s is live)", gfx_name);
+          }
 
-        break;
-      }
-      case 'n':
-      case 'N': {
-        if (charsets.count > 0) {
-          if (ch == 'n') {
-            charsets.active = (charsets.active + 1) % charsets.count;
+          break;
+        }
+        case 'n':
+        case 'N': {
+          if (charsets.count > 0) {
+            if (ch == 'n') {
+              charsets.active = (charsets.active + 1) % charsets.count;
+            } else {
+              charsets.active =
+                  (charsets.active - 1 + charsets.count) % charsets.count;
+            }
+            opts.charset = charset_registry_active_ramp(&charsets);
+          }
+          if (gfx_mode != GFX_OFF) {
+            TOAST("charset is text/shot only (--gfx %s is live)", gfx_name);
+          }
+
+          break;
+        }
+        case 'g': {
+          opts.gamma = (opts.gamma - 10 < 10) ? 10 : opts.gamma - 10;
+          if (gfx_mode != GFX_OFF) {
+            TOAST("gamma is text/shot only (--gfx %s is live)", gfx_name);
+          }
+
+          break;
+        }
+        case 'G': {
+          opts.gamma = (opts.gamma + 10 > 400) ? 400 : opts.gamma + 10;
+          if (gfx_mode != GFX_OFF) {
+            TOAST("gamma is text/shot only (--gfx %s is live)", gfx_name);
+          }
+
+          break;
+        }
+        case '+': {
+          opts.depth_pop =
+              (opts.depth_pop + 5 > 100) ? 100 : opts.depth_pop + 5;
+          if (gfx_mode != GFX_OFF) {
+            TOAST("depth-pop is text/shot only (--gfx %s is live)", gfx_name);
+          }
+
+          break;
+        }
+        case '-': {
+          opts.depth_pop = (opts.depth_pop - 5 < 0) ? 0 : opts.depth_pop - 5;
+          if (gfx_mode != GFX_OFF) {
+            TOAST("depth-pop is text/shot only (--gfx %s is live)", gfx_name);
+          }
+
+          break;
+        }
+        case 'v': {
+          opts.depth_invert = !opts.depth_invert;
+          if (gfx_mode != GFX_OFF) {
+            TOAST("depth-invert is text/shot only (--gfx %s is live)",
+                  gfx_name);
+          }
+
+          break;
+        }
+        case 's':
+        case 'S': {
+          want_shot = 1; // taken from next frame that is rendered
+
+          break;
+        }
+        case 'b':
+        case 'B': {
+          // Toggle captures browser panel. Re-scan on open so freshly saved
+          // screenshots / recordings show up without a restart
+          browser_toggle(&browser);
+          if (browser.active) {
+            browser_scan(&browser, cap_dir);
           } else {
-            charsets.active =
-                (charsets.active - 1 + charsets.count) % charsets.count;
+            browser_clear_area(term_h, term_w);
           }
-          opts.charset = charset_registry_active_ramp(&charsets);
+
+          break;
         }
-        if (gfx_mode != GFX_OFF) {
-          TOAST("charset is text/shot only (--gfx %s is live)", gfx_name);
+        case 't':
+        case 'T': {
+          if (rec.active) {
+            double secs = 0;
+            char tb[REC_TOAST_W + 8];
+            int frames = rec_stop(&rec, rec_mono_ns(), &secs);
+            nl_snprintf(saved_cast, sizeof(saved_cast), "%s", rec.path);
+            TOAST("REC stopped, %ds: %s", (int)secs,
+                  path_tail(rec.path, tb, sizeof(tb)));
+            (void)frames;
+          } else if (rec_start(&rec, cap_dir, term_w, term_h, rec_unix_now(),
+                               rec_mono_ns()) == 0) {
+            char tb[REC_TOAST_W + 8];
+            TOAST("REC started: %s", path_tail(rec.path, tb, sizeof(tb)));
+          } else {
+            char tb[REC_TOAST_W + 8];
+            TOAST("cannot record into %s", path_tail(cap_dir, tb, sizeof(tb)));
+          }
+
+          break;
         }
+        case 'u':
+        case 'U': {
+          if (plugin_count > 0) {
+            const char *uname =
+                plugins[selected].plugin ? plugins[selected].plugin->name : "?";
+            TOAST("unloaded %s", uname);
 
-        break;
-      }
-      case 'g': {
-        opts.gamma = (opts.gamma - 10 < 10) ? 10 : opts.gamma - 10;
-        if (gfx_mode != GFX_OFF) {
-          TOAST("gamma is text/shot only (--gfx %s is live)", gfx_name);
+            plugin_slot_remove(plugins, plugin_params, plugin_cat,
+                               &plugin_count, &selected, selected, &catalog);
+          }
+
+          break;
         }
+        case 'a':
+        case 'A': {
+          // hand control of frame size back to SIGWINCH; next loop iteration
+          // picks up current terminal size
+          ascii_size_manual = 0;
+          term_resized = 1;
 
-        break;
-      }
-      case 'G': {
-        opts.gamma = (opts.gamma + 10 > 400) ? 400 : opts.gamma + 10;
-        if (gfx_mode != GFX_OFF) {
-          TOAST("gamma is text/shot only (--gfx %s is live)", gfx_name);
+          break;
         }
+        case 'e': {
+          webcam_adjust_exposure(&cam, -10, &hw_exposure);
 
-        break;
-      }
-      case '+': {
-        opts.depth_pop = (opts.depth_pop + 5 > 100) ? 100 : opts.depth_pop + 5;
-        if (gfx_mode != GFX_OFF) {
-          TOAST("depth-pop is text/shot only (--gfx %s is live)", gfx_name);
+          break;
         }
+        case 'E': {
+          webcam_adjust_exposure(&cam, 10, &hw_exposure);
 
-        break;
-      }
-      case '-': {
-        opts.depth_pop = (opts.depth_pop - 5 < 0) ? 0 : opts.depth_pop - 5;
-        if (gfx_mode != GFX_OFF) {
-          TOAST("depth-pop is text/shot only (--gfx %s is live)", gfx_name);
+          break;
         }
+        case 'w': {
+          webcam_adjust_white_balance(&cam, -100, &hw_wb);
 
-        break;
-      }
-      case 'v': {
-        opts.depth_invert = !opts.depth_invert;
-        if (gfx_mode != GFX_OFF) {
-          TOAST("depth-invert is text/shot only (--gfx %s is live)", gfx_name);
+          break;
         }
+        case 'W': {
+          webcam_adjust_white_balance(&cam, 100, &hw_wb);
 
-        break;
-      }
-      case 's':
-      case 'S': {
-        want_shot = 1; // taken from next frame that is rendered
-
-        break;
-      }
-      case 'b':
-      case 'B': {
-        // Toggle captures browser panel. Re-scan on open so freshly saved
-        // screenshots / recordings show up without a restart
-        browser_toggle(&browser);
-        if (browser.active) {
-          browser_scan(&browser, cap_dir);
-        } else {
-          browser_clear_area(term_h, term_w);
+          break;
         }
+        case 'c': {
+          webcam_adjust_contrast(&cam, -5, &hw_contrast);
 
-        break;
-      }
-      case 't':
-      case 'T': {
-        if (rec.active) {
-          double secs = 0;
-          char tb[REC_TOAST_W + 8];
-          int frames = rec_stop(&rec, rec_mono_ns(), &secs);
-          nl_snprintf(saved_cast, sizeof(saved_cast), "%s", rec.path);
-          TOAST("REC stopped, %ds: %s", (int)secs,
-                path_tail(rec.path, tb, sizeof(tb)));
-          (void)frames;
-        } else if (rec_start(&rec, cap_dir, term_w, term_h, rec_unix_now(),
-                             rec_mono_ns()) == 0) {
-          char tb[REC_TOAST_W + 8];
-          TOAST("REC started: %s", path_tail(rec.path, tb, sizeof(tb)));
-        } else {
-          char tb[REC_TOAST_W + 8];
-          TOAST("cannot record into %s", path_tail(cap_dir, tb, sizeof(tb)));
+          break;
         }
+        case 'C': {
+          webcam_adjust_contrast(&cam, 5, &hw_contrast);
 
-        break;
-      }
-      case 'u':
-      case 'U': {
-        if (plugin_count > 0) {
-          const char *uname =
-              plugins[selected].plugin ? plugins[selected].plugin->name : "?";
-          TOAST("unloaded %s", uname);
-
-          plugin_slot_remove(plugins, plugin_params, plugin_cat, &plugin_count,
-                             &selected, selected, &catalog);
+          break;
         }
-
-        break;
+        default:
+          break;
+        }
       }
-      case 'a':
-      case 'A': {
-        // hand control of frame size back to SIGWINCH; next loop iteration
-        // picks up current terminal size
-        ascii_size_manual = 0;
-        term_resized = 1;
 
-        break;
-      }
-      case 'e': {
-        webcam_adjust_exposure(&cam, -10, &hw_exposure);
-
-        break;
-      }
-      case 'E': {
-        webcam_adjust_exposure(&cam, 10, &hw_exposure);
-
-        break;
-      }
-      case 'w': {
-        webcam_adjust_white_balance(&cam, -100, &hw_wb);
-
-        break;
-      }
-      case 'W': {
-        webcam_adjust_white_balance(&cam, 100, &hw_wb);
-
-        break;
-      }
-      case 'c': {
-        webcam_adjust_contrast(&cam, -5, &hw_contrast);
-
-        break;
-      }
-      case 'C': {
-        webcam_adjust_contrast(&cam, 5, &hw_contrast);
-
-        break;
-      }
-      default:
+      if (!keep_running) {
         break;
       }
     }
@@ -2258,8 +2301,8 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    // Picture for --gfx: processed frame scaled to terminal to show in frame's
-    // cells
+    // Picture for --gfx: processed frame scaled to terminal to show in
+    // frame's cells
     int gfx_len = 0;
     if (gfx_mode != GFX_OFF) {
       int pw = ascii_w * 4;
