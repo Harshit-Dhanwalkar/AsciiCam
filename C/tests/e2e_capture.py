@@ -230,7 +230,7 @@ for label, extra in (("threaded", []), ("inline -T", ["-T"])):
     check(last_frame(after) == (90, 35), f"{label}: colour 640x480 BR resize -> 90x35 ({last_frame(after)})")
 
     # A click without dragging changes nothing; 'a' goes back to top-left
-    # the picture follows the frame: move and resize with --gfx kitty
+    # picture follows frame: move and resize with --gfx kitty
     out, marks = session(
         ARGS + extra + ["--gfx", "kitty"],
         [
@@ -242,6 +242,21 @@ for label, extra in (("threaded", []), ("inline -T", ["-T"])):
     geo = re.findall(rb"\x1b\[(\d+);(\d+)H\x1b_Ga=T[^;]*,c=(\d+),r=(\d+),", after)
     check(geo and tuple(map(int, geo[-1])) == (11, 21, 50, 25),
           f"{label}: --gfx kitty picture placed at (21,11) over 50x25 cells ({geo[-1] if geo else None})")
+
+    # A click without dragging changes nothing; 'a' goes back to top-left terminal without
+    # SGR mouse mode (?1006): legacy X10 reports, ESC [ M b x y
+    def x10(b, x, y):
+        return b"\x1b[M" + bytes([32 + b, 32 + x, 32 + y])
+
+    out, marks = session(
+        ARGS + extra,
+        [
+           (x10(0, 10, 5), 0.15), (x10(32, 30, 15), 0.3), (x10(3, 30, 15), 0.5),
+        ],
+    )
+    after = out[marks[-3]:]
+    check(last_origin(after) == (21, 11), f"{label}: legacy X10 drag moves frame ({last_origin(after)})")
+    check(last_frame(after) == (40, 20), f"{label}: legacy X10 drag keeps size ({last_frame(after)})")
 
     # A click without dragging changes nothing; 'a' goes back to top-left
     out, marks = session(
@@ -370,7 +385,6 @@ finally:
 check(b"cannot record" in out and b"cannot save" in out,
       "recorder: unwritable folder gives messages, program keeps running")
 check(out.count(SYNC_BEGIN) > 10, "recorder: still drawing after failures")
-
 
 # Real binary with built-in picture: no camera, no fake
 REAL = sys.argv[2] if len(sys.argv) > 2 else None
