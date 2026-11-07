@@ -36,11 +36,11 @@ int main(void) {
   const char *dst = "build/tests/copy_file.out";
 
   // Next descriptor number before and after: nothing may leak
-  int probe = open("build/webcam_ascii", O_RDONLY, 0);
+  int probe = open("build/asciicam", O_RDONLY, 0);
   close(probe);
 
-  CHECK(copy_file("build/webcam_ascii", dst) == 0, "ordinary copy succeeds");
-  CHECK(size_of(dst) == size_of("build/webcam_ascii") && size_of(dst) > 0,
+  CHECK(copy_file("build/asciicam", dst) == 0, "ordinary copy succeeds");
+  CHECK(size_of(dst) == size_of("build/asciicam") && size_of(dst) > 0,
         "copy has same size");
   unlink(dst);
 
@@ -49,16 +49,16 @@ int main(void) {
   CHECK(size_of(dst) < 0, "no partial output left behind");
 
   CHECK(copy_file("build/does-not-exist", dst) == -1, "missing source");
-  CHECK(copy_file("build/webcam_ascii", "build/no-such-dir/x") == -1,
+  CHECK(copy_file("build/asciicam", "build/no-such-dir/x") == -1,
         "uncreatable destination");
 
   for (int i = 0; i < 2000; i++) { // would run out of descriptors if any leaked
     copy_file("build", dst);
     copy_file("build/does-not-exist", dst);
-    copy_file("build/webcam_ascii", "build/no-such-dir/x");
+    copy_file("build/asciicam", "build/no-such-dir/x");
   }
 
-  int probe2 = open("build/webcam_ascii", O_RDONLY, 0);
+  int probe2 = open("build/asciicam", O_RDONLY, 0);
   CHECK(probe2 == probe, "no descriptor leaked over 6000 failing calls");
   close(probe2);
 

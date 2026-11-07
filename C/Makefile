@@ -126,6 +126,7 @@ endif
 CORE_SRCS := $(SRCDIR)/app_paths.c \
              $(SRCDIR)/ascii.c \
              $(SRCDIR)/browser.c \
+             $(SRCDIR)/gfx.c \
              $(SRCDIR)/capture_reinit.c \
              $(SRCDIR)/main.c  \
              $(SRCDIR)/mouse.c \
@@ -146,10 +147,10 @@ OBJECTS += $(patsubst $(SRCDIR)/%.m,  $(OBJDIR)/%.o,   $(filter $(SRCDIR)/%.m,  
 OBJECTS += $(patsubst $(LIBDIR)/%.c,  $(OBJDIR)/lib_%.o, $(LIBSRCS))
 
 ifeq ($(PLATFORM),windows)
-    TARGET := $(BUILDDIR)/webcam_ascii.exe
+    TARGET := $(BUILDDIR)/asciicam.exe
     INSTALL_NAME := asciicam.exe
 else
-    TARGET := $(BUILDDIR)/webcam_ascii
+    TARGET := $(BUILDDIR)/asciicam
     INSTALL_NAME := asciicam
 endif
 
@@ -206,7 +207,7 @@ clean:
 # Builds with AddressSanitizer + UndefinedBehaviorSanitizer
 ifeq ($(PLATFORM),linux)
 ASAN_OBJDIR  := $(BUILDDIR)/obj_asan
-ASAN_TARGET  := $(BUILDDIR)/webcam_ascii_asan
+ASAN_TARGET  := $(BUILDDIR)/asciicam_asan
 
 ASAN_CFLAGS  := $(CFLAGS_COMMON) $(CFLAGS_EXTRA) \
                 -DPLATFORM_LINUX -D__LINUX_NOLIBC__ -msse4.1 \
@@ -301,6 +302,8 @@ test: all
 	$(CC) -O2 $(TEST_FLAGS) tests/test_browser.c $(SRCDIR)/browser.c $(SRCDIR)/recorder.c $(TEST_LIBS) -o $(TESTDIR)/browser_O2
 	$(CC) -O0 -DTESTING $(TEST_FLAGS) tests/test_effects.c $(TEST_LIBS) -o $(TESTDIR)/effects_O0
 	$(CC) -O2 -DTESTING $(TEST_FLAGS) tests/test_effects.c $(TEST_LIBS) -o $(TESTDIR)/effects_O2
+	$(CC) -O0 $(TEST_FLAGS) tests/test_gfx.c $(SRCDIR)/gfx.c $(TEST_LIBS) -o $(TESTDIR)/gfx_O0
+	$(CC) -O2 $(TEST_FLAGS) tests/test_gfx.c $(SRCDIR)/gfx.c $(TEST_LIBS) -o $(TESTDIR)/gfx_O2
 	$(CC) -O0 $(TEST_FLAGS) tests/test_netenc.c $(SRCDIR)/netenc.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/netenc_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_netenc.c $(SRCDIR)/netenc.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/netenc_O2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_copy_file.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/copy_file
@@ -311,6 +314,8 @@ test: all
 	$(CC) -O2 $(TEST_FLAGS) tests/test_capture_pipe.c $(SRCDIR)/thread_sharing.c $(TEST_LIBS) -o $(TESTDIR)/capture_pipe
 	$(CC) -DTESTING $(TEST_FLAGS) tests/security_tests.c $(FILTER_SRC) $(TEST_LIBS) -o $(TESTDIR)/security
 	$(TESTDIR)/alloc
+	$(TESTDIR)/gfx_O0
+	$(TESTDIR)/gfx_O2
 	$(TESTDIR)/netenc_O0
 	$(TESTDIR)/netenc_O2
 	$(TESTDIR)/printf
