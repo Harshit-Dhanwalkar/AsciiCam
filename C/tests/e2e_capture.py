@@ -228,6 +228,33 @@ for label, extra in (("threaded", []), ("inline -T", ["-T"])):
     after = out[marks[-3]:]
     check(last_frame(after) == (90, 35), f"{label}: colour 640x480 BR resize -> 90x35 ({last_frame(after)})")
 
+    # terminal without SGR mouse mode (?1006): legacy X10 reports, ESC [ M b x y
+    def x10(b, x, y):
+        return b"\x1b[M" + bytes([32 + b, 32 + x, 32 + y])
+
+    out, marks = session(
+        ARGS + extra,
+        [
+            (x10(0, 10, 5), 0.15), (x10(32, 30, 15), 0.3), (x10(3, 30, 15), 0.5),
+        ],
+    )
+    after = out[marks[-3]:]
+    check(last_origin(after) == (21, 11), f"{label}: legacy X10 drag moves frame ({last_origin(after)})")
+    check(last_frame(after) == (40, 20), f"{label}: legacy X10 drag keeps size ({last_frame(after)})")
+
+    # mouse drag debug: no silent clicks
+    out, marks = session(ARGS + extra, [(mouse(0, 100, 40), 0.4), (mouse(0, 100, 40, True), 0.2)])
+    check(b"click inside the picture" in out, f"{label}: click outside the frame explains itself")
+    out, marks = session(
+        ARGS + extra,
+        [(mouse(0, 10, 5), 0.4), (mouse(32, 30, 15), 0.2), (mouse(0, 30, 15, True), 0.5)],
+    )
+    check(b"moving frame: release to place it" in out and b"frame 40x20 at 21,11" in out,
+          f"{label}: grab and placement are announced")
+    out, marks = session(["-d", "fake", "-r", "20", "-W", "120", "-H", "46"] + extra,
+                         [(mouse(0, 10, 5), 0.4), (mouse(32, 30, 15), 0.2), (mouse(0, 30, 15, True), 0.4)])
+    check(b"frame fills the terminal" in out, f"{label}: dragging a full-terminal frame says why nothing moves")
+
     # a click without dragging changes nothing; 'a' goes back to top-left
     out, marks = session(
         ARGS + extra,
