@@ -1711,6 +1711,28 @@ int main(int argc, char *argv[]) {
           input_log(" terminal %dx%d panel rows %d\n", term_w, term_h,
                     PANEL_ROWS, 0);
 
+          // Drag that cannot move anything (frame already fills terminal) or a
+          // click outside picture otherwise looks exactly like mouse support
+          // not working
+          if (act == MOUSE_GRAB) {
+            int fills = cur.w >= term_w && cur.h >= term_h - PANEL_ROWS;
+            if (mouse_drag.dragging == GRAB_MOVE) {
+              if (fills) {
+                TOAST("frame fills the terminal: drag a corner inward to "
+                      "shrink it first");
+              } else {
+                TOAST("moving frame: release to place it");
+              }
+            } else {
+              TOAST("resizing frame: release to apply");
+            }
+          } else if (act == MOUSE_NONE && mev.pressed && !mev.motion &&
+                     mev.button == 0 && !mouse_drag.dragging) {
+            TOAST("click inside the picture: corner resizes, middle moves");
+          } else if (act == MOUSE_APPLY) {
+            TOAST("frame %dx%d at %d,%d", nr.w, nr.h, nr.x, nr.y);
+          }
+
           if (act == MOUSE_RESIZE) {
             if (outline_on) {
               draw_drag_outline(&outline, opts.color, 1);
