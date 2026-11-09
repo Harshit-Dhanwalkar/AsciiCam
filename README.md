@@ -221,8 +221,22 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 
 Besides `edge_detect`, `invert` and `threshold`, `filters/` holds eighteen
 effects. Each takes one parameter 0-255 (the `[128]` in the panel): 0 is "off",
-128 is a pleasant default. They only see the luma plane, so the "colour"
-effects (`thermal`, `sepia`, `chromatic`) are tone-curve approximations.
+128 is a pleasant default. `process()` only sees the luma plane, so in mono
+mode the "colour" effects (`thermal`, `sepia`, `chromatic`) are tone-curve
+approximations. In colour mode (`-C`) they also repaint the picture itself: a
+heat palette, a brown sepia tint, red and blue channels sliding apart.
+
+**Colour hook for your own plugins:** export, next to `plugin_get()`,
+
+```c
+void plugin_rgb_process(uint8_t *rgb, int w, int h, void *ctx);
+```
+
+`rgb` is `w*h*3` bytes (R G B per pixel). In colour mode the host builds the
+picture from the plugins' luma output and then calls every plugin's
+`plugin_rgb_process` in order, with the same parameter. It is optional: plugins
+without it load and run exactly as before, and the interface version
+(`PLUGIN_ABI`) did not change.
 
 | Look    | Plugins                                                                                                                        |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------ |

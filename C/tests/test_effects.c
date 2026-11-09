@@ -1,17 +1,18 @@
 /*
- * tests/test_effects.c - the effect plugins in filters/ and include/fx.h
+ * tests/test_effects.c - effect plugins in filters/ and include/fx.h
  *
- * The plugin sources are included directly (with TESTING defined, so they
+ * Plugin sources are included directly (with TESTING defined, so they
  * leave out plugin_get) and their process functions called with hand made
- * frames. Every plugin gets the same battery:
+ * frames. Every plugin gets same battery:
  *   - bad frames (NULL, zero/negative/huge sizes) are left untouched
- *   - guard bytes either side of the frame survive every size x parameter
- *   - parameter 0 changes nothing (all but the dithers, which always quantise)
- *   - at the default parameter a textured frame really is changed
- * followed by checks of what each effect is supposed to do.
+ *   - guard bytes either side of frame survive every size x parameter
+ *   - parameter 0 changes nothing (all but dithers, which always quantise)
+ *   - at default parameter a textured frame really is changed
+ * followed by checks of what each effect is supposed to do
  *
  * Build (see Makefile / build.c): nolibc flags, -DTESTING, -Ifilters not needed
  */
+
 #include "../lib/nolibc.h"
 
 #include "../filters/chromatic.c"
@@ -50,6 +51,18 @@ static void check(int ok, const char *what, const char *name, int line) {
 }
 
 #define CHECK(cond, what, name) check((cond) != 0, (what), (name), __LINE__)
+
+static int nl_memcmp_(const void *a, const void *b, size_t n) {
+  const uint8_t *x = a;
+  const uint8_t *y = b;
+  for (size_t i = 0; i < n; i++) {
+    if (x[i] != y[i]) {
+      return x[i] < y[i] ? -1 : 1;
+    }
+  }
+
+  return 0;
+}
 
 typedef void (*fx_fn)(uint8_t *, int, int, void *);
 
@@ -109,8 +122,8 @@ static int differs(const uint8_t *a, const uint8_t *b, size_t n) {
 
 #define GUARD 64
 
-// Run one process call on a frame between guard bands; returns 1 when the
-// guards survived
+// Run one process call on a frame between guard bands; returns 1 when guards
+// survived
 static int guarded_run(fx_fn fn, int w, int h, int param, int frames,
                        int image) {
   size_t n = (size_t)w * (size_t)h;
@@ -184,7 +197,7 @@ static void test_guards(const effect_t *e) {
     int big = (size_t)w * (size_t)h > 100000;
     for (size_t k = 0; k < sizeof(params) / sizeof(params[0]); k++) {
       if (big && params[k] != 1 && params[k] != 255 && params[k] != 128) {
-        continue; // keep the big frames to a few parameters
+        continue; // keep big frames to a few parameters
       }
 
       CHECK(guarded_run(e->fn, w, h, params[k], big ? 3 : 6, s % 2 == 0),
@@ -240,8 +253,8 @@ static void test_zero_and_default(const effect_t *e) {
   for (int f = 0; f < 40 && !changed; f++) {
     make_image(src, w, h);
     if (f % 2 == 1) {
-      // alternate with the negative so temporal effects (trails, framediff)
-      // have something to react to
+      // alternate with negative so temporal effects (trails, framediff) have
+      // something to react to
       for (size_t i = 0; i < n; i++) {
         src[i] = (uint8_t)(255 - src[i]);
       }
@@ -277,7 +290,7 @@ static void run_param(const char *name, uint8_t *g, int w, int h, int p) {
 
 static void test_fx_helpers(void) {
   const char *n = "fx.h";
-  // sine: quarter points and symmetry; reference values from the real sine
+  // sine: quarter points and symmetry; reference values from real sine
   CHECK(fx_sin(0) == 0, "sin 0", n);
   CHECK(fx_sin(256) == 256, "sin quarter turn", n);
   CHECK(fx_sin(512) == 0, "sin half turn", n);
@@ -498,7 +511,7 @@ static void test_dither(void) {
 
 static void test_trails_framediff(void) {
   uint8_t g[64 * 48];
-  // a different size first, so the history starts over
+  // a different size first, so history starts over
   uint8_t tiny[4] = {0, 0, 0, 0};
   run_param("trails", tiny, 2, 2, 128);
   nl_memset(g, 200, sizeof(g));
@@ -680,6 +693,115 @@ static void test_rain_crt_neon(void) {
         "neon_edge lights the outline, not the fill", "neon_edge");
 }
 
+// Colour hooks (plugin_rgb_process): guards, parameter 0, and what each does
+typedef void (*rgb_fn)(uint8_t *, int, int, void *);
+
+static void test_rgb_hooks(void) {
+  static const struct {
+    const char *name;
+    rgb_fn fn;
+  } hooks[] = {{"thermal_rgb", thermal_rgb},
+               {"sepia_rgb", sepia_rgb},
+               {"chromatic_rgb", chromatic_rgb}};
+
+  for (size_t k = 0; k < sizeof(hooks) / sizeof(hooks[0]); k++) {
+    const char *name = hooks[k].name;
+
+    // bad frames are left alone
+    uint8_t px[12] = {10, 20, 30, 40, 50, 60, 70, 80, 90, 1, 2, 3};
+    uint8_t keep[12];
+    nl_memcpy(keep, px, sizeof(px));
+    hooks[k].fn(NULL, 2, 2, NULL);
+    hooks[k].fn(px, 0, 2, NULL);
+    hooks[k].fn(px, 2, -1, NULL);
+    hooks[k].fn(px, FX_MAX_SIDE + 1, 1, NULL);
+    CHECK(nl_memcmp_(px, keep, sizeof(px)) == 0, "bad frames untouched", name);
+
+    // guard bytes around a w x h x 3 picture survive; parameter 0 is "off"
+    for (int w = 1; w <= 33; w += 8) {
+      for (int h = 1; h <= 9; h += 4) {
+        size_t n = (size_t)w * (size_t)h * 3u;
+        uint8_t buf[16 + 33 * 9 * 3 + 16];
+        nl_memset(buf, 0xA5, sizeof(buf));
+        uint32_t seed = 77u;
+        for (size_t i = 0; i < n; i++) {
+          buf[16 + i] = (uint8_t)fx_rand(&seed);
+        }
+
+        uint8_t orig[33 * 9 * 3];
+        nl_memcpy(orig, buf + 16, n);
+        for (int param = 0; param <= 255; param += 85) {
+          nl_memcpy(buf + 16, orig, n);
+          hooks[k].fn(buf + 16, w, h, &param);
+          int guards = 1;
+          for (int i = 0; i < 16; i++) {
+            if (buf[i] != 0xA5 || buf[16 + n + (size_t)i] != 0xA5) {
+              guards = 0;
+            }
+          }
+
+          CHECK(guards, "guard bytes survive", name);
+          if (param == 0) {
+            CHECK(nl_memcmp_(buf + 16, orig, n) == 0, "parameter 0 is off",
+                  name);
+          }
+        }
+      }
+    }
+  }
+
+  // sepia: at full strength every pixel is warm (R >= G >= B), grey stays
+  // brown rather than neutral
+  {
+    uint8_t p[6] = {120, 120, 120, 30, 90, 200};
+    int full = 255;
+    sepia_rgb(p, 2, 1, &full);
+    CHECK(p[0] >= p[1] && p[1] >= p[2], "sepia: grey becomes warm",
+          "sepia_rgb");
+    CHECK(p[0] > p[2] + 20, "sepia: tint is visible", "sepia_rgb");
+    CHECK(p[3] >= p[4] && p[4] >= p[5], "sepia: blue becomes warm too",
+          "sepia_rgb");
+  }
+
+  // thermal: dark -> blue-ish, bright -> yellow/white, ordered by brightness
+  {
+    uint8_t p[9] = {0, 0, 0, 128, 128, 128, 255, 255, 255};
+    int full = 255;
+    thermal_rgb(p, 3, 1, &full);
+    CHECK(p[0] == 0 && p[1] == 0 && p[2] == 0, "thermal: black stays black",
+          "thermal_rgb");
+    CHECK(p[3] > p[5], "thermal: mid brightness is red/orange, not blue",
+          "thermal_rgb");
+    CHECK(p[6] >= 250 && p[7] >= 250 && p[8] >= 250,
+          "thermal: white-hot stays white", "thermal_rgb");
+    uint8_t q[9] = {40, 40, 40, 90, 90, 90, 200, 200, 200};
+    thermal_rgb(q, 3, 1, &full);
+    int cold = q[2] > q[0]; // dark end is blue
+    int hot = q[6] > q[8];  // bright end is yellow
+    CHECK(cold && hot, "thermal: cold is blue, hot is yellow", "thermal_rgb");
+  }
+
+  // chromatic: red slides left, blue slides right, green stays put
+  {
+    uint8_t row[60 * 3];
+    nl_memset(row, 0, sizeof(row));
+    for (int x = 30; x < 60; x++) {
+      row[x * 3 + 0] = 200;
+      row[x * 3 + 1] = 200;
+      row[x * 3 + 2] = 200;
+    }
+
+    int full = 255;
+    chromatic_rgb(row, 60, 1, &full);
+    int d = 1 + 255 * 60 / (255 * 80); // matches the plugin
+    CHECK(row[(30 - d) * 3 + 0] == 200 && row[(30 - d - 1) * 3 + 0] == 0 &&
+              row[(30 + d) * 3 + 2] == 200 && row[(30 + d - 1) * 3 + 2] == 0,
+          "chromatic: red edge moved left, blue edge right", "chromatic_rgb");
+    CHECK(row[29 * 3 + 1] == 0 && row[30 * 3 + 1] == 200,
+          "chromatic: green edge unmoved", "chromatic_rgb");
+  }
+}
+
 int main(void) {
   test_fx_helpers();
   for (int i = 0; i < NEFFECTS; i++) {
@@ -697,6 +819,7 @@ int main(void) {
   test_noise_effects();
   test_sort_and_glitch();
   test_rain_crt_neon();
+  test_rgb_hooks();
 
   char buf[96];
   int n = nl_snprintf(buf, sizeof(buf), "%d passed  %d failed\n", _pass, _fail);

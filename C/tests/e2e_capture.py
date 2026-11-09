@@ -382,6 +382,31 @@ if REAL and os.access(REAL, os.X_OK):
         check(frames >= 8 and code == 0 and b"Failed to load" not in out,
               f"plugin {name}: loads and draws ({frames} frames, exit {code})")
 
+    # colour hooks: in colour mode (-C) plugins may repaint the picture itself
+    def warmth(out):
+        """mean (R - B) over the foreground colour escapes"""
+        v = [int(r) - int(b) for r, g, b in re.findall(rb"\x1b\[38;2;(\d+);(\d+);(\d+)m", out)]
+        return sum(v) / len(v) if v else None
+
+    def mean_rgb(out):
+        v = [(int(r), int(g), int(b)) for r, g, b in re.findall(rb"\x1b\[38;2;(\d+);(\d+);(\d+)m", out)]
+        return tuple(sum(c) / len(v) for c in zip(*v)) if v else None
+
+    _, _, base, _ = run(["--demo", "-r", "20", "-C"], 1.2)
+    w0 = warmth(base)
+    for name, test in (("sepia", lambda w: w is not None and w0 is not None and w > w0 + 15),
+                       ("thermal", lambda w: w is not None and w0 is not None and abs(w - w0) > 15)):
+        so = os.path.join(plugin_dir, name + ".so")
+        frames, code, out, _ = run(["--demo", "-r", "20", "-C", "-p", so], 1.2)
+        w = warmth(out)
+        check(frames >= 8 and code == 0 and test(w),
+              f"plugin {name} repaints colour pictures (warmth {w0 and round(w0)} -> {w and round(w)}, {frames} frames)")
+
+    # mirror + colour keeps drawing (colour planes are flipped with the luma)
+    frames, code, out, _ = run(["--demo", "-r", "20", "-C", "-f"], 1.2)
+    check(frames >= 8 and code == 0 and b"\x1b[38;2;" in out,
+          f"--demo -C -f: mirrored colour picture drawn ({frames} frames, exit {code})")
+
     # slow-link mode: draws and a bad value is refused up front
     for level in ("0", "300"):
         frames, code, out, _ = run(["--demo", "-f", "20", "--net", level], 1.0)

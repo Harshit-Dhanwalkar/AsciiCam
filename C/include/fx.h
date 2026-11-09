@@ -2,20 +2,21 @@
 #define FX_H
 
 /*
- * Helpers shared by the effect plugins in filters/ (crt, vhs, tv_static, ...).
+ * Helpers shared by effect plugins in filters/ (crt, vhs, tv_static, ...)
  *
- * Plugins get the camera's luma plane (one byte per pixel, w*h bytes) and one
- * int parameter 0..255 (the `[128]` shown in the panel). The conventions the
- * effect plugins follow:
- *   - parameter 0 means "off" (the frame is left alone) wherever that makes
- *     sense; 128, the default every plugin starts at, is a pleasant setting
+ * Plugins get camera's luma plane (one byte per pixel, w*h bytes) and one
+ * int parameter 0..255 (`[128]` shown in panel)
+ * Conventions effect plugins follow:
+ *   - parameter 0 means "off" (frame is left alone) wherever that makes sense;
+ *     128, default every plugin starts at, is a pleasant setting
  *   - nothing here uses floating point, libm or malloc: tables and scratch
  *     space are static, so there is nothing to leak on hot reload
- *   - a frame larger than FX_MAX_PIXELS (or with a non-positive side) is
- *     passed through untouched rather than risking an overrun
+ *   - a frame larger than FX_MAX_PIXELS (or with a non-positive side) is passed
+ *     through untouched rather than risking an overrun
  *
- * Only luma is available, so "colour" effects (thermal, sepia, chromatic
- * aberration) are tone-curve approximations of the real thing.
+ * process() only ever sees luma, so a plugin that wants real colour (thermal,
+ * sepia, chromatic aberration) also exports plugin_rgb_process(): host calls it
+ * with RGB picture in colour mode (-C)
  */
 
 #include "nl_types.h"
@@ -23,13 +24,14 @@
 #define FX_MAX_PIXELS 2073600 // 1920 x 1080
 #define FX_MAX_SIDE 8192
 
-// 1 when the frame can be processed
+// 1 when frame can be processed
 static inline int fx_ok(const uint8_t *gray, int w, int h) {
   return gray != NULL && w > 0 && h > 0 && w <= FX_MAX_SIDE &&
          h <= FX_MAX_SIDE && (uint64_t)w * (uint64_t)h <= FX_MAX_PIXELS;
 }
 
-// the plugin parameter, clamped to 0..255; def when the host gave none
+// Plugin parameter, clamped to 0..255
+// def when host gave none
 static inline int fx_param(const void *ctx, int def) {
   int v = ctx ? *(const int *)ctx : def;
 
@@ -63,11 +65,9 @@ static inline int fx_rand_n(uint32_t *state, int n) {
   return (int)(fx_rand(state) % (uint32_t)n);
 }
 
-/*
- * Sine without libm: phase 0..1023 is one full turn, result -256..256.
- * A parabola refined with the usual 0.775/0.225 blend; within about 1% of the
- * real thing, which is far more than a visual effect needs.
- */
+/* Sine without libm: phase 0..1023 is one full turn, result -256..256
+ * A parabola refined with usual 0.775/0.225 blend; within about 1% of real
+ * thing, which is far more than a visual effect needs */
 static inline int fx_sin(int phase) {
   int p = phase % 1024;
   if (p < 0) {
