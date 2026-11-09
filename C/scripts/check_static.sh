@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Verify Linux nolibc build is fully self-contained:
-#   1. build/webcam_ascii is statically linked (no PT_INTERP, no DT_NEEDED)
+#   1. build/asciicam is statically linked (no PT_INTERP, no DT_NEEDED)
 #   2. every plugin .so is dependency-free (no DT_NEEDED)
 #   3. every undefined strong symbol in each plugin is in nl_dlopen's
 #      resolve table (lib/nl_dlfcn.c)
 
 set -euo pipefail
 
-TARGET=build/webcam_ascii
+TARGET=build/asciicam
 
 [ -f "$TARGET" ] || { echo "FAIL: $TARGET not built"; exit 1; }
 

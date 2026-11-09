@@ -164,7 +164,7 @@ jobs:
         if: matrix.platform != 'windows'
         working-directory: C
         shell: bash
-        run: ./build/webcam_ascii --help | head -20
+        run: ./build/asciicam --help | head -20
 
       - name: Mouse + capture-resize tests (Linux nolibc)
         if: matrix.platform == 'linux'
@@ -244,13 +244,13 @@ jobs:
         if: matrix.platform == 'windows'
         working-directory: C
         shell: bash
-        run: ./build/webcam_ascii.exe --help | head -20
+        run: ./build/asciicam.exe --help | head -20
 
       - uses: actions/upload-artifact@v7
         with:
           name: asciicam-${{ matrix.name }}
           path: |
-            C/build/webcam_ascii*
+            C/build/asciicam*
             C/build/*.so
             C/build/*.dylib
             C/build/*.dll
@@ -284,7 +284,7 @@ jobs:
           # print_stats=1   : print ASan internal stats on exit
           ASAN_OPTIONS: detect_leaks=1:abort_on_error=1:print_stats=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-        run: ./build/webcam_ascii_asan --help | head -20
+        run: ./build/asciicam_asan --help | head -20
 
   static-analysis:
     name: Static analysis

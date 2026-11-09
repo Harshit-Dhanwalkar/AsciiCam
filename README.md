@@ -127,7 +127,7 @@ cd AsciiCam/C
 make CC=gcc
 ```
 
-This produces build/webcam_ascii (.exe on Windows) and compiles any
+This produces build/asciicam (.exe on Windows) and compiles any
 plugins in filters/ into build/\*.{so,dylib,dll}.
 
 ### Requirements:
@@ -179,9 +179,9 @@ make run ARGS="-2"
 You can also run the binary directly:
 
 ```bash
-./build/webcam_ascii -C -m braille
-./build/webcam_ascii -p build/invert.so -p build/edge_detect.so
-./build/webcam_ascii --help
+./build/asciicam -C -m braille
+./build/asciicam -p build/invert.so -p build/edge_detect.so
+./build/asciicam --help
 ```
 
 ### Config file:
@@ -212,7 +212,7 @@ builds load plugins once at startup.
 
 ```bash
 gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
-./build/webcam_ascii -p build/my_filter.so
+./build/asciicam -p build/my_filter.so
 ```
 
 **Hot-reload:** Linux: the binary watches the `.so` with `inotify`. Recompile the plugin while the viewer is running and it reloads automatically within $\approx$100 ms.
@@ -267,7 +267,7 @@ build works from a checkout, from an unpacked release and from an installed
 prefix:
 
 ```text
-checkout    build/webcam_ascii             sources filters/, cache .cache/plugins
+checkout    build/asciicam             sources filters/, cache .cache/plugins
 release     asciicam  plugins/*.so         (zip these two, unpack anywhere)
 installed   <prefix>/bin/asciicam          <prefix>/share/asciicam/{plugins,charsets,sdk}
 ```
@@ -361,7 +361,6 @@ release the button. The status panel stays at the bottom of the terminal.
 | `r` | reset param to 128 |
 | `q` | quit |
 
----
 
 ## Screenshots and recording
 
@@ -377,8 +376,6 @@ clock shows at the right end of the panel. A message at the bottom of the frame
 says when a recording or screenshot started and ended and where the file is; the
 full paths are printed again when the program exits.
 
----
-
 ## Playing a recording: `--play`
 
 ```
@@ -392,7 +389,35 @@ wire. Keys: `q` quits, space pauses, `+` / `-` halve or double the speed.
 If your terminal is smaller than the one it was recorded in, a note says so
 before it starts (enlarge the window first, otherwise lines wrap).
 
----
+## Virtual camera: `--vcam`
+
+Use the ASCII picture as your webcam in Meet, Teams, Zoom, OBS or any other
+program that lists cameras. AsciiCam draws the frame it already prints into a
+pixel canvas (built-in 8x16 font, braille and block characters drawn as
+shapes) and writes it to a [v4l2loopback](https://github.com/umlaeute/v4l2loopback)
+device:
+
+```
+sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="AsciiCam" exclusive_caps=1
+asciicam --demo -C -W 160 -H 45 --vcam /dev/video10
+```
+
+Pick "AsciiCam" as the camera in the call. `exclusive_caps=1` is what makes
+browsers list it, and the camera shows up once AsciiCam is running.
+
+- The picture is centred on a 1280x720 canvas; `--vcam-size 1920x1080` changes
+  it (width must be even). At 8x16 pixels per character, `-W 160 -H 45` fills
+  1280x720. A larger frame is cut at the top left.
+- Colour (`-C`), `-2`, braille, half blocks and the other render modes all
+  work. Panel, toasts and the corner handles are not part of the camera
+  picture, only the frame itself.
+- Any other path is accepted too: if it is not a video device, raw YUYV
+  frames are written to it, so you can try it without v4l2loopback:
+  `asciicam --demo -C --vcam /tmp/cam.yuv` or
+  `ffplay -f rawvideo -pixel_format yuyv422 -video_size 1280x720 /tmp/cam.yuv`
+  from a FIFO.
+- A custom charset with characters the font does not have (`-s`) shows them as
+  hollow boxes in the camera picture only.
 
 ## Slow links and ssh
 
@@ -422,7 +447,7 @@ picture: the panel and overlays come on top. The most visible changes are sent
 first and the rest wait for later frames, so under a tight budget the picture
 builds up and settles instead of the link falling behind. The screen is also
 fully repainted every ten seconds, and whenever it is cleared or an overlay
-goes away. `python3 tests/measure_bandwidth.py build/webcam_ascii` reproduces
+goes away. `python3 tests/measure_bandwidth.py build/asciicam` reproduces
 the table. (Recordings and screenshots always hold the full frame.)
 
 ### Loader hardening
@@ -435,8 +460,6 @@ are refused, and a failed load unmaps everything. `tests/fuzz_elf.c` (part of
 `make test` and `./nb test`) feeds it crafted and randomly damaged copies of the
 real plugins, each in a forked child with a canary mapping next to the reservation
 and fails on any crash, hang or write outside the mapping.
-
----
 
 ## Building without make
 

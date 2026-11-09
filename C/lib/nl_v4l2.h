@@ -26,7 +26,10 @@
   NL_IOC(NL_IOC_READ | NL_IOC_WRITE, type, nr, sizeof(t))
 
 /* Enums / constants */
-enum v4l2_buf_type { V4L2_BUF_TYPE_VIDEO_CAPTURE = 1 };
+enum v4l2_buf_type {
+  V4L2_BUF_TYPE_VIDEO_CAPTURE = 1,
+  V4L2_BUF_TYPE_VIDEO_OUTPUT = 2
+};
 enum v4l2_memory { V4L2_MEMORY_MMAP = 1 };
 enum v4l2_field { V4L2_FIELD_NONE = 1 };
 
