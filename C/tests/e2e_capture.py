@@ -167,7 +167,7 @@ def last_frame(buf):
 
 
 def last_origin(buf):
-    # frames are drawn starting with a cursor move to their top-left cell
+    # Frames are drawn starting with a cursor move to their top-left cell
     m = re.findall(rb"\x1b\[\?2026h\x1b\[(?:(\d+);(\d+))?H", buf)
     if not m:
         return None
@@ -193,7 +193,7 @@ for label, extra in (("threaded", []), ("inline -T", ["-T"])):
     check(last_origin(after) == (21, 11), f"{label}: frame redrawn at (21,11), got {last_origin(after)}")
     check(last_frame(after) == (40, 20), f"{label}: size unchanged by a move ({last_frame(after)})")
 
-    # then resize from bottom-right corner (60,30) and top-left (21,11)
+    # Then resize from bottom-right corner (60,30) and top-left (21,11)
     out, marks = session(
         ARGS + extra,
         [
@@ -340,7 +340,7 @@ for label, extra in (("colour", ["-C"]), ("mono", [])):
               f"recorder {label}: .ansi holds the frame")
     shutil.rmtree(cap_root, ignore_errors=True)
 
-# unwritable captures folder (and an unwritable working directory, which is last-resort
+# Unwritable captures folder (and an unwritable working directory, which is last-resort
 # fallback): a message, no crash
 os.environ["HOME"] = "/proc/nope"
 BIN_REL = BIN
@@ -370,8 +370,8 @@ if REAL and os.access(REAL, os.X_OK):
     check(len(set(re.findall(rb"\x1b\[\?2026h(.{200})", out, re.DOTALL))) > 3,
           "real binary --demo: picture animates")
 
-    # every effect plugin loads through the real loader and keeps the picture
-    # moving (plugin lookups are relative to the binary: build/<name>.so)
+    # Every effect plugin loads through real loader and keeps picture moving
+    # (plugin lookups are relative to binary: build/<name>.so)
     plugin_dir = os.path.dirname(os.path.abspath(REAL))
     for name in ['chromatic', 'crt', 'dither_bayer', 'dither_fs', 'fisheye', 'framediff', 'glitch', 'kaleidoscope', 'matrix_rain', 'neon_edge', 'pixel_sort', 'ripple', 'sepia', 'thermal', 'trails', 'tv_static', 'vhs', 'vignette']:
         so = os.path.join(plugin_dir, name + ".so")
@@ -382,7 +382,7 @@ if REAL and os.access(REAL, os.X_OK):
         check(frames >= 8 and code == 0 and b"Failed to load" not in out,
               f"plugin {name}: loads and draws ({frames} frames, exit {code})")
 
-    # colour hooks: in colour mode (-C) plugins may repaint the picture itself
+    # colour hooks: in colour mode (-C) plugins may repaint picture itself
     def warmth(out):
         """mean (R - B) over the foreground colour escapes"""
         v = [int(r) - int(b) for r, g, b in re.findall(rb"\x1b\[38;2;(\d+);(\d+);(\d+)m", out)]
@@ -402,7 +402,7 @@ if REAL and os.access(REAL, os.X_OK):
         check(frames >= 8 and code == 0 and test(w),
               f"plugin {name} repaints colour pictures (warmth {w0 and round(w0)} -> {w and round(w)}, {frames} frames)")
 
-    # mirror + colour keeps drawing (colour planes are flipped with the luma)
+    # mirror + colour keeps drawing (colour planes are flipped with luma)
     frames, code, out, _ = run(["--demo", "-r", "20", "-C", "-f"], 1.2)
     check(frames >= 8 and code == 0 and b"\x1b[38;2;" in out,
           f"--demo -C -f: mirrored colour picture drawn ({frames} frames, exit {code})")
@@ -416,6 +416,36 @@ if REAL and os.access(REAL, os.X_OK):
     check(code == 2 and b"--net needs" in out, "--net with a bad value is refused")
     _, code, out, _ = run(["--demo", "--net"], 1.0)
     check(code == 2, "--net without a value is refused")
+
+    # virtual camera: raw YUYV frames to a file, one whole frame per picture
+    vdir = tempfile.mkdtemp(prefix="asciicam_vcam_")
+    vfile = os.path.join(vdir, "cam.yuv")
+    vw, vh = 640, 360
+    frames, code, out, _ = run(["--demo", "-C", "-f", "20", "--vcam", vfile, "--vcam-size", f"{vw}x{vh}"], 1.5)
+    vsize = os.path.getsize(vfile) if os.path.exists(vfile) else -1
+    fsize = vw * vh * 2
+    check(code == 0 and vsize > 0 and vsize % fsize == 0 and vsize // fsize >= 10,
+          f"--vcam: whole frames written ({vsize} bytes, {vsize / fsize:.1f} frames, exit {code})")
+    check(b"Virtual camera:" not in out or code == 0, "--vcam: clean exit")
+    if vsize >= fsize:
+        with open(vfile, "rb") as f:
+            f.seek(vsize - fsize)
+            last = f.read(fsize)
+        luma = last[0::2]
+        bright = sum(1 for v in luma if v > 100)
+        dark = sum(1 for v in luma if v <= 20)
+        chroma = sum(1 for v in last[1::4] if abs(v - 128) > 20)
+        check(bright > 500 and dark > fsize // 8,
+              f"--vcam: picture drawn on a dark canvas (bright {bright}, dark {dark})")
+        check(chroma > 100, f"--vcam: -C gives coloured pixels ({chroma} chroma samples)")
+    _, code, out, _ = run(["--demo", "--vcam", "/nonexistent-dir/cam"], 1.0)
+    check(code == 2 and b"--vcam: cannot open" in out, "--vcam with an unwritable path is refused")
+    _, code, out, _ = run(["--demo", "--vcam"], 1.0)
+    check(code == 2, "--vcam without a value is refused")
+    for bad in ("641x360", "10x10", "abc", "1280x", "9000x9000"):
+        _, code, out, _ = run(["--demo", "--vcam", vfile, "--vcam-size", bad], 1.0)
+        check(code == 2 and b"--vcam-size" in out, f"--vcam-size {bad} is refused")
+    shutil.rmtree(vdir, ignore_errors=True)
 
     # --play: replay a .cast with its timing, no camera (this is what runs over ssh)
     play_dir = tempfile.mkdtemp(prefix="asciicam_play_")

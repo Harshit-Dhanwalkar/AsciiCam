@@ -43,7 +43,7 @@ static const char *core_src[] = {
     "src/capture_demo.c",   "src/capture_reinit.c", "src/main.c",
     "src/mouse.c",          "src/netenc.c",         "src/plugins.c",
     "src/plugin_catalog.c", "src/plugin_picker.c",  "src/recorder.c",
-    "src/thread_sharing.c", "src/timing.c"};
+    "src/thread_sharing.c", "src/timing.c",         "src/vcam.c"};
 static const char *lib_src[] = {
     "lib/nl_alloc.c",  "lib/nl_gc.c",  "lib/nl_dlfcn.c",  "lib/nl_errno.c",
     "lib/nl_getopt.c", "lib/nl_mem.c", "lib/nl_printf.c", "lib/nl_start.c"};
@@ -340,6 +340,8 @@ static int run_tests(void) {
         "build/threshold.so 2000 1 build/tests/fuzz_elf.tmp"}},
       {"mouse", "-O0", "", "tests/test_mouse.c src/mouse.c", {NULL}},
       {"demo", "-O2", "", "tests/test_demo.c src/capture_demo.c", {NULL}},
+      {"vcam_O0", "-O0", "", "tests/test_vcam.c src/vcam.c", {NULL}},
+      {"vcam_O2", "-O2", "", "tests/test_vcam.c src/vcam.c", {NULL}},
       {"recorder_O0",
        "-O0",
        "",

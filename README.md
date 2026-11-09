@@ -361,7 +361,6 @@ release the button. The status panel stays at the bottom of the terminal.
 | `r` | reset param to 128 |
 | `q` | quit |
 
----
 
 ## Screenshots and recording
 
@@ -377,8 +376,6 @@ clock shows at the right end of the panel. A message at the bottom of the frame
 says when a recording or screenshot started and ended and where the file is; the
 full paths are printed again when the program exits.
 
----
-
 ## Playing a recording: `--play`
 
 ```
@@ -392,7 +389,35 @@ wire. Keys: `q` quits, space pauses, `+` / `-` halve or double the speed.
 If your terminal is smaller than the one it was recorded in, a note says so
 before it starts (enlarge the window first, otherwise lines wrap).
 
----
+## Virtual camera: `--vcam`
+
+Use the ASCII picture as your webcam in Meet, Teams, Zoom, OBS or any other
+program that lists cameras. AsciiCam draws the frame it already prints into a
+pixel canvas (built-in 8x16 font, braille and block characters drawn as
+shapes) and writes it to a [v4l2loopback](https://github.com/umlaeute/v4l2loopback)
+device:
+
+```
+sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="AsciiCam" exclusive_caps=1
+asciicam --demo -C -W 160 -H 45 --vcam /dev/video10
+```
+
+Pick "AsciiCam" as the camera in the call. `exclusive_caps=1` is what makes
+browsers list it, and the camera shows up once AsciiCam is running.
+
+- The picture is centred on a 1280x720 canvas; `--vcam-size 1920x1080` changes
+  it (width must be even). At 8x16 pixels per character, `-W 160 -H 45` fills
+  1280x720. A larger frame is cut at the top left.
+- Colour (`-C`), `-2`, braille, half blocks and the other render modes all
+  work. Panel, toasts and the corner handles are not part of the camera
+  picture, only the frame itself.
+- Any other path is accepted too: if it is not a video device, raw YUYV
+  frames are written to it, so you can try it without v4l2loopback:
+  `asciicam --demo -C --vcam /tmp/cam.yuv` or
+  `ffplay -f rawvideo -pixel_format yuyv422 -video_size 1280x720 /tmp/cam.yuv`
+  from a FIFO.
+- A custom charset with characters the font does not have (`-s`) shows them as
+  hollow boxes in the camera picture only.
 
 ## Slow links and ssh
 
@@ -435,8 +460,6 @@ are refused, and a failed load unmaps everything. `tests/fuzz_elf.c` (part of
 `make test` and `./nb test`) feeds it crafted and randomly damaged copies of the
 real plugins, each in a forked child with a canary mapping next to the reservation
 and fails on any crash, hang or write outside the mapping.
-
----
 
 ## Building without make
 

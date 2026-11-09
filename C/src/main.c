@@ -13,6 +13,7 @@
 #include "recorder.h"
 #include "thread_sharing.h"
 #include "timing.h"
+#include "vcam.h"
 
 // Defaults
 #define DEFAULT_ASCII_WIDTH 80
@@ -180,7 +181,10 @@ static void print_usage(const char *prog) {
       "  --speed <x>   playback speed for --play (default 1, e.g. 0.5, 2)    \n"
       "  --loop        repeat --play until quit                              \n"
       "  --net <kbps>  slow-link mode: send only changed pixels,             \n"
-      "                <kbps> kbit/s (0 = lossless changes only)            \n"
+      "                <kbps> kbit/s (0 = lossless changes only)             \n"
+      "  --vcam <dev>  also send the picture to a virtual camera, for Meet,  \n"
+      "                Teams, Zoom (v4l2loopback device, /dev/video10)       \n"
+      "  --vcam-size <WxH>  virtual camera size (default 1280x720)           \n"
       "\n"
       "Output options:\n"
       "  -W <width>    ASCII output columns     (default: %d)                \n"
@@ -1014,6 +1018,82 @@ int main(int argc, char *argv[]) {
     argc -= 2;
     argv[argc] = NULL;
     i--;
+  }
+
+  // --vcam <device> [--vcam-size WxH]: picture as a virtual webcam
+  vcam_t vcam;
+  int vcam_on = 0;
+  const char *vcam_path = NULL;
+  int vcam_w = VCAM_DEFAULT_W, vcam_h = VCAM_DEFAULT_H;
+  for (int i = 1; i < argc; i++) {
+    int is_dev = nl_strcmp(argv[i], "--vcam") == 0;
+    if (!is_dev && nl_strcmp(argv[i], "--vcam-size") != 0) {
+      continue;
+    }
+
+    if (i + 1 >= argc) {
+      fprintf(stderr, "%s needs a value\n", argv[i]);
+
+      return 2;
+    }
+
+    if (is_dev) {
+      vcam_path = argv[i + 1];
+    } else {
+      const char *z = argv[i + 1];
+      long a = 0, b = 0;
+      while (*z >= '0' && *z <= '9' && a < 100000) {
+        a = a * 10 + (*z++ - '0');
+      }
+
+      if (*z != 'x' || z[1] < '0' || z[1] > '9') {
+        a = 0;
+      } else {
+        z++;
+        while (*z >= '0' && *z <= '9' && b < 100000) {
+          b = b * 10 + (*z++ - '0');
+        }
+      }
+
+      if (a < VCAM_CELL_W || b < VCAM_CELL_H || a > 4096 || b > 4096 ||
+          a % 2 != 0 || *z) {
+        fprintf(stderr, "--vcam-size needs WxH, W even, e.g. 1280x720\n");
+
+        return 2;
+      }
+
+      vcam_w = (int)a;
+      vcam_h = (int)b;
+    }
+
+    for (int k = i; k + 2 < argc; k++) {
+      argv[k] = argv[k + 2];
+    }
+
+    argc -= 2;
+    argv[argc] = NULL;
+    i--;
+  }
+
+  if (vcam_path) {
+    if (vcam_init(&vcam, vcam_w, vcam_h) < 0) {
+      fprintf(stderr, "--vcam: cannot set up a %dx%d canvas\n", vcam_w, vcam_h);
+
+      return 2;
+    }
+
+    if (vcam_open(&vcam, vcam_path) < 0) {
+      fprintf(stderr, "--vcam: cannot open %s\n", vcam_path);
+      vcam_close(&vcam);
+
+      return 2;
+    }
+
+    vcam_on = 1;
+#if defined(__LINUX_NOLIBC__)
+    nl_signal(13,
+              (void (*)(int))1); // SIGPIPE: a closed reader is a write error
+#endif
   }
 
   // --play <file> [--speed <x>] [--loop]: replay a recording
@@ -2304,6 +2384,12 @@ int main(int argc, char *argv[]) {
 
       write_all(STDOUT_FILENO, wire, wire_len);
 
+      if (vcam_on && vcam_frame(&vcam, out_buf, (size_t)len) < 0) {
+        TOAST("virtual camera stopped: cannot write to %s", vcam_path);
+        vcam_close(&vcam);
+        vcam_on = 0;
+      }
+
       uint64_t rec_now = rec_mono_ns();
       if (rec.active && rec_frame(&rec, rec_now, out_buf, (size_t)len) < 0) {
         TOAST("REC stopped: cannot write %s", rec.path);
@@ -2419,6 +2505,13 @@ int main(int argc, char *argv[]) {
   term_restore();
 
   fprintf(stderr, "Stopped.\n");
+
+  if (vcam_on) {
+    fprintf(stderr, "Virtual camera: %u frames sent to %s\n",
+            (unsigned)vcam.frames, vcam_path);
+    vcam_close(&vcam);
+  }
+
   if (rec.active) {
     double secs = 0;
     int frames = rec_stop(&rec, rec_mono_ns(), &secs);
