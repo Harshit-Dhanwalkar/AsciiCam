@@ -106,6 +106,7 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
     dlclose(pl->dl_handle);
     pl->dl_handle = NULL;
     pl->plugin = NULL;
+    pl->rgb_process = NULL;
   }
 
   // Delete previous temp copy
@@ -177,6 +178,7 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
   }
 
   pl->plugin = get_plugin();
+  pl->rgb_process = (plugin_rgb_fn)dlsym(pl->dl_handle, "plugin_rgb_process");
   nl_snprintf(pl->status_msg, sizeof(pl->status_msg), "loaded: %s",
               pl->plugin->name);
 
@@ -211,7 +213,8 @@ void plugin_check_reload(plugin_loader_t *pl) {
   }
 
   // Read all available events from non-blocking queue
-  char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event)))) = {0};
+  char buf[4096]
+      __attribute__((aligned(__alignof__(struct inotify_event)))) = {0};
   ssize_t n = read(pl->inotify_fd, buf, sizeof(buf));
   if (n <= 0) {
     return; // No new filesystem modifications detected
@@ -255,6 +258,7 @@ void plugin_cleanup(plugin_loader_t *pl) {
   if (pl->dl_handle) {
     dlclose(pl->dl_handle);
     pl->dl_handle = NULL;
+    pl->rgb_process = NULL;
   }
 
   // Remove tmp copy

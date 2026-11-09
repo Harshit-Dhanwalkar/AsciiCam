@@ -21,20 +21,20 @@ static inline uint8_t clamp_u8(int v) {
 static inline int my_abs(int x) { return x < 0 ? -x : x; }
 
 // Quantize a 24-bit rgb color to standard xterm 256-color palette index
-// (16-231 = 6x6x6 color cube, 232-255 = 24-step grayscale ramp), for
-// terminals that support ANSI-256 (\033[38;5;<idx>m) but not truecolor.
-// NOTE: Near-gray inputs go through the finer 24-step grayscale ramp instead
-// of the coarser 6-level cube, since that's where banding is most visible.
+// (16-231 = 6x6x6 color cube, 232-255 = 24-step grayscale ramp), for terminals
+// that support ANSI-256 (\033[38;5;<idx>m) but not truecolor
+// NOTE: Near-gray inputs go through finer 24-step grayscale ramp instead of
+// coarser 6-level cube, since that's where banding is most visible
 static inline int rgb_to_ansi256(int r, int g, int b) {
   int max_c = r > g ? (r > b ? r : b) : (g > b ? g : b);
   int min_c = r < g ? (r < b ? r : b) : (g < b ? g : b);
   if (max_c - min_c < 10) {
     int gray = (r + g + b) / 3;
     if (gray < 8) {
-      return 16; // black corner of the color cube
+      return 16; // black corner of color cube
     }
     if (gray > 248) {
-      return 231; // white corner of the color cube
+      return 231; // white corner of color cube
     }
 
     int idx = (gray - 8) * 24 / 247;
@@ -67,7 +67,7 @@ static inline double my_sqrt(double x) {
   }
 
   double guess = x;
-  // initial halve the exponent by repeated division
+  // initial halve exponent by repeated division
   while (guess > 1.0) {
     guess /= 2.0;
   }
@@ -171,6 +171,39 @@ void yuyv_to_rgb_ex(const uint8_t *yuyv, int stride, const uint8_t *luma,
         px[1] = clamp_u8((298 * c - 100 * d - 208 * e + 128) >> 8);
         px[2] = clamp_u8((298 * c + 516 * d + 128) >> 8);
       }
+    }
+  }
+}
+
+void yuyv_to_rgb_mirror(const uint8_t *yuyv, int stride, const uint8_t *luma,
+                        uint8_t *rgb, int width, int height) {
+  if (stride < width * 2) {
+    stride = width * 2;
+  }
+
+  int pairs = width / 2;
+  int last = pairs * 2 - 1; // last column that has chroma
+  for (int y = 0; y < height; y++) {
+    const uint8_t *row = yuyv + (size_t)y * (size_t)stride;
+    const uint8_t *lrow = luma + (size_t)y * (size_t)width;
+    uint8_t *out = rgb + (size_t)y * (size_t)width * 3;
+
+    for (int x = 0; x < pairs * 2; x++) {
+      int sx = width - 1 - x; // camera column this pixel was flipped from
+      if (sx > last) {
+        sx = last;
+      }
+
+      int u = row[(sx / 2) * 4 + 1];
+      int v = row[(sx / 2) * 4 + 3];
+      int d = u - 128;
+      int e = v - 128;
+      int c = lrow[x] - 16;
+      uint8_t *px = out + x * 3;
+
+      px[0] = clamp_u8((298 * c + 409 * e + 128) / 256);
+      px[1] = clamp_u8((298 * c - 100 * d - 208 * e + 128) / 256);
+      px[2] = clamp_u8((298 * c + 516 * d + 128) / 256);
     }
   }
 }
@@ -304,9 +337,9 @@ static inline uint8_t get_braille_bitmask(int dx, int dy) {
   return braille_dots[dx][dy];
 }
 
-// Charset registry: hot-reloadable character ramps from a directory.
+// Charset registry: hot-reloadable character ramps from a directory
 static void _trim_line(char *s) {
-  // Cut at first newline/CR, then trim trailing whitespace.
+  // Cut at first newline/CR, then trim trailing whitespace
   for (char *p = s; *p; p++) {
     if (*p == '\n' || *p == '\r') {
       *p = '\0';
@@ -660,7 +693,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
     return -1;
   }
 
-  // Downscale and interpolate the high-res frames to subpixel boundaries
+  // Downscale and interpolate high-res frames to subpixel boundaries
   for (int y = 0; y < safe_dst_h; y++) {
     int ys = (int)(y * bh), ye = (int)((y + 1) * bh);
     if (ye <= ys) {
@@ -818,7 +851,7 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
     }
   }
 
-  // Floyd-Steinberg dithering on the subpixel grayscale buffer
+  // Floyd-Steinberg dithering on subpixel grayscale buffer
   if (do_dither) {
     int16_t *err =
         nl_gc_alloc_atomic((size_t)(safe_dst_w * safe_dst_h) * sizeof(int16_t));

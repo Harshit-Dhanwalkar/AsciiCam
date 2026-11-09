@@ -2208,7 +2208,19 @@ int main(int argc, char *argv[]) {
     // frame already went through plugins, so use it as Y: shapes and colour
     // then come from same image (U/V are still camera's)
     if (opts.color && rgb && raw) {
-      yuyv_to_rgb_ex(raw, cam.stride, frame, rgb, cam.width, cam.height);
+      if (opts.mirror) {
+        // luma was flipped above: take U/V from the opposite end as well
+        yuyv_to_rgb_mirror(raw, cam.stride, frame, rgb, cam.width, cam.height);
+      } else {
+        yuyv_to_rgb_ex(raw, cam.stride, frame, rgb, cam.width, cam.height);
+      }
+
+      // Colour hooks of plugins (thermal palette, sepia tint, ...)
+      for (int i = 0; i < plugin_count; i++) {
+        if (plugins[i].plugin && plugins[i].rgb_process) {
+          plugins[i].rgb_process(rgb, cam.width, cam.height, &plugin_params[i]);
+        }
+      }
     }
 
     // Calculate proper subpixel dimensions

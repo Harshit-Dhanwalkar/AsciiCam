@@ -93,7 +93,7 @@ typedef struct {
   int origin_x;
   int origin_y;
 
-  int mirror;  /* Mirror/flip frame horizontally */
+  int mirror; /* Mirror/flip frame horizontally */
 } ascii_opts_t;
 
 /* Convert YUYV raw data to grayscale */
@@ -107,6 +107,12 @@ void yuyv_to_rgb(const uint8_t *yuyv, uint8_t *rgb, int width, int height);
  * plugins did to grayscale frame */
 void yuyv_to_rgb_ex(const uint8_t *yuyv, int stride, const uint8_t *luma,
                     uint8_t *rgb, int width, int height);
+
+/* A horizontally mirrored picture: `luma` (required) is already mirrored, so
+ * U/V are read from opposite end of each row. Without this colour stays
+ * unflipped while shapes flip */
+void yuyv_to_rgb_mirror(const uint8_t *yuyv, int stride, const uint8_t *luma,
+                        uint8_t *rgb, int width, int height);
 
 /* Output buffer sizing */
 size_t ascii_out_size(int dst_w, int dst_h, int color);
