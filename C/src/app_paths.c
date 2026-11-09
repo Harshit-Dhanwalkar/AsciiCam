@@ -157,7 +157,7 @@ void app_paths_resolve(app_paths_t *p, const app_env_t *env,
   char cand[AP_LEN];
 
   // SDK: a checkout we are standing in, a checkout binary lives in
-  // (<checkout>/build/webcam_ascii), or an installed copy
+  // (<checkout>/build/asciicam), or an installed copy
   int sdk_is_checkout = 0;
   if (is_sdk(ex, ".")) {
     copy_to(p->sdk_dir, ".");

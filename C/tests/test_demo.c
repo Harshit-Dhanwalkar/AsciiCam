@@ -1,6 +1,7 @@
 /*
  * tests/test_demo.c - built-in demo picture
  */
+
 #include "../lib/nolibc.h"
 
 #include "demo.h"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bytes per frame program writes to terminal, with and without --net
 
-    python3 tests/measure_bandwidth.py build/webcam_ascii [seconds]
+    python3 tests/measure_bandwidth.py build/asciicam [seconds]
 
 Runs demo source in a pseudo-terminal for each render/colour mode and
 --net setting and prints bytes per frame and kbit/s (frames are counted

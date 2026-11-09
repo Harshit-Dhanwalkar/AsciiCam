@@ -147,10 +147,10 @@ OBJECTS += $(patsubst $(SRCDIR)/%.m,  $(OBJDIR)/%.o,   $(filter $(SRCDIR)/%.m,  
 OBJECTS += $(patsubst $(LIBDIR)/%.c,  $(OBJDIR)/lib_%.o, $(LIBSRCS))
 
 ifeq ($(PLATFORM),windows)
-    TARGET := $(BUILDDIR)/webcam_ascii.exe
+    TARGET := $(BUILDDIR)/asciicam.exe
     INSTALL_NAME := asciicam.exe
 else
-    TARGET := $(BUILDDIR)/webcam_ascii
+    TARGET := $(BUILDDIR)/asciicam
     INSTALL_NAME := asciicam
 endif
 
@@ -207,7 +207,7 @@ clean:
 # Builds with AddressSanitizer + UndefinedBehaviorSanitizer
 ifeq ($(PLATFORM),linux)
 ASAN_OBJDIR  := $(BUILDDIR)/obj_asan
-ASAN_TARGET  := $(BUILDDIR)/webcam_ascii_asan
+ASAN_TARGET  := $(BUILDDIR)/asciicam_asan
 
 ASAN_CFLAGS  := $(CFLAGS_COMMON) $(CFLAGS_EXTRA) \
                 -DPLATFORM_LINUX -D__LINUX_NOLIBC__ -msse4.1 \

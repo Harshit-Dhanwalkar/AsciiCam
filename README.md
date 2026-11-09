@@ -127,7 +127,7 @@ cd AsciiCam/C
 make CC=gcc
 ```
 
-This produces build/webcam_ascii (.exe on Windows) and compiles any
+This produces build/asciicam (.exe on Windows) and compiles any
 plugins in filters/ into build/\*.{so,dylib,dll}.
 
 ### Requirements:
@@ -179,9 +179,9 @@ make run ARGS="-2"
 You can also run the binary directly:
 
 ```bash
-./build/webcam_ascii -C -m braille
-./build/webcam_ascii -p build/invert.so -p build/edge_detect.so
-./build/webcam_ascii --help
+./build/asciicam -C -m braille
+./build/asciicam -p build/invert.so -p build/edge_detect.so
+./build/asciicam --help
 ```
 
 ### Config file:
@@ -212,7 +212,7 @@ builds load plugins once at startup.
 
 ```bash
 gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
-./build/webcam_ascii -p build/my_filter.so
+./build/asciicam -p build/my_filter.so
 ```
 
 **Hot-reload:** Linux: the binary watches the `.so` with `inotify`. Recompile the plugin while the viewer is running and it reloads automatically within $\approx$100 ms.
@@ -267,7 +267,7 @@ build works from a checkout, from an unpacked release and from an installed
 prefix:
 
 ```text
-checkout    build/webcam_ascii             sources filters/, cache .cache/plugins
+checkout    build/asciicam             sources filters/, cache .cache/plugins
 release     asciicam  plugins/*.so         (zip these two, unpack anywhere)
 installed   <prefix>/bin/asciicam          <prefix>/share/asciicam/{plugins,charsets,sdk}
 ```
@@ -447,7 +447,7 @@ picture: the panel and overlays come on top. The most visible changes are sent
 first and the rest wait for later frames, so under a tight budget the picture
 builds up and settles instead of the link falling behind. The screen is also
 fully repainted every ten seconds, and whenever it is cleared or an overlay
-goes away. `python3 tests/measure_bandwidth.py build/webcam_ascii` reproduces
+goes away. `python3 tests/measure_bandwidth.py build/asciicam` reproduces
 the table. (Recordings and screenshots always hold the full frame.)
 
 ### Loader hardening

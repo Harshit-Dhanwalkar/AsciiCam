@@ -11,7 +11,7 @@
  * from a checkout, from an unpacked release directory and from an installed
  * prefix (`make install`):
  *
- *  checkout     <C>/build/webcam_ascii  sources <C>/filters
+ *  checkout     <C>/build/asciicam  sources <C>/filters
  *  release dir  <dir>/asciicam          plugins <dir>/plugins
  *  installed    <prefix>/bin/asciicam   plugins <prefix>/share/asciicam/plugins
  *
