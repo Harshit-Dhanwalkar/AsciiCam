@@ -24,6 +24,7 @@ V4L2 on Linux, AVFoundation on macOS, Media Foundation on Windows.
 | Feature                      | Details                                                                                                                            |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | **YUYV to grayscale**        | SSE2 SIMD (`yuyv_to_gray_simd`) - 16 pixels per iteration on x86_64, NEON on ARM64                                                 |
+| **Picture as camera**        | `--image photo.png`: PNG or PGM/PPM through every render mode, effect and plugin; own PNG decoder and inflate, no zlib             |
 | **YUYV to RGB**              | Fixed‑point BT.601 conversion for truecolor output                                                                                 |
 | **Render modes**             | Braille, Blocks, ASCII ramp, Half-block, Dots - cycle live with `m`/`M`                                                            |
 | **Edge detection**           | Sobel, Sobel with direction, Laplacian - toggle with `x`/`X`                                                                       |
@@ -206,6 +207,26 @@ plugin = build/invert.so
 
 ---
 
+## A picture instead of a camera: `--image`
+
+```sh
+asciicam --image photo.png -C            # same as -d image:photo.png
+```
+
+Shows a PNG or a binary PGM/PPM (`P5`/`P6`) as if it were the camera, so any
+picture goes through the render modes, the effects, the plugins, recording
+and `--vcam`. The picture is shrunk by area average to fit the capture size,
+aspect ratio kept, with black bars where it does not fill; transparency is
+shown over black. It is a still: brightness, contrast, gamma, edge detection
+and the plugins still react live.
+
+The decoder is in `src/image.c`, including its own inflate (RFC 1951), so
+there is still no zlib. PNGs of every colour type and bit depth are read;
+interlaced (Adam7) PNGs and JPEG are not, and say so (`convert in.jpg out.png`
+or re-save without interlacing). Pictures up to 4096 x 4096 pixels.
+
+---
+
 ## Plugin system
 
 Plugins are shared libraries (`.so` on Linux, `.dylib` on macOS, `.dll` on
@@ -320,7 +341,7 @@ Note that the compiler's own identity (`$CC`, its version) is **not** part of
 the hash, so switching `gcc` → `clang` without couching source or headers reuses
 the old `.so`; that is the one case where deleting the `.stamp` by hand is the fix.
 
-### Memory: `nl_gc` (Linux)
+## Memory: `nl_gc` (Linux)
 
 `lib/nl_gc.h` is an opt-in conservative mark-and-sweep collector on top of the
 nolibc arena. `nl_gc_alloc()` / `nl_gc_alloc_atomic()` (pointer-free data such as
@@ -335,7 +356,7 @@ zeroed `calloc` and `nl_gc_release` is `free`, so release what you allocate and
 the code is leak-free everywhere. Currently used for the per-frame temporaries
 in `ascii.c`.
 
-### Mouse
+## Mouse
 
 | Mouse                                  | Action                                                      |
 | -------------------------------------- | ----------------------------------------------------------- |

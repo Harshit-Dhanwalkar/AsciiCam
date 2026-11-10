@@ -520,11 +520,83 @@ if REAL and os.access(REAL, os.X_OK):
     check(code == 2, "--play without a file is refused")
     shutil.rmtree(play_dir, ignore_errors=True)
 
-
-
     # a missing camera explains how to get a picture
     frames, code, out, _ = run(["-d", "/dev/definitely-not-a-camera"], 0.3)
     check(code != 0 and b"--demo" in out, "missing camera: error mentions --demo")
+
+    # --image: a picture file as camera
+    import struct as _st
+    import zlib as _zl
+
+    def write_png(path, w, h, pix, interlace=0):
+        raw = b"".join(b"\x00" + bytes(v for x in range(w) for v in pix(x, y)) for y in range(h))
+
+        def ch(t, d):
+            return _st.pack(">I", len(d)) + t + d + _st.pack(">I", _zl.crc32(t + d) & 0xFFFFFFFF)
+
+        with open(path, "wb") as f:
+            f.write(b"\x89PNG\r\n\x1a\n" + ch(b"IHDR", _st.pack(">IIBBBBB", w, h, 8, 2, 0, 0, interlace))
+                    + ch(b"IDAT", _zl.compress(raw)) + ch(b"IEND", b""))
+
+    def frame_rows(out):
+        chunk = out.split(SYNC_BEGIN)[-2] if out.count(SYNC_BEGIN) >= 2 else out
+        text = re.sub(rb"\x1b\[[0-9;?<]*[A-Za-z]", b"", chunk)
+        return [r for r in text.split(b"\n") if r.strip(b"\r")]
+
+    idir = tempfile.mkdtemp(prefix="asciicam_img_")
+    IARGS = ["-r", "20", "-m", "ascii", "-s", " .:-=+*#%@", "-W", "60", "-H", "40"]
+    white = os.path.join(idir, "white.png")
+    write_png(white, 64, 64, lambda x, y: (255, 255, 255))
+    frames, code, out, _ = run(["--image", white] + IARGS, 1.0)
+    check(frames >= 10 and code == 0 and b"@" in out, f"--image PNG: drawn ({frames} frames, exit {code})")
+    frames, code, out2, _ = run(["-d", "image:" + white] + IARGS, 1.0)
+    check(code == 0 and b"@" in out2, "-d image:<file> is the same thing")
+
+    pgm = os.path.join(idir, "black.pgm")
+    with open(pgm, "wb") as f:
+        f.write(b"P5\n8 8\n255\n" + bytes(64))
+    _, code, out, _ = run(["--image", pgm] + IARGS, 1.0)
+    check(code == 0 and b"@" not in out, "--image PGM, all black: no bright cells")
+
+    half = os.path.join(idir, "half.png")
+    write_png(half, 64, 64, lambda x, y: (255, 255, 255) if x >= 32 else (0, 0, 0))
+    _, code, out, _ = run(["--image", half] + IARGS, 1.0)
+    rows = [r for r in frame_rows(out) if b"@" in r]
+    firsts = [r.index(b"@") for r in rows]
+    check(rows and min(firsts) > 5 and all(r.count(b"@") > 3 for r in rows),
+          "left half black, right half white: bright cells only on the right")
+
+    wide = os.path.join(idir, "wide.png")
+    write_png(wide, 200, 20, lambda x, y: (255, 255, 255))
+    _, code, out, _ = run(["--image", wide] + IARGS, 1.0)
+    bright = [r for r in frame_rows(out) if b"@" in r]
+    allrows = frame_rows(out)
+    check(code == 0 and bright and len(bright) < len(allrows) - 4,
+          f"wide picture keeps its proportions: bars above and below ({len(bright)} of {len(allrows)} rows)")
+
+    # curve and colour map work on a picture (point of it)
+    _, code, out, _ = run(["--image", half, "-C"] + IARGS[:-4], 1.0)
+    check(code == 0 and b"\x1b[38;2;" in out, "--image with -C: colour")
+
+    # errors say what is wrong
+    for label, path, want in (("missing file", os.path.join(idir, "nope.png"), b"cannot open"),
+                              ("not a picture", __file__, b"not a PNG"),
+                              ):
+        _, code, out, _ = run(["--image", path] + IARGS, 0.5)
+        check(code != 0 and want in out, f"--image {label}: {want.decode()}")
+    jpg = os.path.join(idir, "x.jpg")
+    with open(jpg, "wb") as f:
+        f.write(b"\xff\xd8\xff\xe0" + bytes(100))
+    _, code, out, _ = run(["--image", jpg] + IARGS, 0.5)
+    check(code != 0 and b"JPEG" in out, "--image JPEG: says it is not supported")
+    inter = os.path.join(idir, "adam7.png")
+    write_png(inter, 8, 8, lambda x, y: (1, 2, 3), interlace=1)
+    _, code, out, _ = run(["--image", inter] + IARGS, 0.5)
+    check(code != 0 and b"interlaced" in out, "--image interlaced PNG: says so")
+    _, code, out, _ = run(["--image"], 0.5)
+    check(code == 2 and b"--image needs" in out, "--image without a file: usage error")
+    shutil.rmtree(idir, ignore_errors=True)
+
     BIN = BIN_SAVE
 
 
