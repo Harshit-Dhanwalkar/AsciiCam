@@ -341,8 +341,8 @@ int browser_strip_render(char *out, size_t outsz, int term_h, int term_w,
   for (int t = 0; t < BROWS_TAB_COUNT; t++) {
     int lit = open && t == tab;
     for (int r = 0; r < BROWS_TAB_ROWS; r++) {
-      // first and last row are padding, five between spell name
-      char ch = r >= 1 && r <= 5 ? names[t][r - 1] : ' ';
+      // First and last row are padding, five between spell name
+      char ch = (char)(r >= 1 && r <= 5 ? names[t][r - 1] : ' ');
       pos += nl_snprintf(out + pos, outsz - (size_t)pos,
                          "\033[%d;%dH%s %c \033[0m", 1 + t * BROWS_TAB_ROWS + r,
                          col, lit ? on : off, ch);
