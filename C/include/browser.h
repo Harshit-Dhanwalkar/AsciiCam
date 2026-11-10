@@ -27,6 +27,13 @@
 #define BROWS_PATH_LEN 256
 #define BROWS_PANEL_W 34 // columns side panel occupies on screen
 
+// Tabs of side panel: captures list and tone curve editor (curve_ui.h)
+#define BROWS_TAB_FILES 0
+#define BROWS_TAB_CURVE 1
+#define BROWS_TAB_COUNT 2
+#define BROWS_STRIP_W 3  // columns of the tab strip
+#define BROWS_TAB_ROWS 7 // rows of one tab in the strip
+
 typedef enum {
   BROWS_UNKNOWN,
   BROWS_CAST, // asciinema v2 recording - replayable
@@ -46,6 +53,9 @@ typedef enum {
   BR_KEY_DOWN,
   BR_KEY_ESC,
   BR_KEY_ENTER,
+  BR_KEY_LEFT,
+  BR_KEY_RIGHT,
+
 } brows_keykind_t;
 
 typedef enum {
@@ -58,6 +68,7 @@ typedef enum {
 
 typedef struct {
   int active;
+  int tab; // BROWS_TAB_*: which tab is showing
   int count;
   int selected;
   int scroll;
@@ -87,7 +98,24 @@ brows_action_t browser_key(browser_t *b, brows_keykind_t kind, char ch,
 int browser_render(const browser_t *b, int term_h, int term_w, int color,
                    char *out, size_t outsz);
 
-// Clear panel's screen area so leftover box chars don't linger after close
+// First column and number of rows (panel is drawn on rows 1..panel_h)
+// Returns 0 when terminal is too small for it
+int browser_panel_geom(int term_h, int term_w, int *place_col, int *panel_h);
+
+// 1 when terminal cell (x, y), 1-based, belongs to open panel
+int browser_panel_hit(int term_h, int term_w, int x, int y);
+
+// Tab strip: 0 when terminal is too small for it
+// Tab under cell (x, y) of strip, or -1
+// Open = panel is showing (strip is next to it, otherwise at screen edge)
+int browser_strip_tab_at(int term_h, int term_w, int open, int x, int y);
+
+// Draw strip with tab highlighted (only when panel is open)
+// Return bytes written, 0 when it does not fit
+int browser_strip_render(char *out, size_t outsz, int term_h, int term_w,
+                         int open, int tab, int color);
+
+// Clear panel's screen area after close
 // Called once when active goes 1 -> 0
 void browser_clear_area(int term_h, int term_w);
 

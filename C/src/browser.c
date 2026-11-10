@@ -161,41 +161,60 @@ brows_action_t browser_key(browser_t *b, brows_keykind_t kind, char ch,
   }
 
   switch (kind) {
-  case BR_KEY_ESC:
+  case BR_KEY_ESC: {
     return BROWS_ACT_CLOSE;
+  }
 
-  case BR_KEY_UP:
-    if (b->selected > 0)
+  case BR_KEY_UP: {
+    if (b->selected > 0) {
       b->selected--;
-    return BROWS_ACT_NONE;
+    }
 
-  case BR_KEY_DOWN:
-    if (b->selected < b->count - 1)
+    return BROWS_ACT_NONE;
+  }
+
+  case BR_KEY_DOWN: {
+    if (b->selected < b->count - 1) {
       b->selected++;
-    return BROWS_ACT_NONE;
+    }
 
-  case BR_KEY_ENTER:
+    return BROWS_ACT_NONE;
+  }
+
+  case BR_KEY_ENTER: {
     if (b->selected < b->count) {
       brows_entry_t *e = &b->e[b->selected];
       nl_strncpy_safe(out_path, e->path, out_sz);
       switch (e->type) {
-      case BROWS_ANSI:
+      case BROWS_ANSI: {
         return BROWS_ACT_PREVIEW_ANSI;
-      case BROWS_CAST:
+      }
+      case BROWS_CAST: {
         return BROWS_ACT_REPLAY_CAST;
-      case BROWS_PNG:
+      }
+      case BROWS_PNG: {
         nl_snprintf(b->info_msg, sizeof(b->info_msg),
                     "preview the .ansi sibling (same content, no PNG decoder)");
+
         return BROWS_ACT_INFO;
+      }
+
       default:
         return BROWS_ACT_NONE;
       }
     }
-    return BROWS_ACT_NONE;
 
-  case BR_KEY_CHAR:
-    // b/B closes the panel (matches the open key); q/Q also closes for
-    // muscle-compatibility with the rest of the app
+    return BROWS_ACT_NONE;
+  }
+
+  case BR_KEY_LEFT:
+  case BR_KEY_RIGHT: {
+    return BROWS_ACT_NONE;
+  }
+
+  case BR_KEY_CHAR: {
+    // b/B closes panel (matches open key)
+    // q/Q also closes for muscle-compatibility with rest of app
     if (ch == 'b' || ch == 'B' || ch == 'q' || ch == 'Q') {
       return BROWS_ACT_CLOSE;
     }
@@ -218,7 +237,9 @@ brows_action_t browser_key(browser_t *b, brows_keykind_t kind, char ch,
       b->selected = b->count > 0 ? b->count - 1 : 0;
       return BROWS_ACT_NONE;
     }
+
     return BROWS_ACT_NONE;
+  }
   }
 
   return BROWS_ACT_NONE;
@@ -251,6 +272,84 @@ static int append_pad(char *out, size_t outsz, int *pos, int n) {
   }
 
   return 0;
+}
+
+int browser_panel_geom(int term_h, int term_w, int *place_col, int *panel_h) {
+  if (term_w < BROWS_PANEL_W + 10) {
+    return 0; // terminal too narrow for side panel
+  }
+
+  int h = term_h - 4 - 1; // leave PANEL_ROWS (4) for status bar + 1 margin
+  if (h < 8) {
+    return 0;
+  }
+
+  *place_col = term_w - BROWS_PANEL_W + 1;
+  *panel_h = h;
+
+  return 1;
+}
+
+// strip needs panel to fit beside it and 2 tabs of rows
+static int strip_col(int term_h, int term_w, int open) {
+  if (term_w < BROWS_PANEL_W + BROWS_STRIP_W + 10 ||
+      term_h < BROWS_TAB_COUNT * BROWS_TAB_ROWS + 2) {
+    return 0;
+  }
+
+  return open ? term_w - BROWS_PANEL_W + 1 - BROWS_STRIP_W
+              : term_w - BROWS_STRIP_W + 1;
+}
+
+int browser_panel_hit(int term_h, int term_w, int x, int y) {
+  int col, h;
+  if (!browser_panel_geom(term_h, term_w, &col, &h)) {
+    return 0;
+  }
+
+  int from = strip_col(term_h, term_w, 1);
+  from = from ? from : col;
+
+  return x >= from && y >= 1 && y <= h;
+}
+
+int browser_strip_tab_at(int term_h, int term_w, int open, int x, int y) {
+  int col = strip_col(term_h, term_w, open);
+  if (!col || x < col || x >= col + BROWS_STRIP_W || y < 1) {
+    return -1;
+  }
+
+  int t = (y - 1) / BROWS_TAB_ROWS;
+
+  return t < BROWS_TAB_COUNT ? t : -1;
+}
+
+int browser_strip_render(char *out, size_t outsz, int term_h, int term_w,
+                         int open, int tab, int color) {
+  static const char *const names[BROWS_TAB_COUNT] = {"FILES", "CURVE"};
+  int col = strip_col(term_h, term_w, open);
+  if (!col || outsz < 1024) {
+    return 0;
+  }
+
+  const char *on =
+      color ? "\033[48;2;50;70;110m\033[38;2;255;255;255m\033[1m" : "\033[7m";
+  const char *off =
+      color ? "\033[48;2;24;24;36m\033[38;2;120;120;145m" : "\033[2m";
+  int pos = 0;
+  out[0] = '\0';
+  for (int t = 0; t < BROWS_TAB_COUNT; t++) {
+    int lit = open && t == tab;
+    for (int r = 0; r < BROWS_TAB_ROWS; r++) {
+      // First and last row are padding, five between spell name
+      char ch = (char)(r >= 1 && r <= 5 ? names[t][r - 1] : ' ');
+      pos += nl_snprintf(out + pos, outsz - (size_t)pos,
+                         "\033[%d;%dH%s %c \033[0m", 1 + t * BROWS_TAB_ROWS + r,
+                         col, lit ? on : off, ch);
+    }
+  }
+
+  return pos;
 }
 
 int browser_render(const browser_t *b, int term_h, int term_w, int color,
@@ -419,10 +518,13 @@ void browser_clear_area(int term_h, int term_w) {
     return; // terminal too short - panel was never drawn
   }
 
-  // Bottom border sits on row panel_h + 1; clear one extra row to be safe.
+  // Bottom border sits on row panel_h + 1
+  // clear one extra row to be safe
+  // Tab strip next to panel goes too (redrawn at screen edge)
   char buf[64];
   for (int row = 1; row <= panel_h + 1; row++) {
-    int n = nl_snprintf(buf, sizeof(buf), "\033[%d;%dH\033[K", row, place_col);
+    int n = nl_snprintf(buf, sizeof(buf), "\033[%d;%dH\033[K", row,
+                        place_col - BROWS_STRIP_W);
     if (n > 0) {
       (void)write(STDOUT_FILENO, buf, (size_t)n);
     }
@@ -522,7 +624,7 @@ int browser_preview_ansi(const char *path, int *aborted) {
 // asciinema v2 format:
 //   line 1: JSON header {"version":2,"width":80,...}
 //   line 2+: [seconds,"o","<data>"]
-// data is a JSON-escaped string of bytes that were sent to the terminal
+// data is a JSON-escaped string of bytes that were sent to terminal
 // unescape JSON \\ \" \n \r \t \b \f \/ and \uXXXX (UTF-8 encoded)
 
 static double parse_float(const char *s, const char *limit, const char **end) {
@@ -551,7 +653,7 @@ static double parse_float(const char *s, const char *limit, const char **end) {
   return v;
 }
 
-// Skip blanks (not before the letter), then take one expected character
+// Skip blanks (not before letter), then take one expected character
 static int expect_tok(const char **pp, const char *end, char want) {
   const char *p = *pp;
   if (want != 'o') {
@@ -583,7 +685,7 @@ static int parse_event(const char *line, size_t line_len, double *out_time,
   const char *p = line + 1;
   const char *end = line + line_len;
 
-  // Whitespace between the fields is legal JSON and is what asciinema itself
+  // Whitespace between fields is legal JSON and is what asciinema itself
   // writes ([1.5, "o", "..."]), so accept it, and also its absence
   const char *time_end;
   *out_time = parse_float(p, end, &time_end);
@@ -691,7 +793,7 @@ static int parse_event(const char *line, size_t line_len, double *out_time,
 
 // Core of both replays (browser panel and --play)
 //   speed  1.0 = recorded pace
-//   loop   start again at the end
+//   loop   start again at end
 //   keys   0: any key aborts, footer waits for a key (panel replay)
 //          1: q aborts, space pauses, + / - change speed, no footer
 static int replay_core(const char *path, double speed, int loop, int keys,
@@ -768,7 +870,7 @@ static int replay_core(const char *path, double speed, int loop, int keys,
           size_t dlen = 0;
           if (parse_event(buf + line_start, line_len, &t, data, cap, &dlen) ==
               0) {
-            // Wait until recording time t is reached, watching the keyboard
+            // Wait until recording time t is reached, watching keyboard
             while (cur_t < t || paused) {
               char ch = 0;
               if (poll_key(&ch)) {
@@ -939,7 +1041,7 @@ int browser_play_cast(const char *path, double speed, int loop, int *events) {
   return replay_core(path, speed, loop, 1, events, &aborted);
 }
 
-// Width and height from the header line of a .cast (0 when missing)
+// Width and height from header line of a .cast (0 when missing)
 void browser_cast_size(const char *path, int *w, int *h) {
   *w = *h = 0;
   int fd = open(path, O_RDONLY, 0);

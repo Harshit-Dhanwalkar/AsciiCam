@@ -183,8 +183,8 @@ int main(void) {
   CHECK(vc.unknown == 1 && cell_lit(CX, CY) > 0, "unknown glyph is a box");
   CHECK(px(CX, CY, 4, 8)[0] == 0, "box is hollow");
 
-  // Cursor moves: two blocks one cell right and one down are kept 1,1 apart
-  // and pair is centred (3x2 cells: first at col (160-3)/2 = 78, row (45-2)/2 = 21)
+  // Cursor moves: two blocks one cell right and one down are kept 1,1 apart and
+  // pair is centred (3x2 cells: first at col (160-3)/2 = 78, row (45-2)/2 = 21)
   draw("\x1b[38;2;255;0;0m\x1b[5;9H\xe2\x96\x88\x1b[6;11H\xe2\x96\x88");
   CHECK(cell_lit(78, 21) == 128 && cell_lit(80, 22) == 128 &&
             cell_lit(79, 21) == 0 && cell_lit(79, 22) == 0,
