@@ -50,6 +50,15 @@ static uint8_t clamp8(double v) {
 
 void curve_build(curve_t *c) {
   int n = c->n;
+  if (n < 2) {
+    for (int i = 0; i < 256; i++) {
+      c->lut[i] = (uint8_t)i;
+    }
+    c->identity = 1;
+
+    return;
+  }
+
   double d[CURVE_MAX_POINTS], m[CURVE_MAX_POINTS];
   for (int k = 0; k + 1 < n; k++) {
     d[k] = ((double)c->p[k + 1].y - (double)c->p[k].y) /
