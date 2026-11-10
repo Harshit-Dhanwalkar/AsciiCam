@@ -675,6 +675,20 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
     }
   }
 
+  // Tone curve runs after gamma
+  // Colour channels get 2 as one table
+  const uint8_t *tone = opts ? opts->tone_lut : NULL;
+  uint32_t *tone_hist = opts ? opts->tone_hist : NULL;
+  uint8_t tone_gamma_lut[256];
+  const uint8_t *chan_lut = gamma != 100 ? gamma_lut : NULL;
+  if (tone) {
+    for (int i = 0; i < 256; i++) {
+      tone_gamma_lut[i] = tone[gamma != 100 ? gamma_lut[i] : i];
+    }
+
+    chan_lut = tone_gamma_lut;
+  }
+
   int depth_pop = opts ? opts->depth_pop : 0;
   int depth_invert = opts ? opts->depth_invert : 0;
 
@@ -741,11 +755,19 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
         gv_c = gamma_lut[gv_c];
       }
 
+      if (tone_hist) {
+        tone_hist[gv_c]++;
+      }
+
+      if (tone) {
+        gv_c = tone[gv_c];
+      }
+
       subpixel_g[y * safe_dst_w + x] = gv_c;
 
       if (do_color) {
         uint8_t *op = subpixel_rgb + (y * safe_dst_w + x) * 3;
-        const uint8_t *glut = (gamma != 100) ? gamma_lut : NULL;
+        const uint8_t *glut = chan_lut;
 
         op[0] = adjust_chan((int)(tr / count), contrast, brightness, glut);
         op[1] = adjust_chan((int)(tgv / count), contrast, brightness, glut);

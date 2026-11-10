@@ -94,6 +94,13 @@ typedef struct {
   int origin_y;
 
   int mirror; /* Mirror/flip frame horizontally */
+
+  /* Tone curve (see curve.h): 256-entry table applied after brightness,
+   * contrast and gamma. NULL = none. Colour channels go through it too */
+  const uint8_t *tone_lut;
+  /* When not NULL, count of cells per brightness (after gamma, before curve) is
+   * added to these 256 counters */
+  uint32_t *tone_hist;
 } ascii_opts_t;
 
 /* Convert YUYV raw data to grayscale */

@@ -28,6 +28,7 @@ V4L2 on Linux, AVFoundation on macOS, Media Foundation on Windows.
 | **Render modes**             | Braille, Blocks, ASCII ramp, Half-block, Dots - cycle live with `m`/`M`                                                            |
 | **Edge detection**           | Sobel, Sobel with direction, Laplacian - toggle with `x`/`X`                                                                       |
 | **Image adjustments**        | Brightness, contrast, gamma (`-g 10..400`), invert mapping                                                                         |
+| **Tone curve**               | Draw a brightness curve with the mouse in the side panel (`k`), presets, `--curve`; applies to every render mode and colour        |
 | **Pseudo-3D depth pop**      | Parallax displacement based on brightness — `+`/`-`/`v`                                                                            |
 | **Floyd‑Steinberg dither**   | Error‑diffusion to reduce banding                                                                                                  |
 | **ANSI color**               | Truecolor (`-C`) or xterm-256 (`-2`) per-cell foreground                                                                           |
@@ -199,6 +200,7 @@ render_mode = braille
 color = 1
 color_mode = 256
 gamma = 150
+curve = 0,0 64,40 192,220 255,255
 plugin = build/invert.so
 ```
 
@@ -355,12 +357,71 @@ release the button. The status panel stays at the bottom of the terminal.
 | `w` / `W` | hw white-balance down / up _(V4L2, Linux only)_ |
 | `c` / `C` | hw contrast down / up _(V4L2, Linux only)_ |
 | `g` / `G` | decrease / increase gamma |
+| `k` | open or close the side panel on the Curve tab (tone curve editor) |
+| `b` | open or close the side panel on the Files tab (captures) |
+| `Tab` | switch tab while the side panel is open |
 | `↑` / `↓` | select plugin |
 | `[` / `]` | param &plusmn; 1 |
 | `{` / `}` | param &plusmn; 10 |
 | `r` | reset param to 128 |
 | `q` | quit |
 
+## Tone curve
+
+A curve maps the brightness of every cell to a new brightness, like Curves in
+a photo editor. It runs after brightness, contrast and gamma and before a
+brightness is turned into a character, so it works in every render mode, with
+colour, `--net`, `--vcam` and recordings. Use it to lift a dim room
+(`asinh`, `sqrt`), harden a flat picture (`s-curve`), or get a poster look
+(`threshold`, `solarize`, `invert`).
+
+Press `k` (or click the **CURVE** tab on the right edge of the screen) to open
+the editor in the side panel:
+
+```
+ F │ ┌─ Tone curve ───────────────────┐
+ I │ │ asinh                          │
+ L │ │                  ⣀⣠⠤⠴⠒⠋◆       │   braille graph: input brightness
+ E │ │             ⣀⡤⠴⠚◆⠁ ⡠⠊⠁         │   left to right, output bottom to top,
+ S │ │         ◆⡤⠖⠋⠁   ⣀⠔⠉            │   the live histogram of the picture
+   │ │ ...                            │   behind it, the curve over it
+ C │ │ pt 3/6   in 64  out 142        │
+ U │ │ preset: asinh                  │
+ R │ │ click add/drag  rclick delete  │
+ V │ │ ...                            │
+ E │ └────────────────────────────────┘
+```
+
+| Input                     | Action                                                                            |
+| ------------------------- | --------------------------------------------------------------------------------- |
+| click on a point, drag    | move the point (end points only move up and down)                                 |
+| click on empty graph      | add a point there and drag it (up to 8 points)                                    |
+| right-click a point / `d` | delete an inner point                                                             |
+| `n` / `p`, `1`..`8`       | select a point                                                                    |
+| arrows                    | move the selected point by 1; `<` `>` and `-` `+` by 8                            |
+| `[` / `]`                 | previous / next preset: linear, s-curve, asinh, sqrt, invert, threshold, solarize |
+| `a`                       | add a point in the widest gap, on the curve as it is                              |
+| `x`                       | bypass the curve (compare before and after)                                       |
+| `r`                       | reset to a straight line                                                          |
+| `w`                       | save `curve.txt` into the captures folder                                         |
+| `Tab`, `b`                | switch to the Files tab; `Esc`, `k`, `q` close the panel                          |
+
+The two tabs on the edge of the screen, one for Files (the captures browser)
+and one for Curve, stay visible when the panel is retracted: click one to open
+it, click the open one to retract it. A terminal cannot rotate text, so the
+names are stacked letter by letter.
+
+Set a curve from the command line, or in `.asciicamrc` as `curve = ...`:
+
+```
+asciicam --curve "0,0 64,40 192,220 255,255"   # x,y points, x and y 0..255
+asciicam --curve asinh                         # a preset name
+asciicam --curve @curve.txt                    # points saved with w
+```
+
+The first point must be at x = 0 and the last at x = 255. The curve is a
+monotone cubic spline: a curve that rises through its points never overshoots
+or dips between them.
 
 ## Screenshots and recording
 

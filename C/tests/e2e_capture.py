@@ -527,5 +527,79 @@ if REAL and os.access(REAL, os.X_OK):
     check(code != 0 and b"--demo" in out, "missing camera: error mentions --demo")
     BIN = BIN_SAVE
 
+
+# Tone curve: --curve, Curve tab of side panel and its tab strip
+def frame_text(buf):
+    """Characters of the last picture, escapes removed."""
+    i = buf.rfind(SYNC_BEGIN)
+    j = buf.find(b"\x1b[?2026l", i)
+    seg = buf[i:j if j > 0 else len(buf)]
+    return re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", seg).decode("utf-8", "replace")
+
+
+def mean_level(buf, ramp=" .:-=+*#%@"):
+    text = frame_text(buf)
+    levels = [ramp.index(ch) for ch in text if ch in ramp]
+    return sum(levels) / len(levels) if levels else -1
+
+
+CARGS = ["-d", "fake", "-W", "40", "-H", "20", "-r", "20", "-m", "ascii", "-s", " .:-=+*#%@"]
+_, code, plain, _ = run(CARGS, 1.2)
+_, code2, white, _ = run(CARGS + ["--curve", "0,255 255,255"], 1.2)
+_, code3, black, _ = run(CARGS + ["--curve", "0,0 255,0"], 1.2)
+_, code4, same, _ = run(CARGS + ["--curve", "0,0 255,255"], 1.2)
+check(code == 0 and code2 == 0 and code3 == 0 and code4 == 0, "--curve: runs and exits 0")
+a, w, k, c = mean_level(plain), mean_level(white), mean_level(black), mean_level(same)
+check(a > 1 and a < 8, f"the fake picture uses the whole ramp (mean level {a:.2f})")
+check(w > 7.5, f"--curve 0,255 255,255 makes everything the brightest character ({w:.2f})")
+check(0 <= k < 1.0, f"--curve 0,0 255,0 makes everything the darkest ({k:.2f})")
+check(abs(a - c) < 1.0, f"--curve 0,0 255,255 changes nothing ({a:.2f} vs {c:.2f})")
+for bad in ("0,0 255", "0,0 100,50", "5,0 255,255", "0,0 99999,5 255,255", "nonsense", "@/nonexistent/c"):
+    _, code, out, _ = run(CARGS + ["--curve", bad], 0.5)
+    check(code == 2 and b"curve" in out, f"--curve {bad!r} is refused")
+_, code, out, _ = run(CARGS + ["--curve"], 0.5)
+check(code == 2, "--curve without a value is refused")
+cdir = tempfile.mkdtemp(prefix="asciicam_curve_")
+cfile = os.path.join(cdir, "c.txt")
+with open(cfile, "w") as f:
+    f.write("0,255 255,255\n")
+_, code, white2, _ = run(CARGS + ["--curve", "@" + cfile], 1.2)
+check(code == 0 and mean_level(white2) > 7.5, "--curve @file reads the points from a file")
+
+# panel: k opens Curve tab, [ ] change preset, tab switches tabs
+out, marks = session(CARGS, [(b"k", 0.6), (b"]", 0.4), (b"]", 0.4), (b"\t", 0.5), (b"\t", 0.5), (b"k", 0.5)])
+check(b"Tone curve" in out[marks[0]:marks[1]], "k opens the curve editor")
+check(b"preset: s-curve" in out[marks[1]:marks[2]] and b"preset: asinh" in out[marks[2]:marks[3]],
+      "[ and ] switch presets and the panel shows the name")
+check(b"Captures" in out[marks[3]:marks[4]], "tab goes to the Files tab")
+check(b"Tone curve" in out[marks[4]:marks[5]], "tab again goes back to the curve")
+check(b"Tone curve" not in out[marks[6]:], "k closes the panel")
+check(b"F" in out and b"C" in out, "tab strip drawn")
+
+# Curve acts on live picture: lift black point to 255 in editor
+out, marks = session(CARGS, [(b"k", 0.5)] + [(b"+", 0.03)] * 32 + [(b"k", 0.8)])
+check(mean_level(out[marks[0]:marks[1]]) < 8, "editor opens on a normal picture")
+check(mean_level(out[marks[-3]:]) > 7.5,
+      f"raising the black point to 255 makes the picture white ({mean_level(out[marks[-3]:]):.2f})")
+
+# Tab strip with mouse: open Curve tab, then retract it by clicking it again
+out, marks = session(
+    CARGS,
+    [(mouse(0, 119, 9), 0.2), (mouse(0, 119, 9, True), 0.5),
+     (mouse(0, 85, 9), 0.2), (mouse(0, 85, 9, True), 0.6)],
+)
+check(b"Tone curve" in out[marks[0]:marks[2]], "clicking the Curve tab of the strip opens the panel")
+check(b"Tone curve" not in out[marks[3]:marks[5]], "clicking the open tab retracts it")
+
+# Clicking in graph adds a point and dragging moves it; editor reports it
+out, marks = session(
+    CARGS,
+    [(b"k", 0.6), (mouse(0, 95, 8), 0.2), (mouse(32, 104, 3), 0.2), (mouse(0, 104, 3, True), 0.4)],
+)
+check(b"pt 2/3" in out[marks[1]:], "click in the graph adds a point and selects it")
+check(b"frame: 40x20" in out or last_frame(out) in (None, (40, 20)), "the frame was not dragged by clicks on the panel")
+shutil.rmtree(cdir, ignore_errors=True)
+
+
 print("e2e:", "FAILED" if failures else "all passed")
 sys.exit(1 if failures else 0)

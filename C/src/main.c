@@ -4,6 +4,8 @@
 #include "ascii.h"
 #include "browser.h"
 #include "capture.h"
+#include "curve.h"
+#include "curve_ui.h"
 #include "demo.h"
 #include "mouse.h"
 #include "netenc.h"
@@ -67,6 +69,7 @@ volatile sig_atomic_t keep_running = 1;
 //   keep_running = 0;
 // }
 
+static char g_curve_cfg[256];             // curve= from .asciicamrc
 static const char *g_plugin_dir = NULL;   // NULL: chosen by app_paths_resolve
 static const char *g_plugin_cache = NULL; // NULL: chosen by app_paths_resolve
 
@@ -180,6 +183,9 @@ static void print_usage(const char *prog) {
       "                over ssh); keys: q quit, space pause, + / - speed     \n"
       "  --speed <x>   playback speed for --play (default 1, e.g. 0.5, 2)    \n"
       "  --loop        repeat --play until quit                              \n"
+      "  --curve <s>   tone curve: points \"0,0 64,40 255,255\", a preset    \n"
+      "                name (s-curve asinh sqrt invert threshold solarize) or\n"
+      "                @file                                                 \n"
       "  --net <kbps>  slow-link mode: send only changed pixels,             \n"
       "                <kbps> kbit/s (0 = lossless changes only)             \n"
       "  --vcam <dev>  also send the picture to a virtual camera, for Meet,  \n"
@@ -239,6 +245,9 @@ static void print_usage(const char *prog) {
       "  b             toggle side panel: browse / replay saved              \n"
       "                captures. ↑↓ or jk move, enter opens (.ansi           \n"
       "                previews, .cast replays with timing), esc closes      \n"
+      "  k             toggle side panel on the tone curve tab: drag points, \n"
+      "                click to add, right-click deletes, [ ] presets,       \n"
+      "                x bypass, w saves curve.txt. tab switches tabs        \n"
       "  q             quit                                                  "
       "\n",
       prog, DEFAULT_CAPTURE_WIDTH, DEFAULT_CAPTURE_HEIGHT, DEFAULT_FPS,
@@ -305,6 +314,49 @@ static char *_cfg_skip_ws(char *s) {
   }
 
   return s;
+}
+
+// Write curve as one line into <dir>/curve.txt (for --curve @file)
+static int save_curve(const curve_t *c, const char *dir) {
+  char path[REC_PATH_LEN + 16];
+  nl_snprintf(path, sizeof(path), "%s/curve.txt", dir);
+  char spec[160];
+  int len = curve_format(c, spec, sizeof(spec) - 1);
+  spec[len++] = '\n';
+  int fd = open(
+      path, (int)((unsigned)O_WRONLY | (unsigned)O_CREAT | (unsigned)O_TRUNC),
+      0644);
+  if (fd < 0) {
+    return -1;
+  }
+
+  ssize_t w = write(fd, spec, (size_t)len);
+  close(fd);
+
+  return w == len ? 0 : -1;
+}
+
+// Contents of a small text file, trailing whitespace cut. Length or -1
+static int read_small_file(const char *path, char *buf, size_t sz) {
+  int fd = open(path, O_RDONLY, 0);
+  if (fd < 0) {
+    return -1;
+  }
+
+  ssize_t n = read(fd, buf, sz - 1);
+  close(fd);
+  if (n < 0) {
+    return -1;
+  }
+
+  while (n > 0 && (buf[n - 1] == '\n' || buf[n - 1] == '\r' ||
+                   buf[n - 1] == ' ' || buf[n - 1] == '\t')) {
+    n--;
+  }
+
+  buf[n] = '\0';
+
+  return (int)n;
 }
 
 static void load_config_file(const char *path, char **device, int *ascii_w,
@@ -403,6 +455,8 @@ static void load_config_file(const char *path, char **device, int *ascii_w,
           if (opts->gamma > 400) {
             opts->gamma = 400;
           }
+        } else if (nl_strcmp(key, "curve") == 0) {
+          nl_strncpy_safe(g_curve_cfg, val, sizeof(g_curve_cfg));
         } else if (nl_strcmp(key, "render_mode") == 0) {
           opts->render_mode = parse_render_mode(val);
         } else if (nl_strcmp(key, "edge_mode") == 0) {
@@ -989,6 +1043,31 @@ int main(int argc, char *argv[]) {
     i--;
   }
 
+  // --curve <points | preset | @file>: tone curve
+  char cli_curve[256];
+  cli_curve[0] = '\0';
+  for (int i = 1; i < argc; i++) {
+    if (nl_strcmp(argv[i], "--curve") != 0) {
+      continue;
+    }
+
+    if (i + 1 >= argc) {
+      fprintf(stderr, "--curve needs points like \"0,0 64,40 255,255\", a "
+                      "preset name or @file\n");
+
+      return 2;
+    }
+
+    nl_strncpy_safe(cli_curve, argv[i + 1], sizeof(cli_curve));
+    for (int k = i; k + 2 < argc; k++) {
+      argv[k] = argv[k + 2];
+    }
+
+    argc -= 2;
+    argv[argc] = NULL;
+    i--;
+  }
+
   // --debug-input <file>: write every input byte and every decoded mouse event
   for (int i = 1; i < argc; i++) {
     if (nl_strcmp(argv[i], "--debug-input") != 0) {
@@ -1412,8 +1491,34 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  // Tone curve: --curve beats curve= in .asciicamrc; "@file" reads spec
+  curve_t curve;
+  curve_reset(&curve);
+  curve_ui_t curve_ui;
+  curve_ui_init(&curve_ui);
+  {
+    const char *spec = cli_curve[0] ? cli_curve : g_curve_cfg;
+    char from_file[256];
+    if (spec[0] == '@') {
+      if (read_small_file(spec + 1, from_file, sizeof(from_file)) < 0) {
+        fprintf(stderr, "--curve: cannot read %s\n", spec + 1);
+
+        return 2;
+      }
+
+      spec = from_file;
+    }
+
+    char cerr[96];
+    if (spec[0] && curve_parse(&curve, spec, cerr, sizeof(cerr)) < 0) {
+      fprintf(stderr, "%s\n", cerr);
+
+      return 2;
+    }
+  }
+
   // From here on TUI owns terminal: load problems are reported in UI
-  // (status_msg), not on stderr
+  // (status_msg)
   plugin_log_stderr = 0;
 
   // Catalog of plugin sources that can be built and loaded while running
@@ -1456,12 +1561,35 @@ int main(int argc, char *argv[]) {
   char toast_msg[160];
   toast_msg[0] = '\0';
   int toast_frames = 0;
+  int browser_was_open = 0;
 
 #define TOAST(...)                                                             \
   do {                                                                         \
     nl_snprintf(toast_msg, sizeof(toast_msg), __VA_ARGS__);                    \
                                                                                \
     toast_frames = fps * TOAST_SECONDS;                                        \
+  } while (0)
+
+// Curve editor asked for
+#define CURVE_ACT(ca)                                                          \
+  do {                                                                         \
+    if ((ca) == CUI_CLOSE) {                                                   \
+      browser.active = 0;                                                      \
+      curve_ui.grab = 0;                                                       \
+      browser_clear_area(term_h, term_w);                                      \
+    } else if ((ca) == CUI_TAB_FILES) {                                        \
+      browser.tab = BROWS_TAB_FILES;                                           \
+      curve_ui.grab = 0;                                                       \
+    } else if ((ca) == CUI_SAVE) {                                             \
+      char tb_[64];                                                            \
+      if (save_curve(&curve, cap_dir) == 0) {                                  \
+        TOAST("curve saved: %s/curve.txt (load with --curve @file)",           \
+              path_tail(cap_dir, tb_, sizeof(tb_)));                           \
+      } else {                                                                 \
+        TOAST("cannot save the curve into %s",                                 \
+              path_tail(cap_dir, tb_, sizeof(tb_)));                           \
+      }                                                                        \
+    }                                                                          \
   } while (0)
 
   int selected = 0;
@@ -1768,6 +1896,50 @@ int main(int argc, char *argv[]) {
           // is not touched here, so frame's aspect and camera's aspect stay
           // independent. Nothing changes until release: meanwhile an
           // outline shows where frame will go
+          // Side panel: its tab strip (always on screen) opens, switches and
+          // retracts it. Inside panel mouse belongs to panel (and to a curve
+          // point being dragged wherever pointer goes), except while frame is
+          // being dragged: that drag must see its release
+          if (!mouse_drag.dragging) {
+            int grabbing = browser.active && browser.tab == BROWS_TAB_CURVE &&
+                           curve_ui_grabbing(&curve_ui);
+            if (!grabbing && mev.pressed && !mev.motion && !mev.wheel &&
+                mev.button == 0) {
+              int tab = browser_strip_tab_at(term_h, term_w, browser.active,
+                                             mev.x, mev.y);
+              if (tab >= 0) {
+                if (browser.active && browser.tab == tab) {
+                  browser.active = 0; // open tab was clicked: retract
+                  browser_clear_area(term_h, term_w);
+                } else {
+                  if (!browser.active) {
+                    browser_toggle(&browser);
+                  }
+
+                  browser.tab = tab;
+                  if (tab == BROWS_TAB_FILES) {
+                    browser_scan(&browser, cap_dir);
+                  }
+                }
+
+                curve_ui.grab = 0;
+
+                continue;
+              }
+            }
+
+            if (browser.active &&
+                (grabbing || browser_panel_hit(term_h, term_w, mev.x, mev.y))) {
+              if (browser.tab == BROWS_TAB_CURVE) {
+                curve_act_t ca =
+                    curve_ui_mouse(&curve_ui, &curve, &mev, term_h, term_w);
+                CURVE_ACT(ca);
+              }
+
+              continue;
+            }
+          }
+
           frame_rect_t cur = {frame_x, frame_y, ascii_w, ascii_h};
           mouse_limits_t lim = {term_w,          term_h,      PANEL_ROWS,
                                 MIN_ASCII_W,     MIN_ASCII_H, DRAG_MAX_ASCII_W,
@@ -1860,7 +2032,10 @@ int main(int argc, char *argv[]) {
 
             switch (seq[1]) {
             case 'A': { // up arrow key
-              if (browser.active) {
+              if (browser.active && browser.tab == BROWS_TAB_CURVE) {
+                curve_act_t ca = curve_ui_key(&curve_ui, &curve, BR_KEY_UP, 0);
+                CURVE_ACT(ca);
+              } else if (browser.active) {
                 browser_key(&browser, BR_KEY_UP, 0, NULL, 0);
               } else if (picker.active) {
                 picker_key(&picker, &catalog, PK_KEY_UP, NULL);
@@ -1871,7 +2046,11 @@ int main(int argc, char *argv[]) {
               break;
             }
             case 'B': { // down arrow key
-              if (browser.active) {
+              if (browser.active && browser.tab == BROWS_TAB_CURVE) {
+                curve_act_t ca =
+                    curve_ui_key(&curve_ui, &curve, BR_KEY_DOWN, 0);
+                CURVE_ACT(ca);
+              } else if (browser.active) {
                 browser_key(&browser, BR_KEY_DOWN, 0, NULL, 0);
               } else if (picker.active) {
                 picker_key(&picker, &catalog, PK_KEY_DOWN, NULL);
@@ -1881,8 +2060,19 @@ int main(int argc, char *argv[]) {
 
               break;
             }
+            case 'C':   // right arrow key
+            case 'D': { // left arrow key
+              if (browser.active && browser.tab == BROWS_TAB_CURVE) {
+                curve_act_t ca =
+                    curve_ui_key(&curve_ui, &curve,
+                                 seq[1] == 'C' ? BR_KEY_RIGHT : BR_KEY_LEFT, 0);
+                CURVE_ACT(ca);
+              }
+
+              break;
+            }
             default: {
-              // other CSI sequences (Home, End, F1..F12, C/D cursor keys)
+              // other CSI sequences (Home, End, F1..F12)
               // are not bound; fall through to outer continue
               break;
             }
@@ -1902,9 +2092,25 @@ int main(int argc, char *argv[]) {
       }
 
       // Browser panel open: it owns keyboard, same convention as plugin
-      // picker
-      // - typing a filename can't accidentally trigger hotkeys below
+      // picker - typing a filename can't accidentally trigger hotkeys below
       // (b/q/j/k/g/G all have meaning to browser)
+      if (browser.active && ch == '\t') {
+        // Tab switches between panel's tabs
+        browser.tab = (browser.tab + 1) % BROWS_TAB_COUNT;
+        curve_ui.grab = 0;
+
+        continue;
+      }
+
+      if (browser.active && browser.tab == BROWS_TAB_CURVE) {
+        curve_act_t ca = curve_ui_key(
+            &curve_ui, &curve,
+            (ch == '\r' || ch == '\n') ? BR_KEY_ENTER : BR_KEY_CHAR, ch);
+        CURVE_ACT(ca);
+
+        continue;
+      }
+
       if (browser.active) {
         char br_path[BROWS_PATH_LEN];
         brows_action_t ba;
@@ -2007,66 +2213,77 @@ int main(int argc, char *argv[]) {
       int *pp = (plugin_count > 0) ? &plugin_params[selected] : NULL;
       switch (ch) {
       case 'q':
-      case 'Q':
+      case 'Q': {
         keep_running = 0;
 
         break;
-      case ']':
+      }
+      case ']': {
         if (pp && *pp < 255) {
           (*pp)++;
         }
 
         break;
-      case '[':
+      }
+      case '[': {
         if (pp && *pp > 0) {
           (*pp)--;
         }
 
         break;
-      case '}':
+      }
+      case '}': {
         if (pp) {
           *pp = (*pp + 10 > 255) ? 255 : *pp + 10;
         }
 
         break;
-      case '{':
+      }
+      case '{': {
         if (pp) {
           *pp = (*pp - 10 < 0) ? 0 : *pp - 10;
         }
 
         break;
+      }
       case 'r':
-      case 'R':
+      case 'R': {
         if (pp) {
           *pp = plugin_default_param(plugins[selected].plugin);
         }
 
         break;
-      case 'm':
+      }
+      case 'm': {
         opts.render_mode = (opts.render_mode + 1) % RENDER_MODE_COUNT;
 
         break;
-      case 'M':
+      }
+      case 'M': {
         opts.render_mode =
             (opts.render_mode - 1 + RENDER_MODE_COUNT) % RENDER_MODE_COUNT;
 
         break;
-      case 'x':
+      }
+      case 'x': {
         opts.edges = (opts.edges + 1) % EDGE_MODE_COUNT;
 
         break;
-      case 'X':
+      }
+      case 'X': {
         opts.edges = (opts.edges - 1 + EDGE_MODE_COUNT) % EDGE_MODE_COUNT;
 
         break;
-      case 'n':
+      }
+      case 'n': {
         if (charsets.count > 0) {
           charsets.active = (charsets.active + 1) % charsets.count;
           opts.charset = charset_registry_active_ramp(&charsets);
         }
 
         break;
-      case 'N':
+      }
+      case 'N': {
         if (charsets.count > 0) {
           charsets.active =
               (charsets.active - 1 + charsets.count) % charsets.count;
@@ -2074,45 +2291,66 @@ int main(int argc, char *argv[]) {
         }
 
         break;
-      case 'g':
+      }
+      case 'g': {
         opts.gamma = (opts.gamma - 10 < 10) ? 10 : opts.gamma - 10;
 
         break;
-      case 'G':
+      }
+      case 'G': {
         opts.gamma = (opts.gamma + 10 > 400) ? 400 : opts.gamma + 10;
 
         break;
-      case '+':
+      }
+      case '+': {
         opts.depth_pop = (opts.depth_pop + 5 > 100) ? 100 : opts.depth_pop + 5;
 
         break;
-      case '-':
+      }
+      case '-': {
         opts.depth_pop = (opts.depth_pop - 5 < 0) ? 0 : opts.depth_pop - 5;
 
         break;
-      case 'v':
+      }
+      case 'v': {
         opts.depth_invert = !opts.depth_invert;
 
         break;
+      }
       case 's':
-      case 'S':
+      case 'S': {
         want_shot = 1; // taken from next frame that is rendered
 
         break;
+      }
       case 'b':
-      case 'B':
+      case 'B': {
         // Toggle captures browser panel. Re-scan on open so freshly saved
         // screenshots / recordings show up without a restart
         browser_toggle(&browser);
         if (browser.active) {
+          browser.tab = BROWS_TAB_FILES;
           browser_scan(&browser, cap_dir);
         } else {
           browser_clear_area(term_h, term_w);
         }
 
         break;
+      }
+      case 'k':
+      case 'K': {
+        // Tone curve editor: second tab of the same side panel
+        if (!browser.active) {
+          browser_toggle(&browser);
+        }
+
+        browser.tab = BROWS_TAB_CURVE;
+        curve_ui.grab = 0;
+
+        break;
+      }
       case 't':
-      case 'T':
+      case 'T': {
         if (rec.active) {
           double secs = 0;
           char tb[REC_TOAST_W + 8];
@@ -2131,8 +2369,9 @@ int main(int argc, char *argv[]) {
         }
 
         break;
+      }
       case 'u':
-      case 'U':
+      case 'U': {
         if (plugin_count > 0) {
           const char *uname =
               plugins[selected].plugin ? plugins[selected].plugin->name : "?";
@@ -2143,40 +2382,49 @@ int main(int argc, char *argv[]) {
         }
 
         break;
+      }
       case 'a':
-      case 'A':
+      case 'A': {
         // hand control of frame size back to SIGWINCH; next loop iteration
         // picks up current terminal size
         ascii_size_manual = 0;
         term_resized = 1;
 
         break;
-      case 'e':
+      }
+      case 'e': {
         webcam_adjust_exposure(&cam, -10, &hw_exposure);
 
         break;
-      case 'E':
+      }
+      case 'E': {
         webcam_adjust_exposure(&cam, 10, &hw_exposure);
 
         break;
-      case 'w':
+      }
+      case 'w': {
         webcam_adjust_white_balance(&cam, -100, &hw_wb);
 
         break;
-      case 'W':
+      }
+      case 'W': {
         webcam_adjust_white_balance(&cam, 100, &hw_wb);
 
         break;
-      case 'c':
+      }
+      case 'c': {
         webcam_adjust_contrast(&cam, -5, &hw_contrast);
 
         break;
-      case 'C':
+      }
+      case 'C': {
         webcam_adjust_contrast(&cam, 5, &hw_contrast);
 
         break;
-      default:
+      }
+      default: {
         break;
+      }
       }
     }
 
@@ -2328,6 +2576,15 @@ int main(int argc, char *argv[]) {
 
     opts.origin_x = frame_x;
     opts.origin_y = frame_y;
+    opts.tone_lut = curve_active(&curve) ? curve.lut : NULL;
+
+    if (browser.active && browser.tab == BROWS_TAB_CURVE) {
+      nl_memset(curve_ui.hist, 0, sizeof(curve_ui.hist));
+      opts.tone_hist = curve_ui.hist; // histogram behind curve
+    } else {
+      opts.tone_hist = NULL;
+    }
+
     int len = grayscale_to_ascii(frame, rgb, cam.width, cam.height, subpixel_w,
                                  subpixel_h, out_buf, out_size, &opts);
     if (len > (int)out_size) {
@@ -2433,11 +2690,25 @@ int main(int argc, char *argv[]) {
       // Captures browser panel: drawn inside SYNC region so it appears
       // atomically with frame, no flicker while it's being scrolled
       if (browser.active) {
-        char br_buf[8192];
-        int br_n = browser_render(&browser, term_h, term_w, opts.color, br_buf,
-                                  sizeof(br_buf));
+        char br_buf[16384];
+        int br_n = browser.tab == BROWS_TAB_CURVE
+                       ? curve_ui_render(&curve_ui, &curve, term_h, term_w,
+                                         opts.color, br_buf, sizeof(br_buf))
+                       : browser_render(&browser, term_h, term_w, opts.color,
+                                        br_buf, sizeof(br_buf));
         if (br_n > 0) {
           write_all(STDOUT_FILENO, br_buf, (size_t)br_n);
+        }
+      }
+
+      {
+        // Tab strip: beside open panel, or at right edge when retracted
+        char st_buf[1024];
+        int st_n =
+            browser_strip_render(st_buf, sizeof(st_buf), term_h, term_w,
+                                 browser.active, browser.tab, opts.color);
+        if (st_n > 0) {
+          write_all(STDOUT_FILENO, st_buf, (size_t)st_n);
         }
       }
 
@@ -2482,8 +2753,14 @@ int main(int argc, char *argv[]) {
         (void)write(STDOUT_FILENO, ovl, (size_t)on);
       }
 
-      // an overlay that just went away leaves its cells wrong on screen
+      // An overlay that just went away leaves its cells wrong on screen
       int overlay_now = on > 0 || browser.active || mouse_drag.dragging;
+      if (browser_was_open && !browser.active) {
+        net_dirty = 1; // panel retracted: repaint what it covered
+      }
+
+      browser_was_open = browser.active;
+
       if (net_prev_overlay && !overlay_now) {
         net_dirty = 1;
       }

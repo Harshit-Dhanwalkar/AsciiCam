@@ -127,6 +127,8 @@ CORE_SRCS := $(SRCDIR)/app_paths.c \
              $(SRCDIR)/ascii.c \
              $(SRCDIR)/browser.c \
              $(SRCDIR)/capture_reinit.c \
+             $(SRCDIR)/curve.c \
+             $(SRCDIR)/curve_ui.c \
              $(SRCDIR)/main.c  \
              $(SRCDIR)/mouse.c \
              $(SRCDIR)/netenc.c \
@@ -302,6 +304,12 @@ test: all
 	$(CC) -O2 $(TEST_FLAGS) tests/test_recorder.c $(SRCDIR)/recorder.c $(TEST_LIBS) -o $(TESTDIR)/recorder_O2
 	$(CC) -O0 $(TEST_FLAGS) tests/test_browser.c $(SRCDIR)/browser.c $(SRCDIR)/recorder.c $(TEST_LIBS) -o $(TESTDIR)/browser_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_browser.c $(SRCDIR)/browser.c $(SRCDIR)/recorder.c $(TEST_LIBS) -o $(TESTDIR)/browser_O2
+	$(CC) -O0 $(TEST_FLAGS) tests/test_curve.c $(SRCDIR)/curve.c $(TEST_LIBS) -o $(TESTDIR)/curve_O0
+	$(CC) -O0 $(TEST_FLAGS) tests/test_curve_ui.c $(SRCDIR)/curve_ui.c $(SRCDIR)/curve.c $(SRCDIR)/browser.c $(SRCDIR)/recorder.c $(TEST_LIBS) -o $(TESTDIR)/curve_ui_O0
+	$(CC) -O0 $(TEST_FLAGS) tests/test_tone.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/tone_O0
+	$(CC) -O2 $(TEST_FLAGS) tests/test_curve.c $(SRCDIR)/curve.c $(TEST_LIBS) -o $(TESTDIR)/curve_O2
+	$(CC) -O2 $(TEST_FLAGS) tests/test_curve_ui.c $(SRCDIR)/curve_ui.c $(SRCDIR)/curve.c $(SRCDIR)/browser.c $(SRCDIR)/recorder.c $(TEST_LIBS) -o $(TESTDIR)/curve_ui_O2
+	$(CC) -O2 $(TEST_FLAGS) tests/test_tone.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/tone_O2
 	$(CC) -O0 $(TEST_FLAGS) tests/test_colour.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/colour_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_colour.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/colour_O2
 	$(CC) -O0 -DTESTING $(TEST_FLAGS) tests/test_effects.c $(TEST_LIBS) -o $(TESTDIR)/effects_O0
@@ -338,6 +346,12 @@ test: all
 	$(TESTDIR)/vcam_O2
 	$(TESTDIR)/recorder_O0
 	$(TESTDIR)/recorder_O2
+	$(TESTDIR)/curve_O0
+	$(TESTDIR)/curve_O2
+	$(TESTDIR)/curve_ui_O0
+	$(TESTDIR)/curve_ui_O2
+	$(TESTDIR)/tone_O0
+	$(TESTDIR)/tone_O2
 	$(TESTDIR)/browser_O0
 	$(TESTDIR)/browser_O2
 	$(TESTDIR)/colour_O0

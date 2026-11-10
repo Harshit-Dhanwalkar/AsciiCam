@@ -39,11 +39,12 @@ static int jobs = 4;
 #endif
 
 static const char *core_src[] = {
-    "src/app_paths.c",      "src/ascii.c",          "src/browser.c",
-    "src/capture_demo.c",   "src/capture_reinit.c", "src/main.c",
-    "src/mouse.c",          "src/netenc.c",         "src/plugins.c",
-    "src/plugin_catalog.c", "src/plugin_picker.c",  "src/recorder.c",
-    "src/thread_sharing.c", "src/timing.c",         "src/vcam.c"};
+    "src/app_paths.c",     "src/ascii.c",          "src/browser.c",
+    "src/capture_demo.c",  "src/capture_reinit.c", "src/curve.c",
+    "src/curve_ui.c",      "src/main.c",           "src/mouse.c",
+    "src/netenc.c",        "src/plugins.c",        "src/plugin_catalog.c",
+    "src/plugin_picker.c", "src/recorder.c",       "src/thread_sharing.c",
+    "src/timing.c"};
 static const char *lib_src[] = {
     "lib/nl_alloc.c",  "lib/nl_gc.c",  "lib/nl_dlfcn.c",  "lib/nl_errno.c",
     "lib/nl_getopt.c", "lib/nl_mem.c", "lib/nl_printf.c", "lib/nl_start.c"};
@@ -362,6 +363,30 @@ static int run_tests(void) {
        "",
        "tests/test_browser.c src/browser.c src/recorder.c",
        {NULL}},
+      {"curve_O0", "-O0", "", "tests/test_curve.c src/curve.c", {NULL}},
+      {"curve_O2", "-O2", "", "tests/test_curve.c src/curve.c", {NULL}},
+      {"curve_ui_O0",
+       "-O0",
+       "",
+       "tests/test_curve_ui.c src/curve_ui.c src/curve.c src/browser.c "
+       "src/recorder.c",
+       {NULL}},
+      {"curve_ui_O2",
+       "-O2",
+       "",
+       "tests/test_curve_ui.c src/curve_ui.c src/curve.c src/browser.c "
+       "src/recorder.c",
+       {NULL}},
+      {"tone_O0",
+       "-O0",
+       "",
+       "tests/test_tone.c src/ascii.c lib/nl_gc.c",
+       {NULL}},
+      {"tone_O2",
+       "-O2",
+       "",
+       "tests/test_tone.c src/ascii.c lib/nl_gc.c",
+       {NULL}},
       {"colour_O0",
        "-O0",
        "",
@@ -457,8 +482,7 @@ static int run_e2e(void) {
   }
 
   nb_cmd py = {0};
-  nb_cmd_add(&py, "python3", "tests/e2e_capture.py", bin,
-             BUILD "/asciicam");
+  nb_cmd_add(&py, "python3", "tests/e2e_capture.py", bin, BUILD "/asciicam");
 
   return nb_run(&py);
 }
