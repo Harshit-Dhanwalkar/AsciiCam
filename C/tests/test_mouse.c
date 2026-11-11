@@ -8,6 +8,7 @@
  *     ../lib/nl_alloc.c ../lib/nl_start.c -I../include -I../lib -o
  *     /tmp/test_mouse
  */
+
 #include "../lib/nolibc.h"
 #include "mouse.h"
 
@@ -23,7 +24,7 @@ static int fails, total;
     }                                                                          \
   } while (0)
 
-// feed "ESC [ <" already consumed; s is rest, returns last rc
+// Feed "ESC [ <" already consumed; s is rest, returns last rc
 static int feed_str(mouse_parser_t *p, const char *s, mouse_event_t *ev) {
   int rc = MOUSE_PARSE_MORE;
   for (; *s; s++) {
@@ -67,18 +68,18 @@ static void test_parser(void) {
   feed_str(&p, "2;3;4M", &ev);
   CHECK(ev.button == 2, "right button");
 
-  // modifier bits (shift 4, meta 8, ctrl 16) must not change button
+  // Modifier bits (shift 4, meta 8, ctrl 16) must not change button
   mouse_parser_begin(&p);
   feed_str(&p, "20;3;4M", &ev);
   CHECK(ev.button == 0, "ctrl+left is still button 0, got %d", ev.button);
 
-  // coordinates beyond legacy 223 limit
+  // Coordinates beyond legacy 223 limit
   mouse_parser_begin(&p);
   CHECK(feed_str(&p, "0;300;99M", &ev) == MOUSE_PARSE_DONE && ev.x == 300 &&
             ev.y == 99,
         "x=300 supported");
 
-  // a report split across reads
+  // A report split across reads
   mouse_parser_begin(&p);
   CHECK(feed_str(&p, "0;1", &ev) == MOUSE_PARSE_MORE, "partial 1");
   CHECK(mouse_parser_active(&p), "still active mid-report");
@@ -86,7 +87,7 @@ static void test_parser(void) {
             ev.y == 5,
         "resumes across reads");
 
-  // garbage aborts and tells caller to treat byte as a key
+  // Garbage aborts and tells caller to treat byte as a key
   mouse_parser_begin(&p);
   CHECK(mouse_parser_feed(&p, 'q', &ev) == MOUSE_PARSE_FAIL, "'q' aborts");
   CHECK(!mouse_parser_active(&p), "idle after abort");
@@ -110,7 +111,7 @@ static void test_parser(void) {
         "feeding an idle parser fails");
 }
 
-// helper: build an event
+// Helper: build an event
 static mouse_event_t E(int x, int y, int button, int motion, int pressed) {
   mouse_event_t e = {x, y, button, motion, 0, pressed};
 
@@ -156,7 +157,7 @@ static void test_drag(void) {
   e = E(30, 26, 0, 0, 1);
   CHECK(DRAG(d, e) == MOUSE_NONE, "just below frame");
 
-  // every corner is a handle, each grabs a different one
+  // Every corner is a handle, each grabs a different one
   struct {
     int x, y, grab;
   } corners[] = {
@@ -249,7 +250,7 @@ static void test_drag(void) {
   e = E(60, 30, 0, 1, 1);
   CHECK(DRAG(d, e) == MOUSE_NONE, "stray motion after release");
 
-  // click without moving, or moving back to start: nothing to apply
+  // Click without moving, or moving back to start: nothing to apply
   e = E(30, 15, 0, 0, 1);
   CHECK(DRAG(d, e) == MOUSE_GRAB, "click inside");
   e = E(30, 15, 0, 0, 0);
