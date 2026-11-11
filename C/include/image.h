@@ -4,9 +4,9 @@
 /*
  * Picture as camera: `--image <file>` / `-d image:<file>`
  *
- * Decodes PNG (every colour type and bit depth, not interlaced) and binary
- * PGM/PPM (P5/P6) with own inflate: no zlib. Anything with transparency is
- * shown over black
+ * Decodes PNG (every colour type and bit depth, not interlaced), baseline JPEG
+ * and binary PGM/PPM (P5/P6) with own inflate and IDCT
+ * Anything with transparency is shown over black
  * Picture is scaled (area average) to fit capture size, aspect kept, black bars
  * where it does not fill
  */
@@ -37,10 +37,17 @@ void image_free(image_t *img);
 void image_fill_yuyv(const image_t *img, uint8_t *yuyv, int w, int h,
                      int stride);
 
+// Baseline JPEG (image_decode calls it): sequential Huffman, 8 bit, grayscale
+// or YCbCr, any sampling, restart intervals. Progressive and CMYK are refused
+int jpeg_decode(const uint8_t *data, size_t n, image_t *out, const char **err);
+
+// 8 x 8 inverse DCT of dequantized coefficients (natural order) into 8 rows of
+// samples stride bytes apart, level shifted and clamped. Exposed for tests
+void jpeg_idct(const int *coef, uint8_t *out, int stride);
+
 // zlib stream (RFC 1950, checksum not verified) into out of cap bytes: bytes
 // written, or Return -1 on bad data or when it does not fit
 // Exposed for tests
 long image_inflate(const uint8_t *src, size_t n, uint8_t *out, size_t cap);
 
 #endif
-

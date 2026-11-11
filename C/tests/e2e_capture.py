@@ -588,7 +588,15 @@ if REAL and os.access(REAL, os.X_OK):
     with open(jpg, "wb") as f:
         f.write(b"\xff\xd8\xff\xe0" + bytes(100))
     _, code, out, _ = run(["--image", jpg] + IARGS, 0.5)
-    check(code != 0 and b"JPEG" in out, "--image JPEG: says it is not supported")
+    check(code != 0 and b"JPEG" in out, "--image damaged JPEG: says so")
+    try:
+        from PIL import Image as _Im
+        jok = os.path.join(idir, "ok.jpg")
+        _Im.new("RGB", (64, 32), (200, 40, 40)).save(jok, quality=90)
+        _, code, out, _ = run(["--image", jok, "-C"] + IARGS[:-4], 1.0)
+        check(code == 0 and b"\x1b[38;2;" in out, "--image JPEG: shown in colour")
+    except ImportError:
+        pass
     inter = os.path.join(idir, "adam7.png")
     write_png(inter, 8, 8, lambda x, y: (1, 2, 3), interlace=1)
     _, code, out, _ = run(["--image", inter] + IARGS, 0.5)
