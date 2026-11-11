@@ -25,11 +25,47 @@ typedef struct {
   size_t n, cap;
 } nb_cmd;
 
-#define nb_log(...)                                                            \
-  do {                                                                         \
-    fprintf(stderr, "[nb] " __VA_ARGS__);                                      \
-    fputc('\n', stderr);                                                       \
-  } while (0)
+// Terminal colors for [nb] tag, by severity:
+//   info    -> blue      pass  -> green
+//   fail    -> red       error -> red
+//   warning -> yellow
+// Codes are emitted only when stderr is a TTY
+#define NB_C_RESET "\033[0m"
+#define NB_C_INFO "\033[34m" // blue
+#define NB_C_PASS "\033[32m" // green
+#define NB_C_FAIL "\033[31m" // red
+#define NB_C_WARN "\033[33m" // yellow
+
+static const char *nb_color(const char *code) {
+  static int tty = -1;
+  if (tty < 0) {
+    tty = isatty(2);
+  }
+
+  return tty ? code : "";
+}
+
+// Single entry point for every severity-tagged log line
+// Color is applied to [nb] tag only; message text stays uncolored so colored
+// output is still greppable
+// Whole line is reset before newline
+static void nb_logv(const char *color, const char *fmt, ...) {
+  fprintf(stderr, "%s[nb]%s ", nb_color(color), nb_color(NB_C_RESET));
+  va_list a;
+  va_start(a, fmt);
+  vfprintf(stderr, fmt, a);
+  va_end(a);
+  fputc('\n', stderr);
+}
+
+// Default logger -> info / blue
+#define nb_log(...) nb_logv(NB_C_INFO, __VA_ARGS__)
+// Severity-specific variants
+#define nb_log_info(...) nb_logv(NB_C_INFO, __VA_ARGS__)
+#define nb_log_pass(...) nb_logv(NB_C_PASS, __VA_ARGS__)
+#define nb_log_fail(...) nb_logv(NB_C_FAIL, __VA_ARGS__)
+#define nb_log_error(...) nb_logv(NB_C_FAIL, __VA_ARGS__)
+#define nb_log_warn(...) nb_logv(NB_C_WARN, __VA_ARGS__)
 
 static void nb_push(nb_cmd *c, const char *s) {
   if (c->n + 1 >= c->cap) {
@@ -96,7 +132,7 @@ static char *nb_fmt(const char *fmt, ...) {
 }
 
 static void nb_show(const nb_cmd *c) {
-  fputs("[nb] $", stderr);
+  fprintf(stderr, "%s[nb]%s $", nb_color(NB_C_INFO), nb_color(NB_C_RESET));
   for (size_t i = 0; i < c->n; i++) {
     fprintf(stderr, " %s", c->v[i]);
   }
@@ -104,7 +140,8 @@ static void nb_show(const nb_cmd *c) {
   fputc('\n', stderr);
 }
 
-// Start a command; returns pid or -1
+// Start a command
+// Returns pid or -1
 static pid_t nb_start(const nb_cmd *c, const char *stdout_path) {
   nb_show(c);
   pid_t p = fork();
@@ -117,7 +154,8 @@ static pid_t nb_start(const nb_cmd *c, const char *stdout_path) {
     }
 
     execvp(c->v[0], (char *const *)c->v);
-    fprintf(stderr, "[nb] cannot run %s: %s\n", c->v[0], strerror(errno));
+    fprintf(stderr, "%s[nb]%s cannot run %s: %s\n", nb_color(NB_C_FAIL),
+            nb_color(NB_C_RESET), c->v[0], strerror(errno));
     _exit(127);
   }
 
@@ -236,7 +274,8 @@ static int nb_copy(const char *from, const char *to, const char *mode) {
 }
 
 // Rebuild this build program when its source (or this header) is newer, then
-// re-run it. Call first thing in main()
+// re-run it
+// Call first thing in main()
 #define NB_REBUILD_SELF(argc, argv, cc)                                        \
   do {                                                                         \
     const char *nb_src_[] = {__FILE__, "nb.h"};                                \
