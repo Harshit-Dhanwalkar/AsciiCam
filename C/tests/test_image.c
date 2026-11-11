@@ -167,8 +167,8 @@ int main(void) {
           "absurd dimensions refused: %s", err ? err : "?");
     CHECK(image_decode((const uint8_t *)"\xff\xd8\xff\xe0 jpeg", 9, &img,
                        &err) == -1 &&
-              err && err[0] == 'J',
-          "JPEG: a clear message");
+              err && err[0] == 'd',
+          "truncated JPEG: damaged, no crash");
     CHECK(image_decode((const uint8_t *)"GIF89a", 6, &img, &err) == -1 && err,
           "other formats refused");
     CHECK(image_decode((const uint8_t *)"", 0, &img, &err) == -1 && err,

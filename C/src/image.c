@@ -727,10 +727,12 @@ int image_decode(const uint8_t *data, size_t n, image_t *out,
     return decode_pnm(data, n, out, err);
   }
 
+  if (n >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff) {
+    return jpeg_decode(data, n, out, err);
+  }
+
   if (err) {
-    *err = n >= 3 && data[0] == 0xff && data[1] == 0xd8
-               ? "JPEG is not supported: use a PNG or PGM/PPM"
-               : "not a PNG or PGM/PPM picture";
+    *err = "not a PNG, JPEG or PGM/PPM picture";
   }
 
   return -1;

@@ -24,7 +24,7 @@ V4L2 on Linux, AVFoundation on macOS, Media Foundation on Windows.
 | Feature                      | Details                                                                                                                            |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | **YUYV to grayscale**        | SSE2 SIMD (`yuyv_to_gray_simd`) - 16 pixels per iteration on x86_64, NEON on ARM64                                                 |
-| **Picture as camera**        | `--image photo.png`: PNG or PGM/PPM through every render mode, effect and plugin; own PNG decoder and inflate, no zlib             |
+| **Picture as camera**        | `--image photo.png`: PNG, JPEG or PGM/PPM through every render mode, effect and plugin; own decoders, no zlib or libjpeg          |
 | **YUYV to RGB**              | Fixed‑point BT.601 conversion for truecolor output                                                                                 |
 | **Render modes**             | Braille, Blocks, ASCII ramp, Half-block, Dots - cycle live with `m`/`M`                                                            |
 | **Edge detection**           | Sobel, Sobel with direction, Laplacian - toggle with `x`/`X`                                                                       |
@@ -213,17 +213,19 @@ plugin = build/invert.so
 asciicam --image photo.png -C            # same as -d image:photo.png
 ```
 
-Shows a PNG or a binary PGM/PPM (`P5`/`P6`) as if it were the camera, so any
-picture goes through the render modes, the effects, the plugins, recording
-and `--vcam`. The picture is shrunk by area average to fit the capture size,
-aspect ratio kept, with black bars where it does not fill; transparency is
-shown over black. It is a still: brightness, contrast, gamma, edge detection
-and the plugins still react live.
+Shows a PNG, a JPEG or a binary PGM/PPM (`P5`/`P6`) as if it were the camera, so any
+picture goes through the render modes, the effects, the plugins, recording and
+`--vcam`. The picture is shrunk by area average to fit the capture size, aspect
+ratio kept, with black bars where it does not fill; transparency is shown over
+black. It is a still: brightness, contrast, gamma, edge detection and the plugins
+still react live.
 
-The decoder is in `src/image.c`, including its own inflate (RFC 1951), so
-there is still no zlib. PNGs of every colour type and bit depth are read;
-interlaced (Adam7) PNGs and JPEG are not, and say so (`convert in.jpg out.png`
-or re-save without interlacing). Pictures up to 4096 x 4096 pixels.
+The decoders are in `src/image.c` (PNG, with its own inflate, RFC 1951) and
+`src/jpeg.c` (baseline JPEG: Huffman, integer IDCT, any chroma subsampling, restart
+markers), so there is still no zlib and no libjpeg. PNGs of every colour type and
+bit depth are read. Interlaced (Adam7) PNGs, progressive JPEG, prithmetic-coded
+JPEG and CMYK JPEG are not, and say so (re-save as a plain PNG or baseline JPEG).
+Pictures up to 4096 x 4096 pixels.
 
 ---
 
