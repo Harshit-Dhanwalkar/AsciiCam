@@ -7,6 +7,7 @@
 #include "curve.h"
 #include "curve_ui.h"
 #include "demo.h"
+#include "image.h"
 #include "mouse.h"
 #include "netenc.h"
 #include "plugin_catalog.h"
@@ -174,6 +175,8 @@ static void print_usage(const char *prog) {
       "  -d <device>   video device             (default: /dev/video0)       \n"
       "  --demo        built-in animated picture, no camera needed           \n"
       "                (same as -d demo)                                     \n"
+      "  --image <f>   a picture as the camera: PNG or PGM/PPM, kept in      \n"
+      "                proportion (same as -d image:<f>)                     \n"
       "  -w <width>    capture width            (default: %d)                \n"
       "  -h <height>   capture height           (default: %d)                \n"
       "  -r <fps>      target framerate         (default: %d)                \n"
@@ -1015,6 +1018,30 @@ int main(int argc, char *argv[]) {
     if (nl_strcmp(argv[i], "--demo") == 0) {
       argv[i] = (char *)"-d" DEMO_DEVICE;
     }
+  }
+
+  // --image <file> is -d image:<file>
+  static char image_arg[600];
+  for (int i = 1; i < argc; i++) {
+    if (nl_strcmp(argv[i], "--image") != 0) {
+      continue;
+    }
+
+    if (i + 1 >= argc || nl_strlen(argv[i + 1]) > 500) {
+      fprintf(stderr, "--image needs a PNG or PGM/PPM file\n");
+
+      return 2;
+    }
+
+    nl_snprintf(image_arg, sizeof(image_arg), "-d" IMAGE_DEVICE_PREFIX "%s",
+                argv[i + 1]);
+    argv[i] = image_arg;
+    for (int k = i + 1; k + 1 < argc; k++) {
+      argv[k] = argv[k + 1];
+    }
+
+    argc--;
+    argv[argc] = NULL;
   }
 
   // --net <kbps>: slow-link mode (getopt only knows short options, so it is

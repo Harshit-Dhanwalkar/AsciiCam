@@ -8,6 +8,7 @@
 #include "ascii.h"
 #include "capture.h"
 #include "demo.h"
+#include "image.h"
 #include "platform.h"
 
 typedef struct webcam_impl webcam_impl_t;
@@ -26,10 +27,14 @@ struct webcam_impl {
   int ae_prio_changed; // cleared AUTO_PRIORITY, restore it on cleanup
   int ae_prio_saved;
 
-  // built-in picture source (-d demo): no camera, a /dev/null fd stands in
+  // Built-in picture source (-d demo): no camera, a /dev/null fd stands in
   int demo;
   long demo_frame;
   struct timespec demo_next;
+
+  // --image: a picture instead of animation
+  const image_t *image;
+  int image_drawn;
 };
 
 #define DEMO_MAX_W 1280
@@ -38,6 +43,37 @@ struct webcam_impl {
 static uint8_t demo_raw[DEMO_MAX_W * 2 * DEMO_MAX_H];
 
 static webcam_impl_t _impl_storage;
+
+// Decoded picture outlives webcam_init: a capture resize reopens source and
+// would decode it again
+static image_t picture;
+static char picture_path[512];
+
+static int load_picture(const char *path) {
+  if (picture.rgb && nl_strcmp(path, picture_path) == 0) {
+    return 0;
+  }
+
+  if (nl_strlen(path) >= sizeof(picture_path)) {
+    fprintf(stderr, "--image: path too long\n");
+
+    return -1;
+  }
+
+  image_t fresh;
+  const char *err = "?";
+  if (image_load(path, &fresh, &err) != 0) {
+    fprintf(stderr, "--image %s: %s\n", path, err);
+
+    return -1;
+  }
+
+  image_free(&picture);
+  picture = fresh;
+  nl_strncpy_safe(picture_path, path, sizeof(picture_path));
+
+  return 0;
+}
 
 static int v4l2_get_value(int fd, unsigned int id, int *value);
 static int v4l2_set_value(int fd, unsigned int id, int value);
@@ -70,7 +106,12 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
   cam->buffer = MAP_FAILED;
   cam->stride = 0;
 
-  if (demo_is_device(device)) {
+  const char *image_path = image_device_path(device);
+  if (image_path && load_picture(image_path) != 0) {
+    return -1;
+  }
+
+  if (demo_is_device(device) || image_path) {
     if (width > DEMO_MAX_W) {
       width = DEMO_MAX_W;
     }
@@ -89,6 +130,7 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
     cam->height = height;
     cam->stride = width * 2;
     cam->impl->demo = 1;
+    cam->impl->image = image_path ? &picture : NULL;
     if (clock_gettime(CLOCK_MONOTONIC, &cam->impl->demo_next) != 0) {
       cam->impl->demo_next.tv_sec = 0;
       cam->impl->demo_next.tv_nsec = 0;
@@ -246,8 +288,15 @@ int webcam_capture_frame(webcam_t *cam, uint8_t *gray_buffer) {
       n->tv_sec++;
     }
 
-    demo_fill_yuyv(demo_raw, cam->width, cam->height, cam->stride,
-                   im->demo_frame++);
+    if (!im->image) {
+      demo_fill_yuyv(demo_raw, cam->width, cam->height, cam->stride,
+                     im->demo_frame++);
+    } else if (!im->image_drawn) {
+      image_fill_yuyv(im->image, demo_raw, cam->width, cam->height,
+                      cam->stride);
+      im->image_drawn = 1;
+    }
+
     cam->buffer = demo_raw;
     yuyv_to_gray_simd(demo_raw, gray_buffer, cam->width, cam->height);
 

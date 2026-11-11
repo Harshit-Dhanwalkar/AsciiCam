@@ -138,6 +138,7 @@ CORE_SRCS := $(SRCDIR)/app_paths.c \
              $(SRCDIR)/thread_sharing.c \
              $(SRCDIR)/timing.c \
              $(SRCDIR)/capture_demo.c \
+             $(SRCDIR)/image.c \
              $(SRCDIR)/recorder.c \
              $(SRCDIR)/vcam.c
 
@@ -298,6 +299,8 @@ test: all
 	$(CC) -O2 $(TEST_FLAGS) tests/test_capture_reinit.c $(SRCDIR)/capture_reinit.c $(TEST_LIBS) -o $(TESTDIR)/reinit
 	$(CC) -O2 $(TEST_FLAGS) tests/test_app_paths.c $(SRCDIR)/app_paths.c $(TEST_LIBS) -o $(TESTDIR)/app_paths
 	$(CC) -O2 $(TEST_FLAGS) tests/test_demo.c $(SRCDIR)/capture_demo.c $(TEST_LIBS) -o $(TESTDIR)/demo
+	$(CC) -O0 $(TEST_FLAGS) tests/test_image.c $(SRCDIR)/image.c $(TEST_LIBS) -o $(TESTDIR)/image_O0
+	$(CC) -O2 $(TEST_FLAGS) tests/test_image.c $(SRCDIR)/image.c $(TEST_LIBS) -o $(TESTDIR)/image_O2
 	$(CC) -O0 $(TEST_FLAGS) tests/test_vcam.c $(SRCDIR)/vcam.c $(TEST_LIBS) -o $(TESTDIR)/vcam_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_vcam.c $(SRCDIR)/vcam.c $(TEST_LIBS) -o $(TESTDIR)/vcam_O2
 	$(CC) -O0 $(TEST_FLAGS) tests/test_recorder.c $(SRCDIR)/recorder.c $(TEST_LIBS) -o $(TESTDIR)/recorder_O0
@@ -342,6 +345,8 @@ test: all
 	$(TESTDIR)/app_paths
 	$(TESTDIR)/catalog
 	$(TESTDIR)/demo
+	$(TESTDIR)/image_O0
+	$(TESTDIR)/image_O2
 	$(TESTDIR)/vcam_O0
 	$(TESTDIR)/vcam_O2
 	$(TESTDIR)/recorder_O0
