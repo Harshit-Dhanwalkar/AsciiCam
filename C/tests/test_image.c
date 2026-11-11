@@ -16,15 +16,13 @@
 #include "image.h"
 
 static int pass_n, fail_n;
-#define CHECK(c, ...)                                                          \
+#define CHECK(c, fmt, ...)                                                     \
   do {                                                                         \
     if (c) {                                                                   \
       pass_n++;                                                                \
     } else {                                                                   \
       fail_n++;                                                                \
-      fprintf(stderr, "FAIL line %d: ", __LINE__);                             \
-      fprintf(stderr, __VA_ARGS__);                                            \
-      fprintf(stderr, "\n");                                                   \
+      fprintf(stderr, "FAIL line %d: " fmt "\n", __LINE__, ##__VA_ARGS__);     \
     }                                                                          \
   } while (0)
 
@@ -39,8 +37,8 @@ typedef struct {
 #include "image_vectors.inc"
 
 #define NVEC ((int)(sizeof(vectors) / sizeof(vectors[0])))
-#define BW 48
-#define BH 32
+// #define BW 48
+// #define BH 32
 
 static void bigpx(int x, int y, uint8_t *o) {
   o[0] = (uint8_t)((x * 5 + y) % 256);
@@ -105,8 +103,8 @@ int main(void) {
     }
   }
 
-  // Damage: cut at every length, and flip random bytes. Never a crash, and a
-  // cut that loses image data is an error
+  // Damage: cut at every length, and flip random bytes
+  // Never a crash, and a cut that loses image data is an error
   const vec_t *big = &vectors[NVEC - 1];
   int cut_ok = 1;
   // (Last 12 bytes are IEND, a file without it still has its picture)
@@ -225,7 +223,7 @@ int main(void) {
     CHECK(refused, "bad PNM headers and short data refused");
   }
 
-  // inflate itself
+  // Inflate itself
   {
     uint8_t out[64];
     static const uint8_t stored[] = {0x78, 0x01, 0x01, 0x03, 0x00, 0xfc, 0xff,
