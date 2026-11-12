@@ -374,7 +374,7 @@ if REAL and os.access(REAL, os.X_OK):
     # Every effect plugin loads through real loader and keeps picture moving
     # (plugin lookups are relative to binary: build/<name>.so)
     plugin_dir = os.path.dirname(os.path.abspath(REAL))
-    for name in ['chromatic', 'crt', 'dither_bayer', 'dither_fs', 'fisheye', 'framediff', 'glitch', 'kaleidoscope', 'matrix_rain', 'neon_edge', 'pixel_sort', 'ripple', 'sepia', 'thermal', 'trails', 'tv_static', 'vhs', 'vignette']:
+    for name in ['chromatic', 'crt', 'dither_bayer', 'dither_fs', 'fisheye', 'framediff', 'glitch', 'kaleidoscope', 'matrix_rain', 'motion', 'neon_edge', 'pixel_sort', 'ripple', 'sepia', 'thermal', 'trails', 'tv_static', 'vhs', 'vignette']:
         so = os.path.join(plugin_dir, name + ".so")
         if not os.path.exists(so):
             check(False, f"plugin {name}: {so} was built")
