@@ -11,6 +11,7 @@ capture thread and once with -T, and checks:
   * with a wedged camera, 'q' is still handled promptly when a capture thread
     is used (inline capture blocks in camera wait)
 """
+
 import fcntl
 import json
 import os
@@ -118,8 +119,8 @@ def session(args, steps, settle=0.6):
     """steps: list of (bytes_to_send, seconds_to_wait). Returns all output."""
     pid, fd = pty.fork()
     if pid == 0:
-        # size terminal before program starts: setting it from   parent races
-        # with startup and can trigger a SIGWINCH auto-fit
+        # Size terminal before program starts: setting it from parent races with
+        # startup and can trigger a SIGWINCH auto-fit
         fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 120, 0, 0))
         os.execv(BIN, [BIN] + args)
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 120, 0, 0))
@@ -216,8 +217,8 @@ for label, extra in (("threaded", []), ("inline -T", ["-T"])):
     check(last_frame(after) == (45, 23), f"{label}: TL corner resize -> 45x23 ({last_frame(after)})")
     check(last_origin(after) == (16, 8), f"{label}: TL resize keeps bottom-right fixed ({last_origin(after)})")
 
-    # colour at full camera size: RGB copy and colour output buffer used to
-    # fill allocator arena, so every resize silently failed
+    # Colour at full camera size: RGB copy and colour output buffer used to fill allocator
+    # arena, so every resize silently failed
     out, marks = session(
         ["-d", "fake", "-w", "640", "-h", "480", "-C", "-W", "100", "-H", "40",
          "-r", "20"] + extra,
@@ -228,7 +229,7 @@ for label, extra in (("threaded", []), ("inline -T", ["-T"])):
     after = out[marks[-3]:]
     check(last_frame(after) == (90, 35), f"{label}: colour 640x480 BR resize -> 90x35 ({last_frame(after)})")
 
-    # a click without dragging changes nothing; 'a' goes back to top-left
+    # A click without dragging changes nothing; 'a' goes back to top-left
     out, marks = session(
         ARGS + extra,
         [
@@ -241,7 +242,7 @@ for label, extra in (("threaded", []), ("inline -T", ["-T"])):
     check(last_origin(out[marks[-3]:marks[-2]]) == (1, 1), f"{label}: 'a' returns frame to top-left")
     check(last_frame(out[marks[-3]:marks[-2]]) == (120, 46), f"{label}: 'a' fits terminal ({last_frame(out[marks[-3]:marks[-2]])})")
 
-    # a terminal may deliver one mouse report in pieces (slow link, tmux, ssh):
+    # A terminal may deliver one mouse report in pieces (slow link, tmux, ssh):
     # same drag byte by byte must resize just same
     def trickle(data):
         return [(bytes([c]), 0.004) for c in data]
@@ -286,7 +287,7 @@ check(os.path.isdir(net_dir) and any(f.endswith(".png") for f in os.listdir(net_
       "--net keeps HOME: screenshot saved under ~/Pictures/asciicam")
 
 for label, extra in (("colour", ["-C"]), ("mono", [])):
-    # captures go to ~/Pictures/asciicam: point HOME at a scratch directory so 
+    # Captures go to ~/Pictures/asciicam: point HOME at a scratch directory so 
     # a test run never writes into real one
     cap_root = tempfile.mkdtemp(prefix="asciicam_cap_")
     os.environ["HOME"] = cap_root
@@ -402,12 +403,12 @@ if REAL and os.access(REAL, os.X_OK):
         check(frames >= 8 and code == 0 and test(w),
               f"plugin {name} repaints colour pictures (warmth {w0 and round(w0)} -> {w and round(w)}, {frames} frames)")
 
-    # mirror + colour keeps drawing (colour planes are flipped with luma)
+    # Mirror + colour keeps drawing (colour planes are flipped with luma)
     frames, code, out, _ = run(["--demo", "-r", "20", "-C", "-f"], 1.2)
     check(frames >= 8 and code == 0 and b"\x1b[38;2;" in out,
           f"--demo -C -f: mirrored colour picture drawn ({frames} frames, exit {code})")
 
-    # slow-link mode: draws and a bad value is refused up front
+    # Slow-link mode: draws and a bad value is refused up front
     for level in ("0", "300"):
         frames, code, out, _ = run(["--demo", "-f", "20", "--net", level], 1.0)
         check(frames >= 8 and code == 0,
@@ -417,7 +418,7 @@ if REAL and os.access(REAL, os.X_OK):
     _, code, out, _ = run(["--demo", "--net"], 1.0)
     check(code == 2, "--net without a value is refused")
 
-    # virtual camera: raw YUYV frames to a file, one whole frame per picture
+    # Virtual camera: raw YUYV frames to a file, one whole frame per picture
     vdir = tempfile.mkdtemp(prefix="asciicam_vcam_")
     vfile = os.path.join(vdir, "cam.yuv")
     vw, vh = 640, 360
@@ -520,7 +521,7 @@ if REAL and os.access(REAL, os.X_OK):
     check(code == 2, "--play without a file is refused")
     shutil.rmtree(play_dir, ignore_errors=True)
 
-    # a missing camera explains how to get a picture
+    # A missing camera explains how to get a picture
     frames, code, out, _ = run(["-d", "/dev/definitely-not-a-camera"], 0.3)
     check(code != 0 and b"--demo" in out, "missing camera: error mentions --demo")
 
@@ -584,11 +585,11 @@ if REAL and os.access(REAL, os.X_OK):
     check(code == 0 and bright and len(bright) < len(allrows) - 4,
           f"wide picture keeps its proportions: bars above and below ({len(bright)} of {len(allrows)} rows)")
 
-    # curve and colour map work on a picture (point of it)
+    # Curve and colour map work on a picture (point of it)
     _, code, out, _ = run(["--image", half, "-C"] + IARGS[:-4], 1.0)
     check(code == 0 and b"\x1b[38;2;" in out, "--image with -C: colour")
 
-    # errors say what is wrong
+    # Errors say what is wrong
     for label, path, want in (("missing file", os.path.join(idir, "nope.png"), b"cannot open"),
                               ("not a picture", __file__, b"not a PNG"),
                               ):
@@ -613,6 +614,48 @@ if REAL and os.access(REAL, os.X_OK):
     cols = [tuple(map(int, m)) for m in re.findall(rb"\x1b\[38;2;(\d+);(\d+);(\d+)m", out)]
     check(code == 0 and any(r > 150 and b < 100 for r, g, b in cols) and any(b > 150 and r < 100 for r, g, b in cols),
           "--image Adam7 PNG: both halves arrive in the right colours")
+
+    # A folder is a slideshow: . and , step, a broken picture is skipped
+    sdir = os.path.join(idir, "show")
+    os.makedirs(sdir)
+    for nm, rgbv in (("a.png", (230, 30, 30)), ("b.png", (30, 230, 30)), ("c.png", (30, 30, 230))):
+        write_png(os.path.join(sdir, nm), 16, 16, lambda x, y, c=rgbv: c)
+    with open(os.path.join(sdir, "d.png"), "wb") as f:
+        f.write(b"not a picture")
+    with open(os.path.join(sdir, "notes.txt"), "w") as f:
+        f.write("x")
+
+    def dominant(seg):
+        cs = [tuple(map(int, m)) for m in re.findall(rb"\x1b\[38;2;(\d+);(\d+);(\d+)m", seg)]
+        if not cs:
+            return None
+        tot = [sum(c[i] for c in cs) for i in range(3)]
+        return "rgb"[tot.index(max(tot))]
+
+    out, marks = session(["--image", sdir, "--slide", "0", "-C"] + IARGS[:-4],
+                         [(b".", 0.7), (b".", 0.7), (b".", 0.7), (b",", 0.7)])
+    segs = [out[:marks[0]]] + [out[marks[i]:marks[i + 1]] for i in range(len(marks) - 1)]
+    seq = [dominant(x) for x in segs[:5]]
+    check(seq == ["r", "g", "b", "r", "b"],
+          f"slideshow: start, . . . (broken one skipped), , -> {seq}")
+    check(b"2/4" in segs[1] and b"b.png" in segs[1], "slideshow: a toast names the picture")
+    check(b"d.png" not in out, "slideshow: the broken picture is never announced")
+
+    _, code, out, _ = run(["--image", sdir, "--slide", "1", "-C"] + IARGS[:-4], 3.2)
+    seen = set()
+    for blk in out.split(SYNC_BEGIN)[1:]:
+        d = dominant(blk)
+        if d:
+            seen.add(d)
+    check(code == 0 and len(seen) >= 3, f"slideshow: moves on by itself, --slide 1 ({sorted(seen)})")
+
+    empty = os.path.join(idir, "empty")
+    os.makedirs(empty)
+    _, code, out, _ = run(["--image", empty] + IARGS, 0.5)
+    check(code != 0 and b"no pictures" in out, "slideshow: empty folder says so")
+    _, code, out, _ = run(["--image", sdir, "--slide", "x"] + IARGS, 0.5)
+    check(code == 2 and b"--slide needs" in out, "--slide with a bad number: usage error")
+
     _, code, out, _ = run(["--image"], 0.5)
     check(code == 2 and b"--image needs" in out, "--image without a file: usage error")
     shutil.rmtree(idir, ignore_errors=True)

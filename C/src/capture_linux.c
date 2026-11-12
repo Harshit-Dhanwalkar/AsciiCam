@@ -10,6 +10,7 @@
 #include "demo.h"
 #include "image.h"
 #include "platform.h"
+#include "slides.h"
 
 typedef struct webcam_impl webcam_impl_t;
 
@@ -35,6 +36,7 @@ struct webcam_impl {
   // --image: a picture instead of animation
   const image_t *image;
   int image_drawn;
+  int slideshow; // --image <folder>
 };
 
 #define DEMO_MAX_W 1280
@@ -75,6 +77,65 @@ static int load_picture(const char *path) {
   return 0;
 }
 
+static long ts_ms(const struct timespec *t) {
+  return (long)t->tv_sec * 1000L + t->tv_nsec / 1000000L;
+}
+
+// Load picture slideshow is on, skipping pictures that cannot be read
+// Return 0 on success
+static int load_slide(long now) {
+  while (slides_active()) {
+    char p[600];
+    if (slides_path(p, sizeof(p)) == 0) {
+      if (picture.rgb && nl_strcmp(p, picture_path) == 0) {
+        return 0;
+      }
+
+      image_t fresh;
+      const char *err = "?";
+      if (image_load(p, &fresh, &err) == 0) {
+        image_free(&picture);
+        picture = fresh;
+        nl_strncpy_safe(picture_path, p, sizeof(picture_path));
+
+        return 0;
+      }
+    }
+
+    if (!slides_mark_bad(now)) {
+      break;
+    }
+  }
+
+  return -1;
+}
+
+// --image <folder>
+// Return 0 when it is a slideshow that shows, 1 when path is not a folder, -1
+// on error (already reported)
+static int start_slides(const char *path, long now) {
+  int n = slides_open(path);
+  if (n < 0) {
+    return 1;
+  }
+
+  if (n == 0) {
+    fprintf(stderr, "--image %s: no pictures (png, jpg, pgm, ppm) in it\n",
+            path);
+
+    return -1;
+  }
+
+  if (load_slide(now) != 0) {
+    fprintf(stderr, "--image %s: none of its %d pictures can be read\n", path,
+            n);
+
+    return -1;
+  }
+
+  return 0;
+}
+
 static int v4l2_get_value(int fd, unsigned int id, int *value);
 static int v4l2_set_value(int fd, unsigned int id, int value);
 
@@ -107,8 +168,19 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
   cam->stride = 0;
 
   const char *image_path = image_device_path(device);
-  if (image_path && load_picture(image_path) != 0) {
-    return -1;
+  int slideshow = 0;
+  if (image_path) {
+    struct timespec t0 = {0, 0};
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    int rc = start_slides(image_path, ts_ms(&t0));
+    if (rc < 0) {
+      return -1;
+    }
+
+    slideshow = rc == 0;
+    if (!slideshow && load_picture(image_path) != 0) {
+      return -1;
+    }
   }
 
   if (demo_is_device(device) || image_path) {
@@ -131,6 +203,7 @@ int webcam_init(webcam_t *cam, const char *device, int width, int height) {
     cam->stride = width * 2;
     cam->impl->demo = 1;
     cam->impl->image = image_path ? &picture : NULL;
+    cam->impl->slideshow = slideshow;
     if (clock_gettime(CLOCK_MONOTONIC, &cam->impl->demo_next) != 0) {
       cam->impl->demo_next.tv_sec = 0;
       cam->impl->demo_next.tv_nsec = 0;
@@ -286,6 +359,12 @@ int webcam_capture_frame(webcam_t *cam, uint8_t *gray_buffer) {
     if (n->tv_nsec >= 1000000000L) {
       n->tv_nsec -= 1000000000L;
       n->tv_sec++;
+    }
+
+    if (im->slideshow && slides_tick(ts_ms(n))) {
+      if (load_slide(ts_ms(n)) == 0) {
+        im->image_drawn = 0;
+      }
     }
 
     if (!im->image) {
