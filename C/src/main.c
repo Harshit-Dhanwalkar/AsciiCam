@@ -2011,7 +2011,6 @@ int main(int argc, char *argv[]) {
           input_log("byte 0x%02x\n", (unsigned char)ch, 0, 0, 0);
         }
 
-<<<<<<< HEAD
         if (prc == MOUSE_PARSE_DONE) {
           // Corners resize ASCII frame 1:1 in cells, dragging body moves it
           // Capture resolution is controlled only by -w/-h at startup and
@@ -2075,7 +2074,7 @@ int main(int argc, char *argv[]) {
           input_log("  frame %d,%d %dx%d", cur.x, cur.y, cur.w, cur.h);
           input_log(" terminal %dx%d panel rows %d\n", term_w, term_h,
                     PANEL_ROWS, 0);
-=======
+
         // Inside an SGR mouse report (ESC [ < b ; x ; y M|m): bytes must not
         // reach key handler, 'M' would cycle render mode
         if (have_x10 || mouse_parser_active(&mouse_parser)) {
@@ -2084,7 +2083,6 @@ int main(int argc, char *argv[]) {
           if (!have_x10) {
             prc = mouse_parser_feed(&mouse_parser, ch, &mev);
           }
->>>>>>> 39b80df (Fix(main): Brakets mismatch errors)
 
           have_x10 = 0;
 
@@ -2140,7 +2138,6 @@ int main(int argc, char *argv[]) {
               }
             }
 
-<<<<<<< HEAD
             switch (seq[1]) {
             case 'A': { // up arrow key
               if (browser.active && browser.tab == BROWS_TAB_CURVE) {
@@ -2188,13 +2185,11 @@ int main(int argc, char *argv[]) {
               break;
             }
             }
-=======
             if (!keep_running) {
               break;
             }
 
             continue;
->>>>>>> 39b80df (Fix(main): Brakets mismatch errors)
           }
           // MOUSE_PARSE_FAIL: not a mouse report after all, handle byte below
           // like any other key
@@ -2212,7 +2207,6 @@ int main(int argc, char *argv[]) {
             char ss3;
             (void)read_escape_byte(&ss3);
 
-<<<<<<< HEAD
       // Browser panel open: it owns keyboard, same convention as plugin
       // picker - typing a filename can't accidentally trigger hotkeys below
       // (b/q/j/k/g/G all have meaning to browser)
@@ -2243,7 +2237,7 @@ int main(int argc, char *argv[]) {
           ba = browser_key(&browser, BR_KEY_ENTER, 0, br_path, sizeof(br_path));
         } else {
           ba = browser_key(&browser, BR_KEY_CHAR, ch, br_path, sizeof(br_path));
-=======
+
             continue;
           }
 
@@ -2330,7 +2324,6 @@ int main(int argc, char *argv[]) {
           }
 
           continue;
->>>>>>> 39b80df (Fix(main): Brakets mismatch errors)
         }
 
         // Browser panel open: it owns keyboard, same convention as plugin
@@ -2521,7 +2514,6 @@ int main(int argc, char *argv[]) {
             TOAST("edges is text/shot only (--gfx %s is live)", gfx_name);
           }
 
-<<<<<<< HEAD
         break;
       }
       case '.':
@@ -2612,7 +2604,6 @@ int main(int argc, char *argv[]) {
           browser_toggle(&browser);
           if (browser.active) {
             browser_scan(&browser, cap_dir);
->>>>>>> 39b80df (Fix(main): Brakets mismatch errors)
           } else {
             browser_clear_area(term_h, term_w);
           }
@@ -2680,7 +2671,6 @@ int main(int argc, char *argv[]) {
         case 'W': {
           webcam_adjust_white_balance(&cam, 100, &hw_wb);
 
-<<<<<<< HEAD
         break;
       }
       case 's':
@@ -2699,14 +2689,12 @@ int main(int argc, char *argv[]) {
           browser_scan(&browser, cap_dir);
         } else {
           browser_clear_area(term_h, term_w);
-=======
+
           break;
->>>>>>> 39b80df (Fix(main): Brakets mismatch errors)
         }
         case 'c': {
           webcam_adjust_contrast(&cam, -5, &hw_contrast);
 
-<<<<<<< HEAD
         break;
       }
       case 'k':
@@ -2738,9 +2726,8 @@ int main(int argc, char *argv[]) {
         } else {
           char tb[REC_TOAST_W + 8];
           TOAST("cannot record into %s", path_tail(cap_dir, tb, sizeof(tb)));
-=======
+
           break;
->>>>>>> 39b80df (Fix(main): Brakets mismatch errors)
         }
         case 'C': {
           webcam_adjust_contrast(&cam, 5, &hw_contrast);
