@@ -52,11 +52,11 @@ static const char *lib_src[] = {
     "lib/nl_alloc.c",  "lib/nl_gc.c",  "lib/nl_dlfcn.c",  "lib/nl_errno.c",
     "lib/nl_getopt.c", "lib/nl_mem.c", "lib/nl_printf.c", "lib/nl_start.c"};
 static const char *plugin_name[] = {
-    "edge_detect",  "invert",      "threshold", "chromatic",  "crt",
-    "dither_bayer", "dither_fs",   "fisheye",   "framediff",  "glitch",
-    "kaleidoscope", "matrix_rain", "neon_edge", "pixel_sort", "ripple",
-    "sepia",        "thermal",     "trails",    "tv_static",  "vhs",
-    "vignette"};
+    "edge_detect",  "invert",      "threshold", "chromatic", "crt",
+    "dither_bayer", "dither_fs",   "fisheye",   "framediff", "glitch",
+    "kaleidoscope", "matrix_rain", "motion",    "neon_edge", "pixel_sort",
+    "ripple",       "sepia",       "thermal",   "trails",    "tv_static",
+    "vhs",          "vignette"};
 
 #define COUNT(a) (sizeof(a) / sizeof(*a))
 

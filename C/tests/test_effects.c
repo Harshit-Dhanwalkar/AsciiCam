@@ -24,6 +24,7 @@
 #include "../filters/glitch.c"
 #include "../filters/kaleidoscope.c"
 #include "../filters/matrix_rain.c"
+#include "../filters/motion.c"
 #include "../filters/neon_edge.c"
 #include "../filters/pixel_sort.c"
 #include "../filters/ripple.c"
@@ -82,6 +83,7 @@ static const effect_t effects[] = {
     {"glitch", glitch_process, 1},
     {"kaleidoscope", kaleidoscope_process, 1},
     {"matrix_rain", matrix_rain_process, 1},
+    {"motion", motion_process, 1},
     {"neon_edge", neon_edge_process, 1},
     {"pixel_sort", pixel_sort_process, 1},
     {"ripple", ripple_process, 1},
@@ -548,6 +550,161 @@ static void test_trails_framediff(void) {
         "framediff");
 }
 
+// Still textured scene, optional bright square of side sq at (sx, sy)
+static void motion_scene(uint8_t *g, int w, int h, int bright, int sx, int sy,
+                         int sq, int sqdelta) {
+  uint32_t s = 99;
+  for (int y = 0; y < h; y++) {
+    for (int x = 0; x < w; x++) {
+      int v = 70 + x * 40 / w + y * 30 / h + fx_rand_n(&s, 6) + bright;
+      if (sq > 0 && x >= sx && x < sx + sq && y >= sy && y < sy + sq) {
+        v += sqdelta;
+      }
+
+      g[y * w + x] = fx_u8(v);
+    }
+  }
+}
+
+static void test_motion(void) {
+  const char *n = "motion";
+  enum { W = 160, H = 96 };
+  static uint8_t g[W * H], ref[W * H];
+  // size change resets history; first frame is the background
+  uint8_t tiny[16 * 16] = {0};
+  run_param("motion", tiny, 16, 16, 128);
+  for (int f = 0; f < 6; f++) {
+    motion_scene(g, W, H, 0, 0, 0, 0, 0);
+    nl_memcpy(ref, g, sizeof(g));
+    run_param("motion", g, W, H, 128);
+    CHECK(!differs(g, ref, sizeof(g)), "a still scene is left alone", n);
+  }
+
+  // something enters
+  motion_scene(g, W, H, 0, 64, 32, 24, 120);
+  nl_memcpy(ref, g, sizeof(g));
+  run_param("motion", g, W, H, 128);
+  CHECK(differs(g, ref, sizeof(g)), "a moving square is noticed", n);
+  // frame is round the square: cells 8..10 wide, 4..6 high -> x 64..87
+  int on_frame = 1;
+  for (int x = 64; x < 88; x++) {
+    int a = g[32 * W + x], b = g[33 * W + x];
+    on_frame = on_frame && (a == 0 || a == 255) && (b == 0 || b == 255);
+  }
+
+  CHECK(on_frame, "frame runs along its top edge", n);
+  int all_sides = 1;
+  for (int x = 64; x < 88; x++) {
+    all_sides = all_sides && (g[55 * W + x] == 0 || g[55 * W + x] == 255) &&
+                (g[54 * W + x] == 0 || g[54 * W + x] == 255);
+  }
+
+  for (int y = 32; y < 56; y++) {
+    all_sides = all_sides && (g[y * W + 64] == 0 || g[y * W + 64] == 255) &&
+                (g[y * W + 87] == 0 || g[y * W + 87] == 255);
+  }
+
+  CHECK(all_sides, "frame has all four sides", n);
+  CHECK(g[56 * W + 70] == ref[56 * W + 70] &&
+            g[31 * W + 70] == ref[31 * W + 70] &&
+            g[40 * W + 88] == ref[40 * W + 88] &&
+            g[40 * W + 63] == ref[40 * W + 63],
+        "frame is no bigger than the moving cells", n);
+  CHECK(g[32 * W + 64] == 255 || g[32 * W + 64] == 0, "frame corner", n);
+  int outside_same = 1;
+  for (int y = 0; y < 28; y++) {
+    for (int x = 0; x < W; x++) {
+      outside_same = outside_same && g[y * W + x] == ref[y * W + x];
+    }
+  }
+
+  CHECK(outside_same, "far from the motion nothing changes", n);
+  // Inside frame the picture is untouched
+  CHECK(g[44 * W + 76] == ref[44 * W + 76], "inside the frame is the picture",
+        n);
+  // Meter at bottom: left part full, right part dark
+  int bar_y = H - 2;
+  CHECK(g[bar_y * W + 2] == 255 &&
+            g[bar_y * W + W - 3] <= ref[bar_y * W + W - 3] / 4,
+        "meter: filled at left, darkened at right", n);
+
+  // Square stays: it fades into the background after a while
+  int gone = 0;
+  for (int f = 0; f < 150 && !gone; f++) {
+    motion_scene(g, W, H, 0, 64, 32, 24, 120);
+    nl_memcpy(ref, g, sizeof(g));
+    run_param("motion", g, W, H, 128);
+    gone = !differs(g, ref, sizeof(g));
+  }
+
+  CHECK(gone, "what stops moving becomes background", n);
+
+  // Whole picture gets brighter (auto exposure): not motion
+  for (int f = 0; f < 150; f++) {
+    motion_scene(g, W, H, 0, 0, 0, 0, 0);
+    run_param("motion", g, W, H, 128);
+  }
+
+  for (int f = 0; f < 6; f++) {
+    motion_scene(g, W, H, 40, 0, 0, 0, 0);
+    nl_memcpy(ref, g, sizeof(g));
+    run_param("motion", g, W, H, 128);
+    CHECK(!differs(g, ref, sizeof(g)), "a lamp switched on is not motion", n);
+  }
+
+  // One noisy cell is not motion; needs a neighbour
+  for (int f = 0; f < 40; f++) {
+    motion_scene(g, W, H, 0, 0, 0, 0, 0);
+    run_param("motion", g, W, H, 128);
+  }
+
+  motion_scene(g, W, H, 0, 40, 40, 8, 120);
+  nl_memcpy(ref, g, sizeof(g));
+  run_param("motion", g, W, H, 128);
+  CHECK(!differs(g, ref, sizeof(g)), "a single cell is noise", n);
+
+  // Sensitivity: a faint change is seen at 255 and not at 10
+  for (int round = 0; round < 2; round++) {
+    int p = round == 0 ? 255 : 10;
+    for (int f = 0; f < 40; f++) {
+      motion_scene(g, W, H, 0, 0, 0, 0, 0);
+      run_param("motion", g, W, H, p);
+    }
+
+    motion_scene(g, W, H, 0, 40, 40, 32, 12);
+    nl_memcpy(ref, g, sizeof(g));
+    run_param("motion", g, W, H, p);
+    if (round == 0) {
+      CHECK(differs(g, ref, sizeof(g)), "faint motion seen at full sensitivity",
+            n);
+    } else {
+      CHECK(!differs(g, ref, sizeof(g)),
+            "faint motion ignored at low sensitivity", n);
+    }
+  }
+
+  // Switching off forgets: back on, first frame is only background
+  run_param("motion", g, W, H, 0);
+  motion_scene(g, W, H, 0, 64, 32, 24, 120);
+  nl_memcpy(ref, g, sizeof(g));
+  run_param("motion", g, W, H, 128);
+  CHECK(!differs(g, ref, sizeof(g)), "off and on again starts over", n);
+
+  // Tiny and odd frames pass through, box stays inside the frame
+  uint8_t small[10 * 10];
+  nl_memset(small, 5, sizeof(small));
+  run_param("motion", small, 10, 10, 128);
+  nl_memset(small, 250, sizeof(small));
+  run_param("motion", small, 10, 10, 128);
+  CHECK(small[0] == 250, "frame smaller than two cells: untouched", n);
+  static uint8_t odd[203 * 117];
+  motion_scene(odd, 203, 117, 0, 0, 0, 0, 0);
+  run_param("motion", odd, 203, 117, 128);
+  motion_scene(odd, 203, 117, 0, 160, 80, 40, 120);
+  run_param("motion", odd, 203, 117, 128);
+  CHECK(1, "odd frame size runs", n);
+}
+
 static void test_noise_effects(void) {
   uint8_t g[200 * 100];
   nl_memset(g, 100, sizeof(g));
@@ -816,6 +973,7 @@ int main(void) {
   test_kaleidoscope();
   test_dither();
   test_trails_framediff();
+  test_motion();
   test_noise_effects();
   test_sort_and_glitch();
   test_rain_crt_neon();
