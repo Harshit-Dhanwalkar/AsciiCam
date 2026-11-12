@@ -441,11 +441,90 @@ static uint8_t scale8(unsigned v, unsigned depth) {
   return (uint8_t)(depth == 8 ? v : v * 255u / ((1u << depth) - 1u));
 }
 
+// Adam7: pass start and step in x and y
+static const uint8_t a7x0[7] = {0, 4, 0, 2, 0, 1, 0};
+static const uint8_t a7y0[7] = {0, 0, 4, 0, 2, 0, 1};
+static const uint8_t a7dx[7] = {8, 8, 4, 4, 2, 2, 1};
+static const uint8_t a7dy[7] = {8, 8, 8, 4, 4, 2, 2};
+
+// Size of pass p (0 when empty)
+static void a7_size(unsigned p, uint32_t w, uint32_t h, uint32_t *pw,
+                    uint32_t *ph) {
+  *pw = w > a7x0[p] ? (w - a7x0[p] + a7dx[p] - 1u) / a7dx[p] : 0;
+  *ph = h > a7y0[p] ? (h - a7y0[p] + a7dy[p] - 1u) / a7dy[p] : 0;
+}
+
+// Bytes of the 7 filtered pass images, each row with its filter byte
+static size_t a7_len(uint32_t w, uint32_t h, size_t bits) {
+  size_t total = 0;
+  for (unsigned p = 0; p < 7; p++) {
+    uint32_t pw, ph;
+    a7_size(p, w, h, &pw, &ph);
+    if (pw && ph) {
+      total += ((size_t)pw * bits + 7) / 8 + 1;
+      total += (((size_t)pw * bits + 7) / 8 + 1) * (ph - 1);
+    }
+  }
+
+  return total;
+}
+
+// Unfilter the passes in place and scatter their pixels into a new buffer laid
+// out like a plain image: h rows of a zero filter byte and stride bytes
+// Returns NULL on bad data or when out of memory
+static uint8_t *deinterlace(uint8_t *raw, uint32_t w, uint32_t h,
+                            unsigned channels, unsigned depth, size_t stride) {
+  size_t bits = (size_t)channels * depth;
+  size_t bpp = (bits + 7) / 8;
+  uint8_t *flat = nl_malloc((stride + 1) * h);
+  if (!flat) {
+    return NULL;
+  }
+
+  nl_memset(flat, 0, (stride + 1) * h);
+  size_t off = 0;
+  for (unsigned p = 0; p < 7; p++) {
+    uint32_t pw, ph;
+    a7_size(p, w, h, &pw, &ph);
+    if (!pw || !ph) {
+      continue;
+    }
+
+    size_t ps = ((size_t)pw * bits + 7) / 8;
+    if (unfilter(raw + off, (int)ph, ps, bpp) != 0) {
+      nl_free(flat);
+
+      return NULL;
+    }
+
+    for (uint32_t y = 0; y < ph; y++) {
+      const uint8_t *src = raw + off + (size_t)y * (ps + 1) + 1;
+      uint8_t *dst = flat + (size_t)(a7y0[p] + y * a7dy[p]) * (stride + 1) + 1;
+      for (uint32_t x = 0; x < pw; x++) {
+        size_t dx = a7x0[p] + (size_t)x * a7dx[p];
+        if (bits >= 8) {
+          nl_memcpy(dst + dx * bpp, src + (size_t)x * bpp, bpp);
+        } else {
+          unsigned v = sample(src, x, depth);
+          size_t bit = dx * depth;
+          dst[bit / 8] |= (uint8_t)(v << (8u - depth - (unsigned)(bit % 8u)));
+        }
+      }
+    }
+
+    off += ps * ph + ph;
+  }
+
+  return flat;
+}
+
 static int decode_png(const uint8_t *d, size_t n, image_t *out,
                       const char **err) {
   uint32_t w = 0, h = 0;
-  unsigned depth = 0, ctype = 0;
+  unsigned depth = 0;
+  unsigned ctype = 0;
   int have_ihdr = 0;
+  int interlaced = 0;
   uint8_t pal[256 * 3];
   unsigned npal = 0;
   uint8_t *idat = NULL;
@@ -475,10 +554,11 @@ static int decode_png(const uint8_t *d, size_t n, image_t *out,
         goto done;
       }
 
-      if (body[12] != 0) {
-        msg = "interlaced PNG is not supported, save it without interlacing";
+      if (body[12] > 1) {
         goto done;
       }
+
+      interlaced = body[12];
 
       have_ihdr = 1;
     } else if (eq_bytes(type, "PLTE", 4)) {
@@ -545,7 +625,9 @@ static int decode_png(const uint8_t *d, size_t n, image_t *out,
   }
 
   size_t stride = ((size_t)w * channels * depth + 7) / 8;
-  size_t raw_len = (stride + 1) * h;
+  size_t raw_len =
+      interlaced ? a7_len(w, h, (size_t)channels * depth) : (stride + 1) * h;
+
   uint8_t *raw = nl_malloc(raw_len);
   if (!raw) {
     msg = "out of memory";
@@ -554,7 +636,20 @@ static int decode_png(const uint8_t *d, size_t n, image_t *out,
 
   long got = image_inflate(idat, idat_len, raw, raw_len);
   size_t bpp = (channels * depth + 7) / 8;
-  if (got != (long)raw_len || unfilter(raw, (int)h, stride, bpp) != 0) {
+  if (got != (long)raw_len) {
+    nl_free(raw);
+    goto done;
+  }
+
+  if (interlaced) {
+    uint8_t *flat = deinterlace(raw, w, h, channels, depth, stride);
+    nl_free(raw);
+    if (!flat) {
+      goto done;
+    }
+
+    raw = flat;
+  } else if (unfilter(raw, (int)h, stride, bpp) != 0) {
     nl_free(raw);
     goto done;
   }

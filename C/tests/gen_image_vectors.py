@@ -41,17 +41,34 @@ def pack_samples(samples, depth):
     return bytes(int(bits[i:i + 8], 2) for i in range(0, len(bits), 8))
 
 
-def png(w, h, ctype, depth, rows, pal=None, level=6, filters=(0, 1, 2, 3, 4)):
+ADAM7 = [(0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4),
+         (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)]
+
+def png(w, h, ctype, depth, rows, pal=None, level=6, filters=(0, 1, 2, 3, 4),
+        interlace=0):
     ch = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[ctype]
     bpp = max(1, ch * depth // 8)
     raw = b""
-    prev = bytes(len(pack_samples(rows[0], depth)))
-    for y, r in enumerate(rows):
-        packed = pack_samples(r, depth)
-        raw += filt(filters[y % len(filters)], packed, prev, bpp)
-        prev = packed
+    if interlace:
+        # each pass is its own little image with its own filtering
+        for x0, y0, dx, dy in ADAM7:
+            sub = [[v for x in range(x0, w, dx) for v in r[x * ch:(x + 1) * ch]]
+                   for r in rows[y0::dy]]
+            if not sub or not sub[0]:
+                continue
+            prev = bytes(len(pack_samples(sub[0], depth)))
+            for y, r in enumerate(sub):
+                packed = pack_samples(r, depth)
+                raw += filt(filters[y % len(filters)], packed, prev, bpp)
+                prev = packed
+    else:
+        prev = bytes(len(pack_samples(rows[0], depth)))
+        for y, r in enumerate(rows):
+            packed = pack_samples(r, depth)
+            raw += filt(filters[y % len(filters)], packed, prev, bpp)
+            prev = packed
     out = b"\x89PNG\r\n\x1a\n"
-    out += chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, depth, ctype, 0, 0, 0))
+    out += chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, depth, ctype, 0, 0, interlace))
     if pal:
         out += chunk(b"PLTE", bytes(v for c in pal for v in c))
     z = zlib.compress(raw, level)
@@ -120,13 +137,13 @@ for depth in (1, 2, 4, 8):
     pal = [((i * 53 + 10) % 256, (i * 97 + 5) % 256, (i * 29 + 200) % 256) for i in range(n)]
     add("pal%d" % depth, W, H, 3, depth,
         [[((x + y * 2) % n,) for x in range(W)] for y in range(H)], pal=pal)
-# one filter type at a time, so a broken filter is named
+# One filter type at a time, so a broken filter is named
 for ft in range(5):
     add("filter%d" % ft, W, H, 2, 8,
         [[((x * 31 + y * 7) % 256, (x * y * 11) % 256, (x + y * 40) % 256) for x in range(W)] for y in range(H)],
         filters=(ft,))
-# noise through the Paeth and Average filters: ties between the three
-# predictors and rounding of the average show up there
+# Noise through the Paeth and Average filters: ties between the three predictors
+# and rounding of the average show up there
 import random
 
 rnd = random.Random(7)
@@ -134,13 +151,40 @@ for ft in (3, 4):
     add("noise_f%d" % ft, 16, 16, 2, 8,
         [[tuple(rnd.randrange(256) for _ in range(3)) for x in range(16)] for y in range(16)],
         filters=(ft,))
-# compression: stored, fixed Huffman (tiny input), dynamic, long runs
+# Compression: stored, fixed Huffman (tiny input), dynamic, long runs
 add("stored", W, H, 2, 8, [[(x * 30, y * 40, 7) for x in range(W)] for y in range(H)], level=0)
 add("fixed", 2, 2, 0, 8, [[(10,), (200,)], [(90,), (255,)]], level=9)
 add("onepixel", 1, 1, 2, 8, [[(1, 2, 3)]])
 add("runs", 40, 3, 0, 8, [[(0,) for x in range(40)], [(255,) for x in range(40)], [(128,) for x in range(40)]], level=9)
 
-# the big one is a formula in test_image.c too: 48 x 32 smooth RGB, dynamic blocks
+# Adam7: sizes where some passes are empty (1x1, 3x2, 5x1) and where all seven
+# exist (9x9, 13x11), for every colour type and bit depth
+for (iw, ih) in ((1, 1), (3, 2), (5, 1), (9, 9), (13, 11)):
+    tag = "%dx%d" % (iw, ih)
+    for depth in (1, 2, 4, 8, 16):
+        mx = (1 << depth) - 1
+        add("a7_gray%d_%s" % (depth, tag), iw, ih, 0, depth,
+            [[((x * 5 + y * 3) % (mx + 1),) for x in range(iw)] for y in range(ih)], interlace=1)
+    add("a7_rgb8_" + tag, iw, ih, 2, 8,
+        [[((x * 36 + 3) % 256, (y * 50) % 256, (x * y * 7) % 256) for x in range(iw)] for y in range(ih)], interlace=1)
+    add("a7_rgb16_" + tag, iw, ih, 2, 16,
+        [[((x * 9000) % 65536, (y * 11000) % 65536, (x * y * 1300) % 65536) for x in range(iw)] for y in range(ih)], interlace=1)
+    add("a7_rgba8_" + tag, iw, ih, 6, 8,
+        [[((x * 36) % 256, (y * 50) % 256, 200, (x * 40 + y * 9 + 20) % 256) for x in range(iw)] for y in range(ih)], interlace=1)
+    add("a7_ga8_" + tag, iw, ih, 4, 8,
+        [[((x * 37 + y) % 256, (x * 40 + 30) % 256) for x in range(iw)] for y in range(ih)], interlace=1)
+    for depth in (1, 2, 4, 8):
+        n = min(1 << depth, 16)
+        pal = [((i * 53 + 10) % 256, (i * 97 + 5) % 256, (i * 29 + 200) % 256) for i in range(n)]
+        add("a7_pal%d_%s" % (depth, tag), iw, ih, 3, depth,
+            [[((x + y * 2) % n,) for x in range(iw)] for y in range(ih)], pal=pal, interlace=1)
+# Same picture with and without interlacing must decode identically
+add("a7_noise", 21, 17, 2, 8,
+    [[tuple(rnd.randrange(256) for _ in range(3)) for x in range(21)] for y in range(17)],
+    filters=(4, 3, 2, 1, 0), interlace=1)
+
+
+# Big one is a formula in test_image.c too: 48 x 32 smooth RGB, dynamic blocks
 BW, BH = 48, 32
 
 
