@@ -18,9 +18,7 @@
  * A frame is sent whole or not at all, apart from its tail, which is queued
  *
  * NOTE: Numeric IPv4 only (and "localhost"): no name lookup, no libc resolver
- * Linux only
- * WARN: For Windows and MacOS every call fails
- * TODO: Implement support fot Windows and MacOS
+ * Supported on Linux, macOS, and Windows
  */
 
 #include "nl_types.h"

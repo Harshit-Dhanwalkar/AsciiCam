@@ -80,18 +80,13 @@ static volatile sig_atomic_t raw_mode_active = 0;
 static struct termios orig_terminal;
 
 // write(2) may take only part of a big frame (a signal such as SIGWINCH lands
-// mid-write, or pty is busy). A cut-off frame leaves stale rows and, with
-// colour, half an escape sequence: loop until everything is out
-// select(2) sets, with unsigned arithmetic
-static void fdset_add(nl_fd_set *s, int fd) {
-  unsigned u = (unsigned)fd;
-  s->fds_bits[u / 64u] |= 1UL << (u % 64u);
-}
+// mid-write, or pty is busy)
+// A cut-off frame leaves stale rows and, with colour, half an escape sequence:
+// loop until everything is out select(2) sets, with unsigned arithmetic
+static inline void fdset_add(nl_fd_set *s, int fd) { NL_FD_SET(fd, s); }
 
-static int fdset_has(const nl_fd_set *s, int fd) {
-  unsigned u = (unsigned)fd;
-
-  return (s->fds_bits[u / 64u] >> (u % 64u)) % 2UL != 0;
+static inline int fdset_has(const nl_fd_set *s, int fd) {
+  return NL_FD_ISSET(fd, s) != 0;
 }
 
 static void write_all(int fd, const char *p, size_t n) {

@@ -8,39 +8,7 @@
 
 #include "netview.h"
 
-#if defined(__LINUX_NOLIBC__)
-
-#define SYS_socket 41
-#define SYS_connect 42
-#define SYS_sendto 44
-#define SYS_bind 49
-#define SYS_listen 50
-#define SYS_getsockname 51
-#define SYS_setsockopt 54
-#define SYS_accept4 288
-
-#define AF_INET 2
-#define SOL_SOCKET 1
-#define SO_REUSEADDR 2
-#define IPPROTO_TCP 6
-#define TCP_NODELAY 1
-// combined flags as single constants (tidy: no bitwise on signed ints)
-#define NV_SOCK_LISTEN 02004001  // SOCK_STREAM, SOCK_NONBLOCK, SOCK_CLOEXEC
-#define NV_SOCK_CLIENT 02000001  // SOCK_STREAM, SOCK_CLOEXEC
-#define NV_ACCEPT_FLAGS 02004000 // SOCK_NONBLOCK, SOCK_CLOEXEC
-#define NV_MSG_FLAGS 0x4040      // MSG_NOSIGNAL, MSG_DONTWAIT
-#define NV_EAGAIN 11
-#define NV_EINTR 4
-
-struct nv_sockaddr_in {
-  uint16_t family;
-  uint16_t port; // network order
-  uint32_t addr; // network order
-  uint8_t zero[8];
-};
-
-#define HELLO "\033[0m\033[?25l\033[2J"
-
+// Shared helpers (Platform Independent)
 static uint16_t be16(int v) {
   return (uint16_t)(((unsigned)v & 255u) * 256u +
                     (((unsigned)v / 256u) & 255u));
@@ -61,7 +29,6 @@ static int parse_port(const char *s, int *port) {
     if (*s < '0' || *s > '9') {
       return -1;
     }
-
     v = v * 10 + (*s - '0');
     if (v > 65535) {
       return -1;
@@ -73,7 +40,6 @@ static int parse_port(const char *s, int *port) {
   return 0;
 }
 
-// Dotted quad of exactly four numbers 0..255 in s[0..n)
 static int parse_ip(const char *s, size_t n, uint32_t *ip) {
   uint32_t v = 0;
   size_t i = 0;
@@ -92,13 +58,11 @@ static int parse_ip(const char *s, size_t n, uint32_t *ip) {
     if (digits == 0) {
       return -1;
     }
-
     v = v * 256u + num;
     if (part < 3) {
       if (i >= n || s[i] != '.') {
         return -1;
       }
-
       i++;
     }
   }
@@ -106,7 +70,6 @@ static int parse_ip(const char *s, size_t n, uint32_t *ip) {
   if (i != n) {
     return -1;
   }
-
   *ip = v;
 
   return 0;
@@ -152,6 +115,40 @@ int nv_parse_addr(const char *s, uint32_t *ip, int *port) {
 
   return parse_port(colon + 1, port);
 }
+
+//  Linux nolibc implementation
+#if defined(__LINUX_NOLIBC__)
+
+#define SYS_socket 41
+#define SYS_connect 42
+#define SYS_sendto 44
+#define SYS_bind 49
+#define SYS_listen 50
+#define SYS_getsockname 51
+#define SYS_setsockopt 54
+#define SYS_accept4 288
+
+#define AF_INET 2
+#define SOL_SOCKET 1
+#define SO_REUSEADDR 2
+#define IPPROTO_TCP 6
+#define TCP_NODELAY 1
+// Combined flags as single constants (tidy: no bitwise on signed ints)
+#define NV_SOCK_LISTEN 02004001  // SOCK_STREAM, SOCK_NONBLOCK, SOCK_CLOEXEC
+#define NV_SOCK_CLIENT 02000001  // SOCK_STREAM, SOCK_CLOEXEC
+#define NV_ACCEPT_FLAGS 02004000 // SOCK_NONBLOCK, SOCK_CLOEXEC
+#define NV_MSG_FLAGS 0x4040      // MSG_NOSIGNAL, MSG_DONTWAIT
+#define NV_EAGAIN 11
+#define NV_EINTR 4
+
+struct nv_sockaddr_in {
+  uint16_t family;
+  uint16_t port; // network order
+  uint32_t addr; // network order
+  uint8_t zero[8];
+};
+
+#define HELLO "\033[0m\033[?25l\033[2J"
 
 static long send_some(int fd, const uint8_t *p, size_t n) {
   for (;;) {
@@ -347,44 +344,260 @@ int nv_connect(const char *hostport) {
   return (int)fd;
 }
 
+// macOS / WINDOWS PROPER IMPLEMENTATION
 #else
 
-int nv_parse_addr(const char *s, uint32_t *ip, int *port) {
-  (void)s;
-  (void)ip;
-  (void)port;
+#ifdef PLATFORM_WINDOWS
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+#define close closesocket
+#define NV_EAGAIN WSAEWOULDBLOCK
+#define NV_EINTR WSAEINTR
+#define MSG_NOSIGNAL 0
+#else
+#include <arpa/inet.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#define NV_EAGAIN EAGAIN
+#define NV_EINTR EINTR
+#ifdef PLATFORM_MACOS
+#define SO_NOSIGPIPE 0x1022
+#endif
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+#endif
 
-  return -1;
-}
+#define HELLO "\033[0m\033[?25l\033[2J"
 
 int nv_listen(nv_server_t *srv, uint32_t ip, int port) {
-  (void)ip;
-  (void)port;
+  nl_memset(srv, 0, sizeof(*srv));
+  for (int i = 0; i < NV_MAX_CLIENTS; i++)
+    srv->cl[i].fd = -1;
   srv->lfd = -1;
 
-  return -1;
+#ifdef PLATFORM_WINDOWS
+  WSADATA wsaData;
+  if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
+    return -1;
+#endif
+
+  srv->lfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (srv->lfd < 0)
+    return -1;
+
+#ifdef PLATFORM_MACOS
+  int nosigpipe = 1;
+  setsockopt(srv->lfd, SOL_SOCKET, SO_NOSIGPIPE, &nosigpipe, sizeof(nosigpipe));
+#endif
+
+  int one = 1;
+  setsockopt(srv->lfd, SOL_SOCKET, SO_REUSEADDR, (const char *)&one,
+             sizeof(one));
+
+#ifdef PLATFORM_WINDOWS
+  u_long mode = 1;
+  ioctlsocket(srv->lfd, FIONBIO, &mode);
+#else
+  int flags = fcntl(srv->lfd, F_GETFL, 0);
+  fcntl(srv->lfd, F_SETFL, flags | O_NONBLOCK);
+#endif
+
+  struct sockaddr_in a;
+  nl_memset(&a, 0, sizeof(a));
+  a.sin_family = AF_INET;
+  a.sin_port = htons((uint16_t)port);
+  a.sin_addr.s_addr = htonl(ip == 0 ? 0x7f000001u : ip);
+
+  if (bind(srv->lfd, (struct sockaddr *)&a, sizeof(a)) < 0 ||
+      listen(srv->lfd, 16) < 0) {
+    close(srv->lfd);
+    srv->lfd = -1;
+    return -1;
+  }
+
+  struct sockaddr_in got;
+  socklen_t len = sizeof(got);
+  if (getsockname(srv->lfd, (struct sockaddr *)&got, &len) == 0) {
+    srv->port = ntohs(got.sin_port);
+  } else {
+    srv->port = port;
+  }
+  return 0;
 }
 
 int nv_accept(nv_server_t *srv) {
-  (void)srv;
+  int fresh = 0;
+  while (srv->lfd >= 0) {
+    struct sockaddr_in client_addr;
+    socklen_t client_len = sizeof(client_addr);
+    int fd = accept(srv->lfd, (struct sockaddr *)&client_addr, &client_len);
+    if (fd < 0) {
+#ifdef PLATFORM_WINDOWS
+      if (WSAGetLastError() == WSAEWOULDBLOCK || WSAGetLastError() == WSAEINTR)
+        break;
+#else
+      if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
+        break;
+#endif
+      break;
+    }
+    if (srv->nclients >= NV_MAX_CLIENTS) {
+      close(fd);
+      continue;
+    }
 
-  return 0;
+    int one = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof(one));
+#ifdef PLATFORM_MACOS
+    int nosigpipe = 1;
+    setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &nosigpipe, sizeof(nosigpipe));
+#endif
+
+#ifdef PLATFORM_WINDOWS
+    u_long mode = 1;
+    ioctlsocket(fd, FIONBIO, &mode);
+#else
+    int flags = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+#endif
+
+    srv->cl[srv->nclients] = (nv_client_t){.fd = fd};
+    srv->nclients++;
+    send(fd, HELLO, sizeof(HELLO) - 1, MSG_NOSIGNAL);
+    fresh++;
+  }
+  return fresh;
 }
 
 int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n) {
-  (void)srv;
-  (void)buf;
-  (void)n;
-
-  return 0;
+  int served = 0;
+  srv->frames++;
+  for (int i = 0; i < srv->nclients;) {
+    nv_client_t *c = &srv->cl[i];
+    int dead = 0;
+    if (c->pend) {
+      long r = send(c->fd, (const char *)c->pend + c->ppos, c->plen - c->ppos,
+                    MSG_NOSIGNAL);
+      if (r >= 0) {
+        c->ppos += (size_t)r;
+      } else {
+#ifdef PLATFORM_WINDOWS
+        if (WSAGetLastError() != WSAEWOULDBLOCK)
+          dead = 1;
+#else
+        if (errno != EAGAIN && errno != EWOULDBLOCK)
+          dead = 1;
+#endif
+      }
+      if (!dead && c->ppos >= c->plen) {
+        nl_free(c->pend);
+        c->pend = NULL;
+        c->plen = c->ppos = 0;
+      }
+      if (!dead && c->pend) {
+        srv->dropped++;
+        i++;
+        continue;
+      }
+    }
+    if (!dead) {
+      long r = send(c->fd, (const char *)buf, n, MSG_NOSIGNAL);
+      if (r < 0) {
+#ifdef PLATFORM_WINDOWS
+        if (WSAGetLastError() == WSAEWOULDBLOCK)
+          srv->dropped++;
+        else
+          dead = 1;
+#else
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+          srv->dropped++;
+        else
+          dead = 1;
+#endif
+      } else {
+        served++;
+        if ((size_t)r < n) {
+          c->pend = nl_malloc(n - (size_t)r);
+          if (c->pend) {
+            nl_memcpy(c->pend, buf + r, n - (size_t)r);
+            c->plen = n - (size_t)r;
+            c->ppos = 0;
+          } else {
+            dead = 1;
+          }
+        }
+      }
+    }
+    if (dead) {
+      close(c->fd);
+      nl_free(c->pend);
+      srv->cl[i] = srv->cl[srv->nclients - 1];
+      srv->nclients--;
+      srv->cl[srv->nclients] = (nv_client_t){.fd = -1};
+      continue;
+    }
+    i++;
+  }
+  return served;
 }
 
-void nv_close(nv_server_t *srv) { (void)srv; }
+void nv_close(nv_server_t *srv) {
+  for (int i = 0; i < srv->nclients; i++) {
+    close(srv->cl[i].fd);
+    nl_free(srv->cl[i].pend);
+  }
+  if (srv->lfd >= 0)
+    close(srv->lfd);
+
+  nl_memset(srv, 0, sizeof(*srv));
+  srv->lfd = -1;
+#ifdef PLATFORM_WINDOWS
+  WSACleanup();
+#endif
+}
 
 int nv_connect(const char *hostport) {
-  (void)hostport;
+  uint32_t ip;
+  int port;
+  if (nv_parse_addr(hostport, &ip, &port) != 0 || port == 0)
+    return -1;
 
-  return -1;
-}
+  int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (fd < 0)
+    return -1;
 
+#ifdef PLATFORM_MACOS
+  int nosigpipe = 1;
+  setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &nosigpipe, sizeof(nosigpipe));
 #endif
+
+  struct sockaddr_in a;
+  nl_memset(&a, 0, sizeof(a));
+  a.sin_family = AF_INET;
+  a.sin_port = htons((uint16_t)port);
+  a.sin_addr.s_addr = htonl(ip == 0 ? 0x7f000001u : ip);
+
+  if (connect(fd, (struct sockaddr *)&a, sizeof(a)) < 0) {
+    close(fd);
+    return -1;
+  }
+
+  int one = 1;
+  setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (const char *)&one, sizeof(one));
+
+#ifdef PLATFORM_WINDOWS
+  u_long mode = 1;
+  ioctlsocket(fd, FIONBIO, &mode);
+#else
+  int flags = fcntl(fd, F_GETFL, 0);
+  fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+#endif
+
+  return fd;
+}
+#endif // end of !LINUX_NOLIBC
