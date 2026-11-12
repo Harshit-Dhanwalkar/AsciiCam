@@ -280,7 +280,7 @@ without it load and run exactly as before, and the interface version
 | ------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | Analog  | `crt` (curved screen, scanlines), `vhs` (wobble, tracking band), `tv_static`, `chromatic` (edge fringing), `vignette`, `sepia` |
 | Digital | `glitch` (bursts), `pixel_sort`, `matrix_rain`, `dither_bayer`, `dither_fs` (levels set by the parameter)                      |
-| Motion  | `trails` (ghosting), `framediff` (highlight what moved), `motion` (detector: frames what moves, meter at the bottom)          |
+| Motion  | `trails` (ghosting), `framediff` (highlight what moved), `motion` (detector: frames what moves, meter at the bottom)           |
 | Shape   | `neon_edge`, `ripple`, `fisheye`, `kaleidoscope` (2/4/8-fold), `thermal` (heat bands)                                          |
 
 Shared helpers (bounds check, parameter clamp, integer sine and square root, PRNG)
@@ -546,6 +546,31 @@ builds up and settles instead of the link falling behind. The screen is also
 fully repainted every ten seconds, and whenever it is cleared or an overlay
 goes away. `python3 tests/measure_bandwidth.py build/asciicam` reproduces
 the table. (Recordings and screenshots always hold the full frame.)
+
+### Watching from another machine: `--serve` and `--watch`
+
+With the camera on one machine and you on another, you do not have to run the
+whole program over ssh: let the camera machine serve the picture and watch it
+from anywhere.
+
+```sh
+asciicam --serve 7000                      # on the camera machine
+ssh -L 7000:localhost:7000 camera-host     # on yours
+asciicam --watch localhost:7000            # (or plain: nc localhost 7000)
+```
+
+`--serve [host:]port` sends every rendered frame (the picture only, not the
+panel) to up to 8 viewers over TCP, wrapped in synchronized-update escapes so
+it does not tear. It listens on **loopback** unless given an address
+(`--serve 0.0.0.0:7000` or `*:7000`, which prints a warning): there is **no
+password and no encryption**, so over a network use `ssh -L`, which gives both.
+Addresses are numeric IPv4 or `localhost`: no name lookup. `--watch` needs no
+camera and no plugins, shows what arrives, and quits on `q` or when the server
+goes away. Make the viewing terminal at least as large as the serving one, as
+with `--play`. A viewer that cannot keep up misses frames instead of holding
+the camera back, and a frame is never cut in the middle. Combine with
+`--net`? Not needed: `--net` shapes what goes to the local terminal, `--serve`
+always sends full frames. Code: `src/netview.c`.
 
 ### Loader hardening
 

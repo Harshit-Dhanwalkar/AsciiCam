@@ -141,6 +141,7 @@ CORE_SRCS := $(SRCDIR)/app_paths.c \
              $(SRCDIR)/image.c \
              $(SRCDIR)/jpeg.c \
              $(SRCDIR)/slides.c \
+             $(SRCDIR)/netview.c \
              $(SRCDIR)/recorder.c \
              $(SRCDIR)/vcam.c
 
@@ -303,6 +304,8 @@ test: all
 	$(CC) -O2 $(TEST_FLAGS) tests/test_demo.c $(SRCDIR)/capture_demo.c $(TEST_LIBS) -o $(TESTDIR)/demo
 	$(CC) -O0 $(TEST_FLAGS) tests/test_slides.c $(SRCDIR)/slides.c $(TEST_LIBS) -o $(TESTDIR)/slides_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_slides.c $(SRCDIR)/slides.c $(TEST_LIBS) -o $(TESTDIR)/slides_O2
+	$(CC) -O0 $(TEST_FLAGS) tests/test_netview.c $(SRCDIR)/netview.c $(TEST_LIBS) -o $(TESTDIR)/netview_O0
+	$(CC) -O2 $(TEST_FLAGS) tests/test_netview.c $(SRCDIR)/netview.c $(TEST_LIBS) -o $(TESTDIR)/netview_O2
 	$(CC) -O0 $(TEST_FLAGS) tests/test_image.c $(SRCDIR)/image.c $(SRCDIR)/jpeg.c $(TEST_LIBS) -o $(TESTDIR)/image_O0
 	$(CC) -O0 $(TEST_FLAGS) tests/test_jpeg.c $(SRCDIR)/image.c $(SRCDIR)/jpeg.c $(TEST_LIBS) -o $(TESTDIR)/jpeg_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_image.c $(SRCDIR)/image.c $(SRCDIR)/jpeg.c $(TEST_LIBS) -o $(TESTDIR)/image_O2
@@ -357,6 +360,8 @@ test: all
 	$(TESTDIR)/jpeg_O2
 	$(TESTDIR)/slides_O0
 	$(TESTDIR)/slides_O2
+	$(TESTDIR)/netview_O0
+	$(TESTDIR)/netview_O2
 	$(TESTDIR)/vcam_O0
 	$(TESTDIR)/vcam_O2
 	$(TESTDIR)/recorder_O0

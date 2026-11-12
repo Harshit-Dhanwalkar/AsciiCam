@@ -19,10 +19,12 @@ import pty
 import re
 import select
 import shutil
+import socket
 import struct
 import sys
 import tempfile
 import termios
+import threading
 import time
 
 REAL_HOME = os.environ.get("HOME", "")
@@ -655,6 +657,76 @@ if REAL and os.access(REAL, os.X_OK):
     check(code != 0 and b"no pictures" in out, "slideshow: empty folder says so")
     _, code, out, _ = run(["--image", sdir, "--slide", "x"] + IARGS, 0.5)
     check(code == 2 and b"--slide needs" in out, "--slide with a bad number: usage error")
+
+    # --serve: a viewer on TCP gets a clear-screen, then whole frames
+    def free_port():
+        with socket.socket() as t:
+            t.bind(("127.0.0.1", 0))
+            return t.getsockname()[1]
+
+    pic = os.path.join(sdir, "a.png")
+    port = free_port()
+    got = bytearray()
+
+    def viewer():
+        for _ in range(40):
+            try:
+                c = socket.create_connection(("127.0.0.1", port), timeout=1)
+                break
+            except OSError:
+                time.sleep(0.1)
+        else:
+            return
+        c.settimeout(0.3)
+        end = time.time() + 1.5
+        while time.time() < end:
+            try:
+                d = c.recv(65536)
+            except TimeoutError:
+                continue
+            if not d:
+                break
+            got.extend(d)
+        c.close()
+
+    th = threading.Thread(target=viewer)
+    th.start()
+    _, code, out, _ = run(["--image", pic, "-C", "--serve", str(port)] + IARGS[:-4], 3.0)
+    th.join()
+    check(code == 0 and bytes(got).startswith(b"\x1b[0m\x1b[?25l\x1b[2J"), "--serve: viewer gets a clear-screen first")
+    check(bytes(got).count(b"\x1b[?2026h") >= 5 and bytes(got).count(b"\x1b[?2026h") == bytes(got).count(b"\x1b[?2026l"),
+          "--serve: frames arrive whole, one sync pair each")
+    check(b"\x1b[38;2;" in bytes(got), "--serve: the colours go to the viewer too")
+    check(b"viewer connected" in out, "--serve: the host sees a toast when a viewer joins")
+    _, code, out, _ = run(["--serve", "x"] + IARGS, 0.5)
+    check(code == 2 and b"--serve needs a port" in out, "--serve with a bad address: usage error")
+    _, code, out, _ = run(["--serve"], 0.5)
+    check(code == 2 and b"--serve needs an address" in out, "--serve without an address: usage error")
+
+    # --watch: copies what a server sends, quits when it closes
+    port = free_port()
+    srv = socket.socket()
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", port))
+    srv.listen(1)
+
+    def serve_once():
+        conn, _ = srv.accept()
+        conn.sendall(b"\x1b[2JHELLO-WATCH-FRAME")
+        time.sleep(0.4)
+        conn.close()
+
+    th = threading.Thread(target=serve_once)
+    th.start()
+    _, code, out, _ = run(["--watch", "127.0.0.1:%d" % port], 3.0)
+    th.join()
+    srv.close()
+    check(b"HELLO-WATCH-FRAME" in out, "--watch: shows what the server sends")
+    check(code == 1 and b"closed the connection" in out, "--watch: says so when the server goes away")
+    _, code, out, _ = run(["--watch", "127.0.0.1:%d" % free_port()], 1.0)
+    check(code == 1 and b"cannot connect" in out, "--watch: nobody there: clear message")
+    _, code, out, _ = run(["--watch", "nonsense"], 1.0)
+    check(code == 1 and b"cannot connect" in out, "--watch: bad address: clear message")
 
     _, code, out, _ = run(["--image"], 0.5)
     check(code == 2 and b"--image needs" in out, "--image without a file: usage error")
