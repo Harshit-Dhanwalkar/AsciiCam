@@ -450,8 +450,9 @@ typedef fd_set nl_fd_set;
 #define NL_FD_SET(fd, s) FD_SET(fd, s)
 #define NL_FD_ISSET(fd, s) FD_ISSET(fd, s)
 
-static inline int nl_select(int nfds, nl_fd_set *r, nl_fd_set *w, nl_fd_set *e, struct nl_timeval *tv) {
-    return select(nfds, r, w, e, tv);
+static inline int nl_select(int nfds, nl_fd_set *r, nl_fd_set *w, nl_fd_set *e,
+                            struct nl_timeval *tv) {
+  return select(nfds, r, w, e, tv);
 }
 
 static inline void nl_usleep(unsigned long us) {
