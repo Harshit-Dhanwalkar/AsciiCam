@@ -111,19 +111,22 @@ void motion_process(uint8_t *gray, int w, int h, void *ctx) {
         continue;
       }
 
-      int near = 0;
+      // NOTE: on Windows, MinGW's <windef.h> (from <windows.h>) defines `near`,
+      // `far`, `pascal`, `cdecl` as empty macros for 16-bit Windows backward
+      // compatibility
+      int has_near = 0;
       for (int dy = -1; dy <= 1; dy++) {
         for (int dx = -1; dx <= 1; dx++) {
           int nx = cx + dx;
           int ny = cy + dy;
           if ((dx || dy) && nx >= 0 && nx < cw && ny >= 0 && ny < ch &&
               mo_hit[ny * cw + nx]) {
-            near = 1;
+            has_near = 1;
           }
         }
       }
 
-      if (near) {
+      if (has_near) {
         kept++;
         x0 = cx < x0 ? cx : x0;
         x1 = cx > x1 ? cx : x1;
