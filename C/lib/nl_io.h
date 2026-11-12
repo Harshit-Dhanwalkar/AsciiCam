@@ -441,12 +441,10 @@ static inline int nl_tcsetattr(int fd, int action, const struct termios *t) {
 #define tcgetattr(fd, t) nl_tcgetattr(fd, t)
 #define tcsetattr(fd, act, t) nl_tcsetattr(fd, act, t)
 
-#endif
+#endif // Shared by both macOS and Windows
 
-// Shared by both macOS and Windows
-// Map nolibc select types to system equivalents
 typedef fd_set nl_fd_set;
-typedef struct timeval nl_timeval;
+#define nl_timeval timeval
 
 #define NL_FD_ZERO(s) FD_ZERO(s)
 #define NL_FD_SET(fd, s) FD_SET(fd, s)

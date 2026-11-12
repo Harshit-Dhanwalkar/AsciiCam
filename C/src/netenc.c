@@ -9,8 +9,11 @@
 
 // Colour values
 #define KIND(c) ((c) / 16777216u)
+#ifndef RGB
 #define RGB(r, g, b)                                                           \
-  (16777216u + (uint32_t)(r) * 65536u + (uint32_t)(g) * 256u + (uint32_t)(b))
+  ((uint32_t)(((uint8_t)(r) | ((uint16_t)((uint8_t)(g)) << 8)) |               \
+              (((uint32_t)(uint8_t)(b)) << 16)))
+#endif
 #define PAL(i) (33554432u + (uint32_t)(i))
 
 // Parser
