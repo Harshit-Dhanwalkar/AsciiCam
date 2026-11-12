@@ -14,6 +14,7 @@
 #include "plugin_picker.h"
 #include "plugins.h"
 #include "recorder.h"
+#include "slides.h"
 #include "thread_sharing.h"
 #include "timing.h"
 #include "vcam.h"
@@ -175,8 +176,11 @@ static void print_usage(const char *prog) {
       "  -d <device>   video device             (default: /dev/video0)       \n"
       "  --demo        built-in animated picture, no camera needed           \n"
       "                (same as -d demo)                                     \n"
-      "  --image <f>   a picture as the camera: PNG or PGM/PPM, kept in      \n"
-      "                proportion (same as -d image:<f>)                     \n"
+      "  --image <f>   a picture as the camera: PNG, JPEG or PGM/PPM, kept   \n"
+      "                in proportion; a folder is a slideshow, . and , step  \n"
+      "                through it (same as -d image:<f>)                     \n"
+      "  --slide <s>   seconds per picture of a slideshow (default 5, 0 =    \n"
+      "                only on key)                                          \n"
       "  -w <width>    capture width            (default: %d)                \n"
       "  -h <height>   capture height           (default: %d)                \n"
       "  -r <fps>      target framerate         (default: %d)                \n"
@@ -1028,7 +1032,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (i + 1 >= argc || nl_strlen(argv[i + 1]) > 500) {
-      fprintf(stderr, "--image needs a PNG or PGM/PPM file\n");
+      fprintf(stderr, "--image needs a picture file or a folder of them\n");
 
       return 2;
     }
@@ -1042,6 +1046,29 @@ int main(int argc, char *argv[]) {
 
     argc--;
     argv[argc] = NULL;
+  }
+
+  // --slide <seconds>: time per picture of a slideshow
+  for (int i = 1; i < argc; i++) {
+    if (nl_strcmp(argv[i], "--slide") != 0) {
+      continue;
+    }
+
+    long v = i + 1 < argc ? parse_count(argv[i + 1], 86400) : -1;
+    if (v < 0) {
+      fprintf(stderr, "--slide needs a number of seconds (0 = keys only)\n");
+
+      return 2;
+    }
+
+    slides_set_secs((int)v);
+    for (int k = i; k + 2 < argc; k++) {
+      argv[k] = argv[k + 2];
+    }
+
+    argc -= 2;
+    argv[argc] = NULL;
+    i--;
   }
 
   // --net <kbps>: slow-link mode (getopt only knows short options, so it is
@@ -2302,6 +2329,14 @@ int main(int argc, char *argv[]) {
 
         break;
       }
+      case '.':
+      case ',': {
+        if (slides_active()) {
+          slides_request(ch == '.' ? 1 : -1);
+        }
+
+        break;
+      }
       case 'n': {
         if (charsets.count > 0) {
           charsets.active = (charsets.active + 1) % charsets.count;
@@ -2534,6 +2569,11 @@ int main(int argc, char *argv[]) {
       if (cam.buffer && cam.buffer != MAP_FAILED) {
         raw = (const uint8_t *)cam.buffer;
       }
+    }
+
+    if (slides_take_changed()) {
+      TOAST("%d/%d  %s", slides_index() + 1, slides_count(),
+            slides_name(slides_index()));
     }
 
     // Mirror/Flip horizontally if requested

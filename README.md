@@ -21,26 +21,26 @@ V4L2 on Linux, AVFoundation on macOS, Media Foundation on Windows.
 
 ## Features
 
-| Feature                      | Details                                                                                                                            |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **YUYV to grayscale**        | SSE2 SIMD (`yuyv_to_gray_simd`) - 16 pixels per iteration on x86_64, NEON on ARM64                                                 |
-| **Picture as camera**        | `--image photo.png`: PNG, JPEG or PGM/PPM through every render mode, effect and plugin; own decoders, no zlib or libjpeg          |
-| **YUYV to RGB**              | Fixed‑point BT.601 conversion for truecolor output                                                                                 |
-| **Render modes**             | Braille, Blocks, ASCII ramp, Half-block, Dots - cycle live with `m`/`M`                                                            |
-| **Edge detection**           | Sobel, Sobel with direction, Laplacian - toggle with `x`/`X`                                                                       |
-| **Image adjustments**        | Brightness, contrast, gamma (`-g 10..400`), invert mapping                                                                         |
-| **Tone curve**               | Draw a brightness curve with the mouse in the side panel (`k`), presets, `--curve`; applies to every render mode and colour        |
-| **Pseudo-3D depth pop**      | Parallax displacement based on brightness — `+`/`-`/`v`                                                                            |
-| **Floyd‑Steinberg dither**   | Error‑diffusion to reduce banding                                                                                                  |
-| **ANSI color**               | Truecolor (`-C`) or xterm-256 (`-2`) per-cell foreground                                                                           |
-| **ANSI truecolor**           | `\033[38;2;R;G;Bm` per‑cell coloring                                                                                               |
-| **Hot‑reloadable charsets**  | Load `.txt` ramps from a directory, switch with `n`/`N`, monitor with inotify                                                      |
-| **Hot‑reload plugin system** | `inotify` + `dlopen` - rebuild a filter `.so`, it reloads live                                                                     |
-| **SIGWINCH auto-resize**     | Terminal resize re-queries `TIOCGWINSZ` and reallocates buffers                                                                    |
-| **FPS‑capped render loop**   | `CLOCK_MONOTONIC` + `nanosleep` frame pacing                                                                                       |
-| **Capture thread**           | Linux: capture + luma conversion on a `clone()`d thread, triple-buffered hand-off to the render loop; `-T` captures inline         |
-| **Hardware camera controls** | V4L2 exposure, contrast, white-balance via `ioctl` - live keys `e`/`E`, `c`/`C`, `w`/`W` (Linux only; macOS/Windows display `n/a`) |
-| **Cross-platform**           | Linux (V4L2, nolibc), macOS (AVFoundation, system libc), Windows (Media Foundation, MinGW)                                         |
+| Feature                      | Details                                                                                                                                           |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **YUYV to grayscale**        | SSE2 SIMD (`yuyv_to_gray_simd`) - 16 pixels per iteration on x86_64, NEON on ARM64                                                                |
+| **Picture as camera**        | `--image photo.png`: PNG, JPEG or PGM/PPM through every render mode, effect and plugin; a folder is a slideshow; own decoders, no zlib or libjpeg |
+| **YUYV to RGB**              | Fixed‑point BT.601 conversion for truecolor output                                                                                                |
+| **Render modes**             | Braille, Blocks, ASCII ramp, Half-block, Dots - cycle live with `m`/`M`                                                                           |
+| **Edge detection**           | Sobel, Sobel with direction, Laplacian - toggle with `x`/`X`                                                                                      |
+| **Image adjustments**        | Brightness, contrast, gamma (`-g 10..400`), invert mapping                                                                                        |
+| **Tone curve**               | Draw a brightness curve with the mouse in the side panel (`k`), presets, `--curve`; applies to every render mode and colour                       |
+| **Pseudo-3D depth pop**      | Parallax displacement based on brightness — `+`/`-`/`v`                                                                                           |
+| **Floyd‑Steinberg dither**   | Error‑diffusion to reduce banding                                                                                                                 |
+| **ANSI color**               | Truecolor (`-C`) or xterm-256 (`-2`) per-cell foreground                                                                                          |
+| **ANSI truecolor**           | `\033[38;2;R;G;Bm` per‑cell coloring                                                                                                              |
+| **Hot‑reloadable charsets**  | Load `.txt` ramps from a directory, switch with `n`/`N`, monitor with inotify                                                                     |
+| **Hot‑reload plugin system** | `inotify` + `dlopen` - rebuild a filter `.so`, it reloads live                                                                                    |
+| **SIGWINCH auto-resize**     | Terminal resize re-queries `TIOCGWINSZ` and reallocates buffers                                                                                   |
+| **FPS‑capped render loop**   | `CLOCK_MONOTONIC` + `nanosleep` frame pacing                                                                                                      |
+| **Capture thread**           | Linux: capture + luma conversion on a `clone()`d thread, triple-buffered hand-off to the render loop; `-T` captures inline                        |
+| **Hardware camera controls** | V4L2 exposure, contrast, white-balance via `ioctl` - live keys `e`/`E`, `c`/`C`, `w`/`W` (Linux only; macOS/Windows display `n/a`)                |
+| **Cross-platform**           | Linux (V4L2, nolibc), macOS (AVFoundation, system libc), Windows (Media Foundation, MinGW)                                                        |
 
 - Linux: requires `gcc` only (no kernel headers, `libdl` or `libpthread`).
 - macOS: requires `Clang` and `AVFoundation` frameworks (linked automatically).
@@ -210,7 +210,9 @@ plugin = build/invert.so
 ## A picture instead of a camera: `--image`
 
 ```sh
-asciicam --image photo.png -C            # same as -d image:photo.png
+asciicam --image photo.png -C                  # same as -d image:photo.png
+asciicam --image ~/Pictures/trip -C            # slideshow of a folder
+asciicam --image ~/Pictures/trip --slide 10 -C
 ```
 
 Shows a PNG, a JPEG or a binary PGM/PPM (`P5`/`P6`) as if it were the camera, so any
@@ -219,6 +221,17 @@ picture goes through the render modes, the effects, the plugins, recording and
 ratio kept, with black bars where it does not fill; transparency is shown over
 black. It is a still: brightness, contrast, gamma, edge detection and the plugins
 still react live.
+
+### Slideshow
+
+Give `--image` a folder and it shows its pictures (`png`, `jpg`, `jpeg`, `pgm`,
+`ppm`, `pnm`) one after another, in natural order (`img2` before `img10`),
+`--slide <seconds>` per picture (default 5, `0` = only on key). `.` shows the next
+picture and `,` the previous one, wrapping around; a toast names the picture
+(`3/12  img3.png`). Hidden files, sub-folders and other files are left out, at most
+512 pictures are used, and a picture that cannot be read is skipped. The list is
+read once at start. The effects, curve, colour map and plugins work on every
+picture as on the still one. Code is in `src/slides.c`.
 
 The decoders are in `src/image.c` (PNG, with its own inflate, RFC 1951) and
 `src/jpeg.c` (baseline JPEG: Huffman, integer IDCT, any chroma subsampling, restart
