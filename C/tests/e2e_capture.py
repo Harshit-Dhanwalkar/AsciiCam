@@ -528,8 +528,18 @@ if REAL and os.access(REAL, os.X_OK):
     import struct as _st
     import zlib as _zl
 
+    A7 = [(0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)]
+
     def write_png(path, w, h, pix, interlace=0):
-        raw = b"".join(b"\x00" + bytes(v for x in range(w) for v in pix(x, y)) for y in range(h))
+        if interlace:
+            raw = b""
+            for x0, y0, dx, dy in A7:
+                for y in range(y0, h, dy):
+                    xs = range(x0, w, dx)
+                    if xs:
+                        raw += b"\x00" + bytes(v for x in xs for v in pix(x, y))
+        else:
+            raw = b"".join(b"\x00" + bytes(v for x in range(w) for v in pix(x, y)) for y in range(h))
 
         def ch(t, d):
             return _st.pack(">I", len(d)) + t + d + _st.pack(">I", _zl.crc32(t + d) & 0xFFFFFFFF)
@@ -598,9 +608,11 @@ if REAL and os.access(REAL, os.X_OK):
     except ImportError:
         pass
     inter = os.path.join(idir, "adam7.png")
-    write_png(inter, 8, 8, lambda x, y: (1, 2, 3), interlace=1)
-    _, code, out, _ = run(["--image", inter] + IARGS, 0.5)
-    check(code != 0 and b"interlaced" in out, "--image interlaced PNG: says so")
+    write_png(inter, 20, 20, lambda x, y: (220, 30, 30) if x < 10 else (30, 30, 220), interlace=1)
+    _, code, out, _ = run(["--image", inter, "-C"] + IARGS[:-4], 1.0)
+    cols = [tuple(map(int, m)) for m in re.findall(rb"\x1b\[38;2;(\d+);(\d+);(\d+)m", out)]
+    check(code == 0 and any(r > 150 and b < 100 for r, g, b in cols) and any(b > 150 and r < 100 for r, g, b in cols),
+          "--image Adam7 PNG: both halves arrive in the right colours")
     _, code, out, _ = run(["--image"], 0.5)
     check(code == 2 and b"--image needs" in out, "--image without a file: usage error")
     shutil.rmtree(idir, ignore_errors=True)

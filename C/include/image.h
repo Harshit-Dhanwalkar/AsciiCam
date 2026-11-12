@@ -4,7 +4,7 @@
 /*
  * Picture as camera: `--image <file>` / `-d image:<file>`
  *
- * Decodes PNG (every colour type and bit depth, not interlaced), baseline JPEG
+ * Decodes PNG (every colour type and bit depth, Adam7 too), baseline JPEG
  * and binary PGM/PPM (P5/P6) with own inflate and IDCT
  * Anything with transparency is shown over black
  * Picture is scaled (area average) to fit capture size, aspect kept, black bars

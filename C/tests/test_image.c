@@ -155,10 +155,13 @@ int main(void) {
     const char *err = NULL;
     uint8_t il[sizeof(png_rgb8)];
     nl_memcpy(il, png_rgb8, sizeof(il));
-    il[8 + 8 + 12] = 1; // IHDR: signature, length + type, interlace is byte 12
-    CHECK(image_decode(il, sizeof(il), &img, &err) == -1 && err &&
-              err[0] == 'i',
-          "interlaced PNG: says so (%s)", err ? err : "?");
+    il[8 + 8 + 12] = 2; // IHDR: signature, length + type, interlace is byte 12
+    CHECK(image_decode(il, sizeof(il), &img, &err) == -1 && err,
+          "unknown interlace method refused");
+    il[8 + 8 + 12] = 1; // a plain stream read as Adam7 is damaged, no crash
+    err = NULL;
+    CHECK(image_decode(il, sizeof(il), &img, &err) == -1 && err,
+          "plain data flagged Adam7: refused (%s)", err ? err : "?");
     uint8_t huge[sizeof(png_rgb8)];
     nl_memcpy(huge, png_rgb8, sizeof(huge));
     huge[8 + 8 + 1] = 0x7f; // width ~ 8 million

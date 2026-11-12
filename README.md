@@ -222,10 +222,10 @@ still react live.
 
 The decoders are in `src/image.c` (PNG, with its own inflate, RFC 1951) and
 `src/jpeg.c` (baseline JPEG: Huffman, integer IDCT, any chroma subsampling, restart
-markers), so there is still no zlib and no libjpeg. PNGs of every colour type and
-bit depth are read. Interlaced (Adam7) PNGs, progressive JPEG, prithmetic-coded
-JPEG and CMYK JPEG are not, and say so (re-save as a plain PNG or baseline JPEG).
-Pictures up to 4096 x 4096 pixels.
+markers), so there is still no zlib and no libjpeg.
+PNGs of every colour type and bit depth are read, interlaced (Adam7) ones included.
+Progressive JPEG, arithmetic-coded JPEG and CMYK JPEG are not, and say so (re-save
+as baseline JPEG or PNG). Pictures up to 4096 x 4096 pixels.
 
 ---
 
