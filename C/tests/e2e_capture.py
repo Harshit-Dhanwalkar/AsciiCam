@@ -21,6 +21,7 @@ import select
 import shutil
 import socket
 import struct
+import subprocess
 import sys
 import tempfile
 import termios

@@ -189,7 +189,7 @@ size_t call_clean_text(char *dst, const uint8_t *src, size_t n, size_t max) {
   size_t k = 0;
   for (size_t i = 0; i < n && k < max; i++) {
     uint8_t c = src[i];
-    dst[k++] = c >= 0x20 && c < 0x7F ? (char)c : '?';
+    dst[k++] = (char)(c >= 0x20 && c < 0x7F ? c : '?');
   }
 
   // trim blanks at both ends

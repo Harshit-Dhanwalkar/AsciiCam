@@ -29,8 +29,9 @@ struct ui_winsize {
 };
 
 static void fd_add(nl_fd_set *s, int fd) {
+  unsigned long *bits = (unsigned long *)s;
   unsigned u = (unsigned)fd;
-  s->fds_bits[u / 64u] |= 1UL << (u % 64u);
+  bits[u / 64u] |= 1UL << (u % 64u);
 }
 
 // Writes all of it, but never sleeps in a full tty for good: a stopped terminal
@@ -70,9 +71,10 @@ static long ui_now_ms(void) {
 }
 
 static int fd_has(const nl_fd_set *s, int fd) {
+  const unsigned long *bits = (const unsigned long *)s;
   unsigned u = (unsigned)fd;
 
-  return (s->fds_bits[u / 64u] >> (u % 64u)) % 2UL != 0;
+  return (bits[u / 64u] >> (u % 64u)) % 2UL != 0;
 }
 
 static void term_size(int *w, int *h) {
