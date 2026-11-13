@@ -10,6 +10,7 @@
 #include "image.h"
 #include "mouse.h"
 #include "netenc.h"
+#include "netview.h"
 #include "plugin_catalog.h"
 #include "plugin_picker.h"
 #include "plugins.h"
@@ -79,8 +80,15 @@ static volatile sig_atomic_t raw_mode_active = 0;
 static struct termios orig_terminal;
 
 // write(2) may take only part of a big frame (a signal such as SIGWINCH lands
-// mid-write, or pty is busy). A cut-off frame leaves stale rows and, with
-// colour, half an escape sequence: loop until everything is out
+// mid-write, or pty is busy)
+// A cut-off frame leaves stale rows and, with colour, half an escape sequence:
+// loop until everything is out select(2) sets, with unsigned arithmetic
+static inline void fdset_add(nl_fd_set *s, int fd) { NL_FD_SET(fd, s); }
+
+static inline int fdset_has(const nl_fd_set *s, int fd) {
+  return NL_FD_ISSET(fd, s) != 0;
+}
+
 static void write_all(int fd, const char *p, size_t n) {
   while (n > 0) {
     ssize_t w = write(fd, p, n);
@@ -188,6 +196,10 @@ static void print_usage(const char *prog) {
       "                capture thread keeps UI responsive)                   \n"
       "  --play <file> play a saved .cast recording, no camera needed (also  \n"
       "                over ssh); keys: q quit, space pause, + / - speed     \n"
+      "  --serve <a>   also send the picture to viewers over TCP: 7000 or    \n"
+      "                host:7000 (default loopback; no password, use ssh -L) \n"
+      "  --watch <a>   view a --serve picture from another machine, no       \n"
+      "                camera needed (q quits); plain nc works too           \n"
       "  --speed <x>   playback speed for --play (default 1, e.g. 0.5, 2)    \n"
       "  --loop        repeat --play until quit                              \n"
       "  --curve <s>   tone curve: points \"0,0 64,40 255,255\", a preset    \n"
@@ -1208,6 +1220,66 @@ int main(int argc, char *argv[]) {
     i--;
   }
 
+  // --serve <addr> / --watch <addr>: picture over TCP
+  const char *serve_addr = NULL;
+  const char *watch_addr = NULL;
+  for (int i = 1; i < argc; i++) {
+    int is_serve = nl_strcmp(argv[i], "--serve") == 0;
+    int is_watch = nl_strcmp(argv[i], "--watch") == 0;
+    if (!is_serve && !is_watch) {
+      continue;
+    }
+
+    if (i + 1 >= argc) {
+      fprintf(stderr, "%s needs an address: 7000 or host:7000\n", argv[i]);
+
+      return 2;
+    }
+
+    if (is_serve) {
+      serve_addr = argv[i + 1];
+    } else {
+      watch_addr = argv[i + 1];
+    }
+
+    for (int k = i; k + 2 < argc; k++) {
+      argv[k] = argv[k + 2];
+    }
+
+    argc -= 2;
+    argv[argc] = NULL;
+    i--;
+  }
+
+  nv_server_t serve;
+  int serve_on = 0;
+  char *serve_buf = NULL;
+  size_t serve_cap = 0;
+  if (serve_addr) {
+    uint32_t sip = 0;
+    int sport = 0;
+    if (nv_parse_addr(serve_addr, &sip, &sport) != 0 || sport == 0) {
+      fprintf(stderr, "--serve needs a port (7000) or an IPv4 address and "
+                      "port (127.0.0.1:7000, *:7000)\n");
+
+      return 2;
+    }
+
+    if (nv_listen(&serve, sip, sport) != 0) {
+      fprintf(stderr, "--serve: cannot listen on %s (in use?)\n", serve_addr);
+
+      return 2;
+    }
+
+    serve_on = 1;
+    if (sip != 0x7f000001u) {
+      fprintf(stderr,
+              "--serve: listening beyond this machine without a password: "
+              "anyone who can reach port %d sees the picture\n",
+              sport);
+    }
+  }
+
   if (vcam_path) {
     if (vcam_init(&vcam, vcam_w, vcam_h) < 0) {
       fprintf(stderr, "--vcam: cannot set up a %dx%d canvas\n", vcam_w, vcam_h);
@@ -1319,6 +1391,73 @@ int main(int argc, char *argv[]) {
     }
 
     return 0;
+  }
+
+  if (watch_addr) {
+    if (serve_on) {
+      fprintf(stderr, "--watch and --serve do not go together\n");
+      nv_close(&serve);
+
+      return 2;
+    }
+
+    int sock = nv_connect(watch_addr);
+    if (sock < 0) {
+      fprintf(stderr,
+              "--watch: cannot connect to %s (is --serve running there? over "
+              "ssh: ssh -L 7000:localhost:7000 host)\n",
+              watch_addr);
+
+      return 1;
+    }
+
+    (void)write(STDOUT_FILENO, SCREEN_ENTER, sizeof(SCREEN_ENTER) - 1);
+    term_raw_mode();
+    int closed = 0;
+    char wbuf[16384];
+    while (keep_running) {
+      nl_fd_set rs;
+      nl_memset(&rs, 0, sizeof(rs));
+      fdset_add(&rs, STDIN_FILENO);
+      fdset_add(&rs, sock);
+      struct nl_timeval tv = {1, 0};
+      int ready = nl_select(sock + 1, &rs, NULL, NULL, &tv);
+      if (ready <= 0) {
+        continue;
+      }
+
+      if (fdset_has(&rs, STDIN_FILENO)) {
+        char kb[32] = {0};
+        ssize_t kn = read(STDIN_FILENO, kb, sizeof(kb));
+        int quit = 0;
+        for (ssize_t k = 0; k < kn; k++) {
+          quit = quit || kb[k] == 'q' || kb[k] == 'Q' || kb[k] == 3;
+        }
+
+        if (quit || kn == 0) {
+          break;
+        }
+      }
+
+      if (fdset_has(&rs, sock)) {
+        ssize_t got = read(sock, wbuf, sizeof(wbuf));
+        if (got <= 0) {
+          closed = 1;
+          break;
+        }
+
+        write_all(STDOUT_FILENO, wbuf, (size_t)got);
+      }
+    }
+
+    close(sock);
+    term_restore();
+    (void)write(STDOUT_FILENO, SCREEN_LEAVE, sizeof(SCREEN_LEAVE) - 1);
+    if (closed) {
+      fprintf(stderr, "--watch: %s closed the connection\n", watch_addr);
+    }
+
+    return closed ? 1 : 0;
   }
 
   // Config
@@ -2714,6 +2853,36 @@ int main(int argc, char *argv[]) {
         vcam_on = 0;
       }
 
+      if (serve_on) {
+        int fresh = nv_accept(&serve);
+        int before = serve.nclients;
+        if (serve.nclients > 0) {
+          size_t need = (size_t)len + 2 * sizeof(SYNC_BEGIN);
+          if (serve_cap < need) {
+            nl_free(serve_buf);
+            serve_buf = malloc(need);
+            serve_cap = serve_buf ? need : 0;
+          }
+
+          if (serve_buf) {
+            size_t at = 0;
+            nl_memcpy(serve_buf, SYNC_BEGIN, sizeof(SYNC_BEGIN) - 1);
+            at += sizeof(SYNC_BEGIN) - 1;
+            nl_memcpy(serve_buf + at, out_buf, (size_t)len);
+            at += (size_t)len;
+            nl_memcpy(serve_buf + at, SYNC_END, sizeof(SYNC_END) - 1);
+            at += sizeof(SYNC_END) - 1;
+            nv_broadcast(&serve, (const uint8_t *)serve_buf, at);
+          }
+        }
+
+        if (fresh > 0) {
+          TOAST("viewer connected (%d watching)", serve.nclients);
+        } else if (serve.nclients < before) {
+          TOAST("viewer left (%d watching)", serve.nclients);
+        }
+      }
+
       uint64_t rec_now = rec_mono_ns();
       if (rec.active && rec_frame(&rec, rec_now, out_buf, (size_t)len) < 0) {
         TOAST("REC stopped: cannot write %s", rec.path);
@@ -2861,6 +3030,11 @@ int main(int argc, char *argv[]) {
     int frames = rec_stop(&rec, rec_mono_ns(), &secs);
     nl_snprintf(saved_cast, sizeof(saved_cast), "%s", rec.path);
     fprintf(stderr, "Recording ended: %d frames, %d s\n", frames, (int)secs);
+  }
+
+  if (serve_on) {
+    nl_free(serve_buf);
+    nv_close(&serve);
   }
 
   if (saved_cast[0]) {

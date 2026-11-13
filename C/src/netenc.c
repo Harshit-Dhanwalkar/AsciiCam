@@ -9,7 +9,7 @@
 
 // Colour values
 #define KIND(c) ((c) / 16777216u)
-#define RGB(r, g, b)                                                           \
+#define NE_RGB(r, g, b)                                                        \
   (16777216u + (uint32_t)(r) * 65536u + (uint32_t)(g) * 256u + (uint32_t)(b))
 #define PAL(i) (33554432u + (uint32_t)(i))
 
@@ -131,9 +131,9 @@ static int parse_frame(const char *in, size_t n, netcell_t *grid, uint8_t *seen,
 
             i += 2;
           } else if ((v == 38 || v == 48) && i + 4 < np && params[i + 1] == 2) {
-            uint32_t rc = RGB((unsigned)params[i + 2] & 255u,
-                              (unsigned)params[i + 3] & 255u,
-                              (unsigned)params[i + 4] & 255u);
+            uint32_t rc = NE_RGB((unsigned)params[i + 2] & 255u,
+                                 (unsigned)params[i + 3] & 255u,
+                                 (unsigned)params[i + 4] & 255u);
             if (v == 38) {
               fg = rc;
             } else {

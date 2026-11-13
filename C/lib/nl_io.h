@@ -323,6 +323,7 @@ static inline void nl_exit(int code) { _exit(code); }
 #include <stdio.h>
 #include <unistd.h>
 #include <windows.h>
+#include <winsock2.h> // for fd_set, timeval, select
 
 #ifndef MAP_FAILED
 #define MAP_FAILED ((void *)-1)
@@ -440,9 +441,20 @@ static inline int nl_tcsetattr(int fd, int action, const struct termios *t) {
 #define tcgetattr(fd, t) nl_tcgetattr(fd, t)
 #define tcsetattr(fd, act, t) nl_tcsetattr(fd, act, t)
 
-#endif
+#endif // Shared by both macOS and Windows
 
-// Shared by both macOS and Windows
+typedef fd_set nl_fd_set;
+#define nl_timeval timeval
+
+#define NL_FD_ZERO(s) FD_ZERO(s)
+#define NL_FD_SET(fd, s) FD_SET(fd, s)
+#define NL_FD_ISSET(fd, s) FD_ISSET(fd, s)
+
+static inline int nl_select(int nfds, nl_fd_set *r, nl_fd_set *w, nl_fd_set *e,
+                            struct nl_timeval *tv) {
+  return select(nfds, r, w, e, tv);
+}
+
 static inline void nl_usleep(unsigned long us) {
   struct timespec ts = {(long)(us / 1000000), (long)((us % 1000000) * 1000)};
 
