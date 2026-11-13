@@ -8,7 +8,8 @@
 
 #include "netview.h"
 
-// Shared helpers (Platform Independent)
+// Byte order for raw-syscall (Linux) code
+#if defined(__LINUX_NOLIBC__) // raw-syscall
 static uint16_t be16(int v) {
   return (uint16_t)(((unsigned)v & 255u) * 256u +
                     (((unsigned)v / 256u) & 255u));
@@ -18,6 +19,7 @@ static uint32_t be32(uint32_t v) {
   return (v % 256u) * 16777216u + ((v / 256u) % 256u) * 65536u +
          ((v / 65536u) % 256u) * 256u + (v / 16777216u) % 256u;
 }
+#endif
 
 static int parse_port(const char *s, int *port) {
   if (!*s) {
@@ -350,7 +352,6 @@ int nv_connect(const char *hostport) {
 #ifdef PLATFORM_WINDOWS
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#pragma comment(lib, "ws2_32.lib")
 #define close closesocket
 #define NV_EAGAIN WSAEWOULDBLOCK
 #define NV_EINTR WSAEINTR
@@ -360,6 +361,7 @@ int nv_connect(const char *hostport) {
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h> // TCP_NODELAY
 #include <sys/socket.h>
 #include <unistd.h>
 #define NV_EAGAIN EAGAIN
