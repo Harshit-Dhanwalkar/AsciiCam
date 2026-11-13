@@ -434,6 +434,22 @@ static int fill_gap(netenc_t *e, emit_t *em, int i, int row, int col) {
 
 // Public API
 
+int netenc_extent(const char *in, size_t n, int *rows, int *cols) {
+  return parse_frame(in, n, NULL, NULL, 0, rows, cols);
+}
+
+int netenc_parse(const char *in, size_t n, netcell_t *grid, uint8_t *seen,
+                 int rows, int cols) {
+  int r = 0;
+  int c = 0;
+  if (rows <= 0 || cols <= 0 ||
+      parse_frame(in, n, NULL, NULL, 0, &r, &c) != 0 || r > rows || c > cols) {
+    return -1;
+  }
+
+  return parse_frame(in, n, grid, seen, cols, &r, &c);
+}
+
 void netenc_init(netenc_t *e, int min_score, int budget) {
   nl_memset(e, 0, sizeof(*e));
   e->min_score = min_score < 0 ? 0 : min_score;

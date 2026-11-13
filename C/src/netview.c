@@ -124,6 +124,7 @@ int nv_parse_addr(const char *s, uint32_t *ip, int *port) {
 #define SYS_socket 41
 #define SYS_connect 42
 #define SYS_sendto 44
+#define SYS_recvfrom 45
 #define SYS_bind 49
 #define SYS_listen 50
 #define SYS_getsockname 51
@@ -140,8 +141,14 @@ int nv_parse_addr(const char *s, uint32_t *ip, int *port) {
 #define NV_SOCK_CLIENT 02000001  // SOCK_STREAM, SOCK_CLOEXEC
 #define NV_ACCEPT_FLAGS 02004000 // SOCK_NONBLOCK, SOCK_CLOEXEC
 #define NV_MSG_FLAGS 0x4040      // MSG_NOSIGNAL, MSG_DONTWAIT
+#define NV_MSG_DONTWAIT 0x40
 #define NV_EAGAIN 11
 #define NV_EINTR 4
+
+#define SYS_fcntl 72
+#define NV_F_GETFL 3
+#define NV_F_SETFL 4
+#define NV_O_NONBLOCK 04000
 
 struct nv_sockaddr_in {
   uint16_t family;
@@ -346,6 +353,106 @@ int nv_connect(const char *hostport) {
   return (int)fd;
 }
 
+int nv_nonblock(int fd) {
+  long fl = __sc3(SYS_fcntl, fd, NV_F_GETFL, 0);
+  if (fl < 0) {
+    return -1;
+  }
+
+  unsigned have = (unsigned)fl;
+  if (have / NV_O_NONBLOCK % 2u == 1u) {
+    return 0;
+  }
+
+  return __sc3(SYS_fcntl, fd, NV_F_SETFL, (long)(have + NV_O_NONBLOCK)) < 0 ? -1
+                                                                            : 0;
+}
+
+// Blocking or not for fd, whatever it was. 0 on success
+int nv_set_blocking(int fd, int blocking) {
+  long fl = __sc3(SYS_fcntl, fd, NV_F_GETFL, 0);
+  if (fl < 0) {
+    return -1;
+  }
+
+  unsigned have = (unsigned)fl;
+  int is_nonblock = have / NV_O_NONBLOCK % 2u == 1u;
+  if (is_nonblock == !blocking) {
+    return 0;
+  }
+
+  unsigned want = is_nonblock ? have - NV_O_NONBLOCK : have + NV_O_NONBLOCK;
+
+  return __sc3(SYS_fcntl, fd, NV_F_SETFL, (long)want) < 0 ? -1 : 0;
+}
+
+int nv_accept_fd(int lfd) {
+  for (;;) {
+    long fd = __sc4(SYS_accept4, lfd, 0, 0, NV_ACCEPT_FLAGS);
+    if (fd == -NV_EINTR) {
+      continue;
+    }
+
+    if (fd < 0) {
+      return -1;
+    }
+
+    int one = 1;
+    __sc6(SYS_setsockopt, fd, IPPROTO_TCP, TCP_NODELAY, (long)&one, sizeof(one),
+          0);
+
+    return (int)fd;
+  }
+}
+
+long nv_send(int fd, const void *buf, size_t n) {
+  return send_some(fd, (const uint8_t *)buf, n);
+}
+
+long nv_recv(int fd, void *buf, size_t n) {
+  for (;;) {
+    long r = __sc6(SYS_recvfrom, fd, (long)buf, (long)n, NV_MSG_DONTWAIT, 0, 0);
+    if (r == -NV_EINTR) {
+      continue;
+    }
+
+    return r;
+  }
+}
+
+int nv_wait(const int *fds, int n, int timeout_ms, uint8_t *ready) {
+  nl_fd_set rs;
+  nl_memset(&rs, 0, sizeof(rs));
+  int maxfd = -1;
+  for (int i = 0; i < n; i++) {
+    ready[i] = 0;
+    if (fds[i] >= 0 && fds[i] < 1024) {
+      unsigned u = (unsigned)fds[i];
+      rs.fds_bits[u / 64u] |= 1UL << (u % 64u);
+      maxfd = fds[i] > maxfd ? fds[i] : maxfd;
+    }
+  }
+
+  struct nl_timeval tv = {timeout_ms / 1000, (long)(timeout_ms % 1000) * 1000L};
+  int r = nl_select(maxfd + 1, &rs, NULL, NULL, &tv);
+  if (r < 0) {
+    return errno == NV_EINTR ? 0 : -1;
+  }
+
+  int got = 0;
+  for (int i = 0; i < n; i++) {
+    if (fds[i] >= 0 && fds[i] < 1024) {
+      unsigned u = (unsigned)fds[i];
+      if ((rs.fds_bits[u / 64u] >> (u % 64u)) % 2UL != 0) {
+        ready[i] = 1;
+        got++;
+      }
+    }
+  }
+
+  return got;
+}
+
 // macOS / WINDOWS PROPER IMPLEMENTATION
 #else
 
@@ -384,13 +491,15 @@ int nv_listen(nv_server_t *srv, uint32_t ip, int port) {
 
 #ifdef PLATFORM_WINDOWS
   WSADATA wsaData;
-  if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
+  if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
     return -1;
+  }
 #endif
 
   srv->lfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-  if (srv->lfd < 0)
+  if (srv->lfd < 0) {
     return -1;
+  }
 
 #ifdef PLATFORM_MACOS
   int nosigpipe = 1;
@@ -419,6 +528,7 @@ int nv_listen(nv_server_t *srv, uint32_t ip, int port) {
       listen(srv->lfd, 16) < 0) {
     close(srv->lfd);
     srv->lfd = -1;
+
     return -1;
   }
 
@@ -440,11 +550,14 @@ int nv_accept(nv_server_t *srv) {
     int fd = accept(srv->lfd, (struct sockaddr *)&client_addr, &client_len);
     if (fd < 0) {
 #ifdef PLATFORM_WINDOWS
-      if (WSAGetLastError() == WSAEWOULDBLOCK || WSAGetLastError() == WSAEINTR)
+      if (WSAGetLastError() == WSAEWOULDBLOCK ||
+          WSAGetLastError() == WSAEINTR) {
         break;
+      }
 #else
-      if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
+      if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
         break;
+      }
 #endif
       break;
     }
@@ -489,11 +602,13 @@ int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n) {
         c->ppos += (size_t)r;
       } else {
 #ifdef PLATFORM_WINDOWS
-        if (WSAGetLastError() != WSAEWOULDBLOCK)
+        if (WSAGetLastError() != WSAEWOULDBLOCK) {
           dead = 1;
+        }
 #else
-        if (errno != EAGAIN && errno != EWOULDBLOCK)
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
           dead = 1;
+        }
 #endif
       }
       if (!dead && c->ppos >= c->plen) {
@@ -511,15 +626,17 @@ int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n) {
       long r = send(c->fd, (const char *)buf, n, MSG_NOSIGNAL);
       if (r < 0) {
 #ifdef PLATFORM_WINDOWS
-        if (WSAGetLastError() == WSAEWOULDBLOCK)
+        if (WSAGetLastError() == WSAEWOULDBLOCK) {
           srv->dropped++;
-        else
+        } else {
           dead = 1;
+        }
 #else
-        if (errno == EAGAIN || errno == EWOULDBLOCK)
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
           srv->dropped++;
-        else
+        } else {
           dead = 1;
+        }
 #endif
       } else {
         served++;
@@ -545,6 +662,7 @@ int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n) {
     }
     i++;
   }
+
   return served;
 }
 
@@ -553,8 +671,10 @@ void nv_close(nv_server_t *srv) {
     close(srv->cl[i].fd);
     nl_free(srv->cl[i].pend);
   }
-  if (srv->lfd >= 0)
+
+  if (srv->lfd >= 0) {
     close(srv->lfd);
+  }
 
   nl_memset(srv, 0, sizeof(*srv));
   srv->lfd = -1;
@@ -566,12 +686,14 @@ void nv_close(nv_server_t *srv) {
 int nv_connect(const char *hostport) {
   uint32_t ip;
   int port;
-  if (nv_parse_addr(hostport, &ip, &port) != 0 || port == 0)
+  if (nv_parse_addr(hostport, &ip, &port) != 0 || port == 0) {
     return -1;
+  }
 
   int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-  if (fd < 0)
+  if (fd < 0) {
     return -1;
+  }
 
 #ifdef PLATFORM_MACOS
   int nosigpipe = 1;
@@ -602,4 +724,49 @@ int nv_connect(const char *hostport) {
 
   return fd;
 }
+
+int nv_nonblock(int fd) {
+  (void)fd;
+
+  return -1;
+}
+
+int nv_set_blocking(int fd, int blocking) {
+  (void)fd;
+  (void)blocking;
+
+  return -1;
+}
+
+int nv_accept_fd(int lfd) {
+  (void)lfd;
+
+  return -1;
+}
+
+long nv_send(int fd, const void *buf, size_t n) {
+  (void)fd;
+  (void)buf;
+  (void)n;
+
+  return -1;
+}
+
+long nv_recv(int fd, void *buf, size_t n) {
+  (void)fd;
+  (void)buf;
+  (void)n;
+
+  return -1;
+}
+
+int nv_wait(const int *fds, int n, int timeout_ms, uint8_t *ready) {
+  (void)fds;
+  (void)n;
+  (void)timeout_ms;
+  (void)ready;
+
+  return -1;
+}
+
 #endif // end of !LINUX_NOLIBC

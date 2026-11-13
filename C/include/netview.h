@@ -64,4 +64,27 @@ void nv_close(nv_server_t *srv);
 // Socket, or -1
 int nv_connect(const char *hostport);
 
+// Plain socket helpers for room relay and call client (WARN: Linux only)
+// Make fd non-blocking
+// 0 on success
+int nv_nonblock(int fd);
+
+// Blocking (1) or not (0), for a descriptor do not own, such as tty
+int nv_set_blocking(int fd, int blocking);
+
+// Accept one waiting connection on a listening socket, non-blocking
+// Return fd or -1
+int nv_accept_fd(int lfd);
+
+// Non-blocking send/recv: bytes moved, 0 from recv = peer closed, or -errno
+// (-11 = would block)
+long nv_send(int fd, const void *buf, size_t n);
+long nv_recv(int fd, void *buf, size_t n);
+
+// Wait up to timeout_ms until one of fds[0..n) can be read
+// ready[i] is set to 1 for those that can
+// Number ready, -1 on error
+// Interrupted wait: 0
+int nv_wait(const int *fds, int n, int timeout_ms, uint8_t *ready);
+
 #endif

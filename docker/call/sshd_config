@@ -1,0 +1,24 @@
+# Forwarding-only sshd for an asciicam --room relay
+Port 2222
+HostKey /etc/ssh/host/ssh_host_ed25519_key
+AuthorizedKeysFile /etc/ssh/authorized_keys/%u
+PidFile /tmp/sshd.pid
+
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+AllowUsers call
+UsePAM no
+
+AllowTcpForwarding local
+PermitOpen 127.0.0.1:7100
+GatewayPorts no
+PermitTTY no
+X11Forwarding no
+AllowAgentForwarding no
+PermitTunnel no
+PermitUserEnvironment no
+ForceCommand /bin/false
+MaxAuthTries 3
+LoginGraceTime 20
+MaxStartups 10:30:30

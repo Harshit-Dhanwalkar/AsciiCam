@@ -572,6 +572,48 @@ the camera back, and a frame is never cut in the middle. Combine with
 `--net`? Not needed: `--net` shapes what goes to the local terminal, `--serve`
 always sends full frames. Code: `src/netview.c`.
 
+### Video calls: `--room` and `--call`
+
+Chat and pictures (no sound) for up to 8 people, in the terminal, over plain
+TCP, so it works through ssh and Docker. One machine runs the room, everybody
+runs a client:
+
+```sh
+asciicam --room 7100                                   # the relay
+asciicam --call 7100 --name Alice -C                   # you (add -d, -W, -H as usual)
+asciicam --call 7100 --name Bob --demo                 # someone without a camera
+```
+
+`--call [host:]port` shows everybody as tiles with a chat below: type, Enter
+sends, Esc clears the line, Ctrl-C leaves. Pictures are sent as cell changes
+only (a key picture first, when a person joins or the relay asks, and every 40
+frames), 24-bit colour with `-C`. Tile size is `-W` / `-H` (default 40x20), and
+the picture is never mirrored, so your text reads right to others. The relay
+sends a person only what they can decode, lets pictures give way to chat when a
+link is slow, limits a client to 40 pictures and 5 chat lines a second, drops
+anyone who does not say hello within 10 seconds, and cleans names and chat to
+printable ASCII so nobody can send escape codes to your terminal.
+
+Like `--serve`, the relay has **no password and no encryption** and listens on
+loopback unless given an address. Put it behind ssh, which gives both. For a
+room on a server, `docker-compose.yml` builds a container with the relay and
+an sshd that can do nothing but forward to it (keys only, no shell, no other
+port):
+
+```sh
+cp ~/.ssh/id_ed25519.pub call_keys     # one public key per person
+docker compose up -d --build
+ssh -N -L 7100:127.0.0.1:7100 -p 2222 call@server &    # each person
+asciicam --call localhost:7100 --name Alice -C
+```
+
+Without Docker, `ssh -L 7100:localhost:7100 host` to a machine running
+`asciicam --room 7100` works the same. The Docker recipe was not run in the
+environment this was written in (no Docker daemon): the program and the relay
+are tested, the container files are not. Code: `src/room.c` (relay),
+`src/call.c` (client), `src/call_ui.c` (terminal and camera),
+`src/cellcodec.c` (picture wire format), `src/callproto.c` (messages).
+
 ### Loader hardening
 
 `nl_dlopen` reads a file from disk and then writes to addresses computed from it,
