@@ -24,8 +24,8 @@
  *
  * Input is escape subset grayscale_to_ascii produces: CSI row;colH, CSI H, CSI
  * m with 0 / 38;2 / 38;5 / 48;2 / 48;5 / 39 / 49, LF, and UTF-8 glyphs one cell
- * wide. Anything else makes netenc_frame() return -1 and caller sends frame
- * untouched
+ * wide
+ * Anything else makes netenc_frame() return -1 and caller sends frame untouched
  */
 
 #include "nl_types.h"
@@ -69,5 +69,14 @@ void netenc_invalidate(netenc_t *e);
 // when input cannot be encoded (unsupported escape, frame too big, out of
 // memory); caller should then write original frame and call netenc_invalidate()
 int netenc_frame(netenc_t *e, const char *in, size_t n, char *out, size_t cap);
+
+// Cells a frame draws, for other users of same escape subset (video calls)
+// netenc_extent: rows and columns frame reaches (0, 0 = nothing drawn)
+// netenc_parse: fill grid (rows x cols cells, row by row) with what frame
+// draws; seen[i] is 1 for cells it wrote, others are left as they were
+// Return -1 on unsupported input or when frame reaches outside rows x cols
+int netenc_extent(const char *in, size_t n, int *rows, int *cols);
+int netenc_parse(const char *in, size_t n, netcell_t *grid, uint8_t *seen,
+                 int rows, int cols);
 
 #endif /* NETENC_H */

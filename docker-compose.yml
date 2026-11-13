@@ -1,0 +1,20 @@
+# Video-call room behind ssh
+#   cp ~/.ssh/id_ed25519.pub call_keys     # one public key per line, one per person
+#   docker compose up -d --build
+# Each person then runs:
+#   ssh -N -L 7100:127.0.0.1:7100 -p 2222 call@this-host &
+#   asciicam --call localhost:7100 --name Harshit -C
+services:
+  room:
+    build:
+      context: .
+      dockerfile: docker/call/Dockerfile
+    ports:
+      - "2222:2222"
+    volumes:
+      - ./call_keys:/etc/ssh/authorized_keys/call:ro
+      - hostkeys:/etc/ssh/host
+    restart: unless-stopped
+
+volumes:
+  hostkeys:

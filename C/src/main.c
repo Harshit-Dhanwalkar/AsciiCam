@@ -3,6 +3,7 @@
 #include "app_paths.h"
 #include "ascii.h"
 #include "browser.h"
+#include "call_ui.h"
 #include "capture.h"
 #include "curve.h"
 #include "curve_ui.h"
@@ -200,6 +201,10 @@ static void print_usage(const char *prog) {
       "                host:7000 (default loopback; no password, use ssh -L) \n"
       "  --watch <a>   view a --serve picture from another machine, no       \n"
       "                camera needed (q quits); plain nc works too           \n"
+      "  --room <a>    run a video-call room (chat + pictures of up to 8):   \n"
+      "                7100 or host:7100, loopback by default, use ssh -L    \n"
+      "  --call <a>    join a room with camera and chat; --name <n> is your  \n"
+      "                name (Enter sends, Ctrl-C leaves); -C for colour      \n"
       "  --speed <x>   playback speed for --play (default 1, e.g. 0.5, 2)    \n"
       "  --loop        repeat --play until quit                              \n"
       "  --curve <s>   tone curve: points \"0,0 64,40 255,255\", a preset    \n"
@@ -1251,6 +1256,54 @@ int main(int argc, char *argv[]) {
     i--;
   }
 
+  // --room <addr> / --call <addr> / --name <name>: video call
+  const char *room_addr = NULL;
+  const char *call_addr = NULL;
+  const char *call_name = "guest";
+  for (int i = 1; i < argc; i++) {
+    int is_room = nl_strcmp(argv[i], "--room") == 0;
+    int is_call = nl_strcmp(argv[i], "--call") == 0;
+    int is_name = nl_strcmp(argv[i], "--name") == 0;
+    if (!is_room && !is_call && !is_name) {
+      continue;
+    }
+
+    if (i + 1 >= argc) {
+      fprintf(stderr, "%s needs a value\n", argv[i]);
+
+      return 2;
+    }
+
+    if (is_room) {
+      room_addr = argv[i + 1];
+    } else if (is_call) {
+      call_addr = argv[i + 1];
+    } else {
+      call_name = argv[i + 1];
+    }
+
+    for (int k = i; k + 2 < argc; k++) {
+      argv[k] = argv[k + 2];
+    }
+
+    argc -= 2;
+    argv[argc] = NULL;
+    i--;
+  }
+
+  if ((room_addr || call_addr) && (serve_addr || watch_addr)) {
+    fprintf(stderr, "--room and --call do not go together with --serve and "
+                    "--watch\n");
+
+    return 2;
+  }
+
+  if (room_addr && call_addr) {
+    fprintf(stderr, "--room and --call are two programs: run one of each\n");
+
+    return 2;
+  }
+
   nv_server_t serve;
   int serve_on = 0;
   char *serve_buf = NULL;
@@ -1349,6 +1402,10 @@ int main(int argc, char *argv[]) {
   nl_signal(SIGABRT, handle_signal);
   nl_signal(SIGSEGV, handle_signal);
   nl_signal(SIGWINCH, handle_winch);
+
+  if (room_addr) {
+    return room_main(room_addr);
+  }
 
   if (play_path) {
     int probe = open(play_path, O_RDONLY, 0);
@@ -1791,6 +1848,15 @@ int main(int argc, char *argv[]) {
   // fill screen, unless a mode was chosen, show it as an ASCII ramp
   if (demo_is_device(device) && opts.render_mode == RENDER_DOTS) {
     opts.render_mode = RENDER_ASCII_RAMP;
+  }
+
+  if (call_addr) {
+    // a tile is a fraction of the screen: the full-screen default is too big
+    int tile_w = ascii_w == DEFAULT_ASCII_WIDTH ? 40 : ascii_w;
+    int tile_h = ascii_h == DEFAULT_ASCII_HEIGHT ? 20 : ascii_h;
+
+    return call_main(call_addr, call_name, device, cap_w, cap_h, fps, tile_w,
+                     tile_h, &opts);
   }
 
   // Open webcam

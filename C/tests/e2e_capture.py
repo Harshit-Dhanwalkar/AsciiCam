@@ -728,6 +728,54 @@ if REAL and os.access(REAL, os.X_OK):
     _, code, out, _ = run(["--watch", "nonsense"], 1.0)
     check(code == 1 and b"cannot connect" in out, "--watch: bad address: clear message")
 
+    # --room / --call: two people in a room see each other and chat
+    def spawn_call(args):
+        pid, cfd = pty.fork()
+        if pid == 0:
+            fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 120, 0, 0))
+            os.execv(BIN, [BIN] + args)
+        fcntl.ioctl(cfd, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 120, 0, 0))
+        return pid, cfd
+
+    def pump_all(fds, secs):
+        got = {x: b"" for x in fds}
+        end = time.monotonic() + secs
+        while time.monotonic() < end:
+            r, _, _ = select.select(fds, [], [], 0.1)
+            for x in r:
+                try:
+                    got[x] += os.read(x, 65536)
+                except OSError:
+                    pass
+        return got
+
+    cport = free_port()
+    room = subprocess.Popen([BIN, "--room", str(cport)], stderr=subprocess.PIPE)
+    time.sleep(0.4)
+    pa, fa = spawn_call(["--call", str(cport), "--name", "Alice", "--demo", "-C"])
+    pb, fb = spawn_call(["--call", str(cport), "--name", "Bob", "--demo"])
+    first = pump_all([fa, fb], 2.0)
+    os.write(fa, b"hello bob\r")
+    second = pump_all([fa, fb], 1.5)
+    check(b"Alice: hello bob" in second[fb], "--call: chat reaches the other person")
+    check(b"you: hello bob" in second[fa], "--call: and shows as yours at home")
+    check(b"Alice" in first[fb] + second[fb] and b"\x1b[38;2;" in first[fb] + second[fb],
+          "--call: peer name and its colour picture are on screen")
+    # nobody reads the screens now: leaving must not hang on a full tty
+    os.write(fa, b"\x03")
+    os.write(fb, b"\x03")
+    codes = [os.waitstatus_to_exitcode(os.waitpid(p, 0)[1]) for p in (pa, pb)]
+    check(codes == [0, 0], "--call: Ctrl-C leaves cleanly")
+    room.terminate()
+    rerr = room.communicate()[1]
+    check(b"2 in the room" in rerr and b"0 in the room" in rerr, "--room: reports who is in")
+    _, code, out, _ = run(["--call", "%d" % free_port(), "--demo"], 1.0)
+    check(code == 1 and b"cannot connect" in out, "--call: no room there: clear message")
+    _, code, out, _ = run(["--room", "x"], 0.5)
+    check(code == 2 and b"--room needs a port" in out, "--room with a bad address: usage error")
+    _, code, out, _ = run(["--room", "7100", "--call", "7100"], 0.5)
+    check(code == 2 and b"two programs" in out, "--room with --call: usage error")
+
     _, code, out, _ = run(["--image"], 0.5)
     check(code == 2 and b"--image needs" in out, "--image without a file: usage error")
     shutil.rmtree(idir, ignore_errors=True)
