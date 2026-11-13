@@ -126,6 +126,7 @@ endif
 CORE_SRCS := $(SRCDIR)/app_paths.c \
              $(SRCDIR)/ascii.c \
              $(SRCDIR)/browser.c \
+             $(SRCDIR)/gfx.c \
              $(SRCDIR)/capture_reinit.c \
              $(SRCDIR)/curve.c \
              $(SRCDIR)/curve_ui.c \
@@ -323,6 +324,8 @@ test: all
 	$(CC) -O2 $(TEST_FLAGS) tests/test_colour.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/colour_O2
 	$(CC) -O0 -DTESTING $(TEST_FLAGS) tests/test_effects.c $(TEST_LIBS) -o $(TESTDIR)/effects_O0
 	$(CC) -O2 -DTESTING $(TEST_FLAGS) tests/test_effects.c $(TEST_LIBS) -o $(TESTDIR)/effects_O2
+	$(CC) -O0 $(TEST_FLAGS) tests/test_gfx.c $(SRCDIR)/gfx.c $(TEST_LIBS) -o $(TESTDIR)/gfx_O0
+	$(CC) -O2 $(TEST_FLAGS) tests/test_gfx.c $(SRCDIR)/gfx.c $(TEST_LIBS) -o $(TESTDIR)/gfx_O2
 	$(CC) -O0 $(TEST_FLAGS) tests/test_netenc.c $(SRCDIR)/netenc.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/netenc_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_netenc.c $(SRCDIR)/netenc.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/netenc_O2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_copy_file.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/copy_file
@@ -333,6 +336,8 @@ test: all
 	$(CC) -O2 $(TEST_FLAGS) tests/test_capture_pipe.c $(SRCDIR)/thread_sharing.c $(TEST_LIBS) -o $(TESTDIR)/capture_pipe
 	$(CC) -DTESTING $(TEST_FLAGS) tests/security_tests.c $(FILTER_SRC) $(TEST_LIBS) -o $(TESTDIR)/security
 	$(TESTDIR)/alloc
+	$(TESTDIR)/gfx_O0
+	$(TESTDIR)/gfx_O2
 	$(TESTDIR)/netenc_O0
 	$(TESTDIR)/netenc_O2
 	$(TESTDIR)/printf
