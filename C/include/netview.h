@@ -30,6 +30,7 @@ typedef struct {
   uint8_t *pend; // unsent tail of a frame
   size_t plen;
   size_t ppos;
+  int need_key; // next frame must be a whole picture (new, or missed one)
 } nv_client_t;
 
 typedef struct {
@@ -57,6 +58,18 @@ int nv_accept(nv_server_t *srv);
 // Send frame to every viewer
 // Number of viewers that got it (or its start)
 int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n);
+
+// Viewer that is new or missed a frame gets key (a whole picture) instead of
+// delta, which only makes sense after the previous one
+// key may be NULL: delta goes to everybody
+int nv_broadcast2(nv_server_t *srv, const uint8_t *delta, size_t dn,
+                  const uint8_t *key, size_t kn);
+
+// How many viewers need a key frame before they can follow deltas
+int nv_wants_key(const nv_server_t *srv);
+
+// Every viewer gets a key next time (stray characters do not stay)
+void nv_want_key_all(nv_server_t *srv);
 
 void nv_close(nv_server_t *srv);
 

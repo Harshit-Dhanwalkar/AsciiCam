@@ -269,6 +269,77 @@ int main(void) {
   CHECK(srv.lfd == -1 && srv.nclients == 0, "closed");
   nv_close(&srv);
   CHECK(nv_connect(addr) == -1, "nobody listens any more");
+
+  // key and delta frames: new or late viewers get key first, rest follow
+  // deltas, a viewer that missed a frame is brought back with a key
+  {
+    nv_server_t k;
+    CHECK(nv_listen(&k, 0x7f000001u, 0) == 0, "second server listens");
+    char kaddr[32];
+    nl_snprintf(kaddr, sizeof(kaddr), "127.0.0.1:%d", k.port);
+    uint8_t t[64];
+    int v1 = nv_connect(kaddr);
+    nl_usleep(5000);
+    nv_accept(&k);
+    rd(v1, t, sizeof(t)); // hello
+    CHECK(nv_wants_key(&k) == 1, "a new viewer wants a key");
+    nv_broadcast2(&k, (const uint8_t *)"D1", 2, (const uint8_t *)"K1", 2);
+    long r = rd(v1, t, sizeof(t));
+    CHECK(r == 2 && t[0] == 'K' && nv_wants_key(&k) == 0,
+          "it gets the key, then wants none");
+    nv_broadcast2(&k, (const uint8_t *)"D2", 2, (const uint8_t *)"K2", 2);
+    r = rd(v1, t, sizeof(t));
+    CHECK(r == 2 && t[0] == 'D', "then it follows deltas");
+
+    int v2 = nv_connect(kaddr);
+    nl_usleep(5000);
+    nv_accept(&k);
+    rd(v2, t, sizeof(t));
+    CHECK(nv_wants_key(&k) == 1, "a late viewer wants a key");
+    nv_broadcast2(&k, (const uint8_t *)"D3", 2, (const uint8_t *)"K3", 2);
+    r = rd(v1, t, sizeof(t));
+    CHECK(r == 2 && t[0] == 'D' && t[1] == '3', "the old one still gets D");
+    r = rd(v2, t, sizeof(t));
+    CHECK(r == 2 && t[0] == 'K' && t[1] == '3', "the late one gets K");
+    nv_want_key_all(&k);
+    CHECK(nv_wants_key(&k) == 2, "everybody can be asked for a key");
+    nv_broadcast2(&k, (const uint8_t *)"D4", 2, (const uint8_t *)"K4", 2);
+    r = rd(v1, t, sizeof(t));
+    CHECK(r == 2 && t[0] == 'K', "and gets one");
+    rd(v2, t, sizeof(t));
+
+    // v2 stops reading: it misses frames and must get a key afterwards
+    for (int f = 0; f < 40 && nv_wants_key(&k) == 0; f++) {
+      nv_broadcast2(&k, frame, BIG, (const uint8_t *)"KEY!", 4);
+      while (rd(v1, chunk, 1 << 20) > 0) {
+      }
+    }
+
+    CHECK(nv_wants_key(&k) >= 1, "a viewer that fell behind wants a key");
+    long drained;
+    while ((drained = rd(v2, chunk, 1 << 20)) > 0) {
+    }
+
+    int back = 0;
+    for (int f = 0; f < 40 && !back; f++) {
+      nv_broadcast2(&k, (const uint8_t *)"dd", 2, (const uint8_t *)"KEY!", 4);
+      back = nv_wants_key(&k) == 0;
+      nl_usleep(1000);
+    }
+
+    long tail = rd(v2, chunk, 1 << 20);
+    long more;
+    while ((more = rd(v2, chunk + (tail > 0 ? tail : 0), 1000)) > 0) {
+      tail += more;
+    }
+
+    CHECK(back && tail >= 4 && chunk[tail - 4] == 'K' && chunk[tail - 1] == '!',
+          "it is brought back with a key (%ld bytes)", tail);
+    close(v1);
+    close(v2);
+    nv_close(&k);
+  }
+
   nl_free(frame);
   nl_free(chunk);
   nl_free(all);

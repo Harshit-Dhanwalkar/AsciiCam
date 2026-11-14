@@ -559,18 +559,21 @@ ssh -L 7000:localhost:7000 camera-host     # on yours
 asciicam --watch localhost:7000            # (or plain: nc localhost 7000)
 ```
 
-`--serve [host:]port` sends every rendered frame (the picture only, not the
-panel) to up to 8 viewers over TCP, wrapped in synchronized-update escapes so
-it does not tear. It listens on **loopback** unless given an address
+`--serve [host:]port` sends the rendered picture (not the panel) to up to 8
+viewers over TCP, wrapped in synchronized-update escapes so it does not tear.
+A viewer that joins, or that missed a frame, first gets the whole picture; after
+that only the cells that changed (the `--net` encoder, lossless), so a quiet
+scene costs next to nothing over ssh. Everybody also gets a whole picture every
+ten seconds, so a stray character cannot stay. It listens on **loopback** unless given an address
 (`--serve 0.0.0.0:7000` or `*:7000`, which prints a warning): there is **no
 password and no encryption**, so over a network use `ssh -L`, which gives both.
 Addresses are numeric IPv4 or `localhost`: no name lookup. `--watch` needs no
 camera and no plugins, shows what arrives, and quits on `q` or when the server
 goes away. Make the viewing terminal at least as large as the serving one, as
 with `--play`. A viewer that cannot keep up misses frames instead of holding
-the camera back, and a frame is never cut in the middle. Combine with
-`--net`? Not needed: `--net` shapes what goes to the local terminal, `--serve`
-always sends full frames. Code: `src/netview.c`.
+the camera back (and gets a whole picture when it catches up), and a frame is
+never cut in the middle. `--net` shapes what goes to the local terminal and is
+separate: `--serve` always does its own diffing. Code: `src/netview.c`.
 
 ### Video calls: `--room` and `--call`
 

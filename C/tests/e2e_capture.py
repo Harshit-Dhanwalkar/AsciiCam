@@ -699,6 +699,60 @@ if REAL and os.access(REAL, os.X_OK):
           "--serve: frames arrive whole, one sync pair each")
     check(b"\x1b[38;2;" in bytes(got), "--serve: the colours go to the viewer too")
     check(b"viewer connected" in out, "--serve: the host sees a toast when a viewer joins")
+
+    # a viewer who comes late is brought up to date, and later frames are only
+    # changes: a still picture costs one whole picture, not one per frame
+    port = free_port()
+    first, late = bytearray(), bytearray()
+
+    def viewer2(buf, delay, secs):
+        time.sleep(delay)
+        for _ in range(40):
+            try:
+                c = socket.create_connection(("127.0.0.1", port), timeout=1)
+                break
+            except OSError:
+                time.sleep(0.1)
+        else:
+            return
+        c.settimeout(0.3)
+        end = time.time() + secs
+        while time.time() < end:
+            try:
+                d = c.recv(65536)
+            except socket.timeout:
+                continue
+            if not d:
+                break
+            buf.extend(d)
+        c.close()
+
+    t1 = threading.Thread(target=viewer2, args=(first, 0.0, 2.2))
+    t2 = threading.Thread(target=viewer2, args=(late, 1.0, 1.4))
+    t1.start()
+    t2.start()
+    _, code, out, _ = run(["--image", pic, "-C", "--serve", str(port)] + IARGS[:-4], 3.5)
+    t1.join()
+    t2.join()
+    one = bytes(first)
+    check(len(one) > 1000 and len(one) < 6 * one.find(b"\x1b[?2026l", 100) + 4000,
+          "--serve: a still picture is sent once, then only changes (%d bytes)" % len(one))
+    two = bytes(late)
+    check(b"\x1b[38;2;" in two and two.count(b"\x1b[?2026h") >= 2,
+          "--serve: a viewer that comes late gets the whole picture")
+    try:
+        import pyte
+    except ImportError:
+        pyte = None
+    if pyte:
+        def show(data):
+            scr = pyte.Screen(200, 100)
+            pyte.Stream(scr).feed(data.decode("utf8", "replace"))
+            return [r.rstrip() for r in scr.display]
+
+        check(show(one) == show(two) and any(show(two)),
+              "--serve: the late viewer ends up with the same picture")
+
     _, code, out, _ = run(["--serve", "x"] + IARGS, 0.5)
     check(code == 2 and b"--serve needs a port" in out, "--serve with a bad address: usage error")
     _, code, out, _ = run(["--serve"], 0.5)

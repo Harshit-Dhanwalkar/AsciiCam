@@ -236,7 +236,7 @@ int nv_accept(nv_server_t *srv) {
     int one = 1;
     __sc6(SYS_setsockopt, fd, IPPROTO_TCP, TCP_NODELAY, (long)&one, sizeof(one),
           0);
-    srv->cl[srv->nclients] = (nv_client_t){.fd = (int)fd};
+    srv->cl[srv->nclients] = (nv_client_t){.fd = (int)fd, .need_key = 1};
     srv->nclients++;
     (void)send_some((int)fd, (const uint8_t *)HELLO, sizeof(HELLO) - 1);
     fresh++;
@@ -245,7 +245,8 @@ int nv_accept(nv_server_t *srv) {
   return fresh;
 }
 
-int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n) {
+int nv_broadcast2(nv_server_t *srv, const uint8_t *delta, size_t dn,
+                  const uint8_t *key, size_t kn) {
   int served = 0;
   srv->frames++;
   for (int i = 0; i < srv->nclients;) {
@@ -268,6 +269,7 @@ int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n) {
 
       if (!dead && c->pend) {
         srv->dropped++;
+        c->need_key = 1; // it misses this one
         i++;
 
         continue;
@@ -275,13 +277,21 @@ int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n) {
     }
 
     if (!dead) {
+      int use_key = c->need_key && key;
+      const uint8_t *buf = use_key ? key : delta;
+      size_t n = use_key ? kn : dn;
       long r = send_some(c->fd, buf, n);
       if (r == -NV_EAGAIN) {
         srv->dropped++;
+        c->need_key = 1;
       } else if (r < 0) {
         dead = 1;
       } else {
         served++;
+        if (use_key) {
+          c->need_key = 0;
+        }
+
         if ((size_t)r < n) {
           c->pend = nl_malloc(n - (size_t)r);
           if (c->pend) {
@@ -305,6 +315,25 @@ int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n) {
   }
 
   return served;
+}
+
+int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n) {
+  return nv_broadcast2(srv, buf, n, NULL, 0);
+}
+
+int nv_wants_key(const nv_server_t *srv) {
+  int n = 0;
+  for (int i = 0; i < srv->nclients; i++) {
+    n += srv->cl[i].need_key ? 1 : 0;
+  }
+
+  return n;
+}
+
+void nv_want_key_all(nv_server_t *srv) {
+  for (int i = 0; i < srv->nclients; i++) {
+    srv->cl[i].need_key = 1;
+  }
 }
 
 void nv_close(nv_server_t *srv) {
@@ -428,7 +457,8 @@ int nv_wait(const int *fds, int n, int timeout_ms, uint8_t *ready) {
     ready[i] = 0;
     if (fds[i] >= 0 && fds[i] < 1024) {
       unsigned u = (unsigned)fds[i];
-      rs.fds_bits[u / 64u] |= 1UL << (u % 64u);
+      unsigned long *bits = (unsigned long *)&rs;
+      bits[u / 64u] |= 1UL << (u % 64u);
       maxfd = fds[i] > maxfd ? fds[i] : maxfd;
     }
   }
@@ -443,7 +473,8 @@ int nv_wait(const int *fds, int n, int timeout_ms, uint8_t *ready) {
   for (int i = 0; i < n; i++) {
     if (fds[i] >= 0 && fds[i] < 1024) {
       unsigned u = (unsigned)fds[i];
-      if ((rs.fds_bits[u / 64u] >> (u % 64u)) % 2UL != 0) {
+      const unsigned long *bits = (const unsigned long *)&rs;
+      if ((bits[u / 64u] >> (u % 64u)) % 2UL != 0) {
         ready[i] = 1;
         got++;
       }
@@ -581,7 +612,7 @@ int nv_accept(nv_server_t *srv) {
     fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 #endif
 
-    srv->cl[srv->nclients] = (nv_client_t){.fd = fd};
+    srv->cl[srv->nclients] = (nv_client_t){.fd = fd, .need_key = 1};
     srv->nclients++;
     send(fd, HELLO, sizeof(HELLO) - 1, MSG_NOSIGNAL);
     fresh++;
@@ -589,7 +620,8 @@ int nv_accept(nv_server_t *srv) {
   return fresh;
 }
 
-int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n) {
+int nv_broadcast2(nv_server_t *srv, const uint8_t *delta, size_t dn,
+                  const uint8_t *key, size_t kn) {
   int served = 0;
   srv->frames++;
   for (int i = 0; i < srv->nclients;) {
@@ -618,28 +650,37 @@ int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n) {
       }
       if (!dead && c->pend) {
         srv->dropped++;
+        c->need_key = 1;
         i++;
         continue;
       }
     }
     if (!dead) {
+      int use_key = c->need_key && key;
+      const uint8_t *buf = use_key ? key : delta;
+      size_t n = use_key ? kn : dn;
       long r = send(c->fd, (const char *)buf, n, MSG_NOSIGNAL);
       if (r < 0) {
 #ifdef PLATFORM_WINDOWS
         if (WSAGetLastError() == WSAEWOULDBLOCK) {
           srv->dropped++;
+          c->need_key = 1;
         } else {
           dead = 1;
         }
 #else
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
           srv->dropped++;
+          c->need_key = 1;
         } else {
           dead = 1;
         }
 #endif
       } else {
         served++;
+        if (use_key) {
+          c->need_key = 0;
+        }
         if ((size_t)r < n) {
           c->pend = nl_malloc(n - (size_t)r);
           if (c->pend) {
@@ -664,6 +705,25 @@ int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n) {
   }
 
   return served;
+}
+
+int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n) {
+  return nv_broadcast2(srv, buf, n, NULL, 0);
+}
+
+int nv_wants_key(const nv_server_t *srv) {
+  int n = 0;
+  for (int i = 0; i < srv->nclients; i++) {
+    n += srv->cl[i].need_key ? 1 : 0;
+  }
+
+  return n;
+}
+
+void nv_want_key_all(nv_server_t *srv) {
+  for (int i = 0; i < srv->nclients; i++) {
+    srv->cl[i].need_key = 1;
+  }
 }
 
 void nv_close(nv_server_t *srv) {
@@ -769,4 +829,4 @@ int nv_wait(const int *fds, int n, int timeout_ms, uint8_t *ready) {
   return -1;
 }
 
-#endif // end of !LINUX_NOLIBC
+#endif // end of !LINUX_NOLIBC 
