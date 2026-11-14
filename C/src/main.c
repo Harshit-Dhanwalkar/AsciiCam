@@ -200,7 +200,8 @@ static void print_usage(const char *prog) {
       "  --serve <a>   also send the picture to viewers over TCP: 7000 or    \n"
       "                host:7000 (default loopback; no password, use ssh -L) \n"
       "  --watch <a>   view a --serve picture from another machine, no       \n"
-      "                camera needed (q quits); plain nc works too           \n"
+      "                camera needed (q quits); plain nc works too; add      \n"
+      "                --retry to reconnect when the server restarts         \n"
       "  --room <a>    run a video-call room (chat + pictures of up to 8):   \n"
       "                7100 or host:7100, loopback by default, use ssh -L    \n"
       "  --call <a>    join a room with camera and chat; --name <n> is your  \n"
@@ -1289,6 +1290,23 @@ int main(int argc, char *argv[]) {
     i--;
   }
 
+  // --retry: --watch reconnects when server goes away
+  int watch_retry = 0;
+  for (int i = 1; i < argc; i++) {
+    if (nl_strcmp(argv[i], "--retry") != 0) {
+      continue;
+    }
+
+    watch_retry = 1;
+    for (int k = i; k + 1 < argc; k++) {
+      argv[k] = argv[k + 1];
+    }
+
+    argc--;
+    argv[argc] = NULL;
+    i--;
+  }
+
   // --room <addr> / --call <addr> / --name <name>: video call
   const char *room_addr = NULL;
   const char *call_addr = NULL;
@@ -1539,15 +1557,56 @@ int main(int argc, char *argv[]) {
       if (fdset_has(&rs, sock)) {
         ssize_t got = read(sock, wbuf, sizeof(wbuf));
         if (got <= 0) {
-          closed = 1;
-          break;
+          if (!watch_retry) {
+            closed = 1;
+
+            break;
+          }
+
+          // --retry: keep the screen, try again every 2 seconds until q
+          close(sock);
+          sock = -1;
+          static const char msg[] =
+              "\033[0m\033[1;1H\033[7m --watch: connection lost, "
+              "reconnecting (q quits) \033[0m";
+          (void)write(STDOUT_FILENO, msg, sizeof(msg) - 1);
+          int user_quit = 0;
+          while (keep_running && sock < 0 && !user_quit) {
+            nl_fd_set ks;
+            nl_memset(&ks, 0, sizeof(ks));
+            fdset_add(&ks, STDIN_FILENO);
+            struct nl_timeval kt = {2, 0};
+            if (nl_select(STDIN_FILENO + 1, &ks, NULL, NULL, &kt) > 0 &&
+                fdset_has(&ks, STDIN_FILENO)) {
+              char kb[32] = {0};
+              ssize_t kn = read(STDIN_FILENO, kb, sizeof(kb));
+              user_quit = kn == 0;
+              for (ssize_t k = 0; k < kn; k++) {
+                user_quit =
+                    user_quit || kb[k] == 'q' || kb[k] == 'Q' || kb[k] == 3;
+              }
+            }
+
+            if (!user_quit) {
+              sock = nv_connect(watch_addr);
+            }
+          }
+
+          if (sock < 0) {
+            break;
+          }
+
+          continue;
         }
 
         write_all(STDOUT_FILENO, wbuf, (size_t)got);
       }
     }
 
-    close(sock);
+    if (sock >= 0) {
+      close(sock);
+    }
+
     term_restore();
     (void)write(STDOUT_FILENO, SCREEN_LEAVE, sizeof(SCREEN_LEAVE) - 1);
     if (closed) {

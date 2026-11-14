@@ -108,6 +108,7 @@ int oq_init(outq_t *q) {
   q->buf = nl_malloc(CALL_OUTQ);
   q->n = 0;
   q->pos = 0;
+  q->total = 0;
 
   return q->buf ? 0 : -1;
 }
@@ -167,6 +168,7 @@ int oq_flush(outq_t *q, int fd) {
     long r = nv_send(fd, q->buf + q->pos, q->n - q->pos);
     if (r > 0) {
       q->pos += (size_t)r;
+      q->total += (uint64_t)r;
 
       continue;
     }

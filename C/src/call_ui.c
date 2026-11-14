@@ -146,9 +146,17 @@ static int handle_keys(call_t *c, typing_t *t, const char *k, ssize_t n) {
       return 1;
     }
 
+    if (ch == 22) { // Ctrl-V
+      c->video_off = !c->video_off;
+      c->need_key = 1;
+      c->dirty = 1;
+
+      continue;
+    }
+
     if (ch == 27) {
       if (i + 1 < n) {
-        // an escape sequence (arrow, ...): skip it
+        // An escape sequence (arrow, ...): skip it
         i = n;
       } else {
         t->len = 0;
@@ -262,6 +270,9 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
   int period = 1000 / (fps > 0 ? fps : 15);
   long next_frame = ui_now_ms();
   int quit = 0;
+  long rate_at = ui_now_ms();
+  uint64_t last_out = 0;
+  uint64_t last_in = 0;
 
   ui_write(UI_ENTER, sizeof(UI_ENTER) - 1);
   term_raw_mode();
@@ -300,6 +311,20 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
       break;
     }
 
+    // Traffic, per second
+    now = ui_now_ms();
+    if (now - rate_at >= 1000) {
+      uint64_t out_now = call.out.total;
+      call.rate_out =
+          (int)((out_now - last_out) * 1000 / (uint64_t)(now - rate_at));
+      call.rate_in =
+          (int)((call.bytes_in - last_in) * 1000 / (uint64_t)(now - rate_at));
+      last_out = out_now;
+      last_in = call.bytes_in;
+      rate_at = now;
+      call.dirty = 1;
+    }
+
     now = ui_now_ms();
     if (now >= next_frame) {
       next_frame = now + period;
@@ -327,6 +352,11 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
           o.color = colour != NULL;
           int len = grayscale_to_ascii(gray, colour, cam.width, cam.height,
                                        sub_w, sub_h, pic, out_size, &o);
+
+          if (call.video_off) {
+            len = (int)call_off_card(pic, out_size, tile_w, tile_h);
+          }
+
           if (len > 0) {
             call_send_picture(&call, pic, (size_t)len);
           }

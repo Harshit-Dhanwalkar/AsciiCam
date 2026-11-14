@@ -173,6 +173,7 @@ int call_pump(call_t *c) {
   for (;;) {
     long got = mb_fill(&c->in, c->fd);
     if (got > 0) {
+      c->bytes_in += (uint64_t)got;
       for (;;) {
         int type;
         const uint8_t *p;
@@ -211,6 +212,40 @@ int call_pump(call_t *c) {
   }
 
   return c->closed ? -1 : 0;
+}
+
+size_t call_off_card(char *out, size_t cap, int cols, int rows) {
+  static const char msg[] = "camera off";
+  if (cols < 1 || rows < 1 || cols > CC_MAX_COLS || rows > CC_MAX_ROWS) {
+    return 0;
+  }
+
+  int mid = rows / 2 + 1;
+  size_t n = 0;
+  for (int r = 1; r <= rows; r++) {
+    char row[CC_MAX_COLS + 1];
+    nl_memset(row, ' ', (size_t)cols);
+    if (r == mid) {
+      int len = (int)sizeof(msg) - 1;
+      if (len > cols) {
+        len = cols;
+      }
+
+      nl_memcpy(row + (cols - len) / 2, msg, (size_t)len);
+    }
+
+    char head[16];
+    int hk = nl_snprintf(head, sizeof(head), "\033[%d;1H", r);
+    if (hk <= 0 || n + (size_t)hk + (size_t)cols >= cap) {
+      return 0;
+    }
+
+    nl_memcpy(out + n, head, (size_t)hk);
+    nl_memcpy(out + n + (size_t)hk, row, (size_t)cols);
+    n += (size_t)hk + (size_t)cols;
+  }
+
+  return n;
 }
 
 int call_send_picture(call_t *c, const char *ansi, size_t n) {
@@ -430,9 +465,12 @@ size_t call_compose(call_t *c, const char *typing, int term_w, int term_h,
 
   // Title
   char title[120];
-  nl_snprintf(title, sizeof(title),
-              " asciicam call  |  %d here  |  Enter: send   Ctrl-C: leave",
-              call_members(c));
+  nl_snprintf(
+      title, sizeof(title),
+      " asciicam call | %d here | up %d.%d down %d.%d kB/s | Enter send  "
+      "^V cam %s  ^C leave",
+      call_members(c), c->rate_out / 1000, c->rate_out % 1000 / 100,
+      c->rate_in / 1000, c->rate_in % 1000 / 100, c->video_off ? "on" : "off");
   cmove(&w, 1, 1);
   cputs(&w, "\033[7m");
   cclip(&w, title, term_w);
