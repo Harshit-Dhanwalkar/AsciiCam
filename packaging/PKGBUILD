@@ -1,0 +1,31 @@
+# Maintainer: Harshit Dhanwalkar <harshitpd1729@gmail.com>
+# For the AUR: copy to a git repo ssh://aur@aur.archlinux.org/asciicam.git, then
+#   updpkgsums && makepkg --printsrcinfo > .SRCINFO
+pkgname=asciicam
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Webcam to ASCII art in the terminal, no libc and no dependencies'
+arch=('x86_64')
+url='https://github.com/Harshit-Dhanwalkar/AsciiCam'
+license=('LicenseRef-PolyForm-Noncommercial-1.0.0')
+makedepends=('gcc' 'make')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+options=('!strip' '!lto')
+
+build() {
+  cd "AsciiCam-$pkgver/C"
+  make
+  make plugins
+}
+
+check() {
+  cd "AsciiCam-$pkgver/C"
+  make test
+}
+
+package() {
+  cd "AsciiCam-$pkgver/C"
+  make install PREFIX=/usr DESTDIR="$pkgdir"
+  install -Dm644 ../LICENCE "$pkgdir/usr/share/licenses/$pkgname/LICENCE"
+}

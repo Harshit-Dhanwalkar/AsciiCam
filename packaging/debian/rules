@@ -1,0 +1,16 @@
+#!/usr/bin/make -f
+%:
+	dh $@ --sourcedirectory=C
+
+# static, libc-free binary: no shared-library dependencies
+override_dh_auto_configure:
+override_dh_auto_build:
+	$(MAKE) -C C
+	$(MAKE) -C C plugins
+override_dh_auto_test:
+	$(MAKE) -C C test
+override_dh_auto_install:
+	$(MAKE) -C C install PREFIX=/usr DESTDIR=$(CURDIR)/debian/asciicam
+override_dh_strip:
+override_dh_shlibdeps:
+override_dh_dwz:

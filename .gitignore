@@ -67,3 +67,7 @@ dkms.conf
 # No build
 nb
 C/nb
+
+# Release/Packaging
+dist/
+apt/

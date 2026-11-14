@@ -1,0 +1,16 @@
+Source: asciicam
+Section: video
+Priority: optional
+Maintainer: Harshit Dhanwalkar <harshitpd1729@gmail.com>
+Build-Depends: debhelper-compat (= 13), gcc, make
+Standards-Version: 4.6.2
+Homepage: https://github.com/Harshit-Dhanwalkar/AsciiCam
+Rules-Requires-Root: no
+
+Package: asciicam
+Architecture: amd64
+Depends: ${misc:Depends}
+Description: webcam to ASCII art in the terminal, no libc, no dependencies
+ AsciiCam renders a webcam (or a built-in demo picture) as coloured text.
+ It is a single static binary that talks to the kernel with raw system calls,
+ loads effect plugins with its own ELF loader and needs no shared libraries.
