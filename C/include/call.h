@@ -48,7 +48,15 @@ typedef struct {
   uint64_t frames_sent;
   uint64_t frames_skipped;
   uint64_t frames_received;
+  uint64_t bytes_in;     // bytes read from room
+  int rate_in, rate_out; // bytes per second, set by caller
+  int video_off;         // send a "camera off" card, not picture
 } call_t;
+
+// Picture shown in place of sender's camera when video is off: cols x rows
+// cells, centred text
+// Return bytes written, 0 when it does not fit
+size_t call_off_card(char *out, size_t cap, int cols, int rows);
 
 // Connect to "host:port" and say hello
 // Return 0 on success

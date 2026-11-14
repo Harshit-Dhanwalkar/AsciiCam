@@ -387,6 +387,55 @@ int main(void) {
   sn = call_compose(&cc, NULL, 70, 30, scr, sizeof(scr));
   scr[sn] = 0;
   CHECK(nl_strstr_pos(scr, "\033[2J") >= 0, "new terminal size: cleared again");
+
+  // Title: traffic and camera state
+  cc.rate_out = 12345;
+  cc.rate_in = 987;
+  cc.video_off = 1;
+  sn = call_compose(&cc, NULL, 100, 40, scr, sizeof(scr));
+  scr[sn] = 0;
+  CHECK(nl_strstr_pos(scr, "up 12.3 down 0.9 kB/s") >= 0 &&
+            nl_strstr_pos(scr, "^V cam on") >= 0,
+        "title shows rates and the camera switch");
+  cc.video_off = 0;
+  sn = call_compose(&cc, NULL, 100, 40, scr, sizeof(scr));
+  scr[sn] = 0;
+  CHECK(nl_strstr_pos(scr, "^V cam off") >= 0, "title offers camera off");
+  CHECK(cc.out.total > 0 && cc.bytes_in > 0,
+        "byte counters moved (%llu out, %llu in)",
+        (unsigned long long)cc.out.total, (unsigned long long)cc.bytes_in);
+
+  // Card shown in place of the camera
+  static char card[8192];
+  size_t cn = call_off_card(card, sizeof(card), 20, 6);
+  cc_grid_t cg = {0};
+  CHECK(cn > 0 && cc_grid_from_ansi(&cg, card, cn) == 0 && cg.cols == 20 &&
+            cg.rows == 6,
+        "camera-off card is a 20x6 picture");
+  int mid_ok = 1;
+  for (int i = 0; i < 10; i++) {
+    mid_ok = mid_ok && cg.cell[3 * 20 + 5 + i].glyph == "camera off"[i];
+  }
+
+  CHECK(mid_ok, "card text sits centred on the middle row");
+  int outside = 0;
+  for (int i = 0; i < 20 * 6; i++) {
+    int in_text = i >= 3 * 20 + 5 && i < 3 * 20 + 15;
+    outside += !in_text && cg.cell[i].glyph != ' ';
+  }
+
+  CHECK(outside == 0, "card is blank except the text");
+  cn = call_off_card(card, sizeof(card), 6, 1);
+  cc_grid_free(&cg);
+  CHECK(cn > 0 && cc_grid_from_ansi(&cg, card, cn) == 0 && cg.cols == 6,
+        "card narrower than its text is clipped, not rejected");
+  CHECK(call_off_card(card, 50, 20, 6) == 0, "card: buffer too small");
+  CHECK(call_off_card(card, sizeof(card), 0, 6) == 0 &&
+            call_off_card(card, sizeof(card), CC_MAX_COLS + 1, 6) == 0 &&
+            call_off_card(card, sizeof(card), 20, CC_MAX_ROWS + 1) == 0,
+        "card: bad size");
+  cc_grid_free(&cg);
+
   CHECK(call_compose(&cc, NULL, 10, 3, scr, sizeof(scr)) == 0,
         "terminal too small: nothing");
   CHECK(call_compose(&cc, NULL, 100, 40, scr, 50) == 0, "buffer too small: 0");

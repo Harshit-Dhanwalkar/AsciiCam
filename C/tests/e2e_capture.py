@@ -778,6 +778,36 @@ if REAL and os.access(REAL, os.X_OK):
     srv.close()
     check(b"HELLO-WATCH-FRAME" in out, "--watch: shows what the server sends")
     check(code == 1 and b"closed the connection" in out, "--watch: says so when the server goes away")
+
+    # --watch --retry: server restarts, viewer comes back
+    port = free_port()
+
+    def restarting_server():
+        for word in (b"BEFORE-RESTART", b"AFTER-RESTART"):
+            lsock = socket.socket()
+            lsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            lsock.bind(("127.0.0.1", port))
+            lsock.listen(1)
+            lsock.settimeout(8)
+            try:
+                conn, _ = lsock.accept()
+            except OSError:
+                lsock.close()
+                return
+            conn.sendall(b"\x1b[2J" + word)
+            time.sleep(0.5)
+            conn.close()
+            lsock.close()
+            time.sleep(2.5)  # nobody listens: viewer has to retry
+
+    th = threading.Thread(target=restarting_server)
+    th.start()
+    _, code, out, _ = run(["--watch", "127.0.0.1:%d" % port, "--retry"], 7.0)
+    th.join()
+    check(b"BEFORE-RESTART" in out and b"reconnecting" in out and b"AFTER-RESTART" in out,
+          "--watch --retry: reconnects after the server restarts")
+    check(code == 0, "--watch --retry: q still quits (%s)" % code)
+
     _, code, out, _ = run(["--watch", "127.0.0.1:%d" % free_port()], 1.0)
     check(code == 1 and b"cannot connect" in out, "--watch: nobody there: clear message")
     _, code, out, _ = run(["--watch", "nonsense"], 1.0)
@@ -816,6 +846,24 @@ if REAL and os.access(REAL, os.X_OK):
     check(b"you: hello bob" in second[fa], "--call: and shows as yours at home")
     check(b"Alice" in first[fb] + second[fb] and b"\x1b[38;2;" in first[fb] + second[fb],
           "--call: peer name and its colour picture are on screen")
+
+    os.write(fa, b"\x16")  # Ctrl-V: Alice turns her camera off
+    off = pump_all([fa, fb], 2.0)
+    check(b"^V cam on" in off[fa], "--call: Ctrl-V is shown in the title")
+    check(b"kB/s" in off[fa], "--call: the title shows the traffic")
+    try:
+        import pyte as _pyte
+    except ImportError:
+        _pyte = None
+    if _pyte:
+        scr = _pyte.Screen(120, 50)
+        _pyte.Stream(scr).feed((first[fb] + second[fb] + off[fb]).decode("utf8", "replace"))
+        check(any("camera off" in row for row in scr.display),
+              "--call: Bob sees the camera-off card in Alice's tile")
+    os.write(fa, b"\x16")
+    back = pump_all([fa, fb], 1.0)
+    check(b"^V cam off" in back[fa], "--call: Ctrl-V again turns the camera back on")
+
     # nobody reads the screens now: leaving must not hang on a full tty
     os.write(fa, b"\x03")
     os.write(fb, b"\x03")

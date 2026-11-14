@@ -73,8 +73,9 @@ void mb_pop(msgbuf_t *mb);
 
 typedef struct {
   uint8_t *buf;
-  size_t n;   // bytes queued
-  size_t pos; // bytes already sent
+  size_t n;       // bytes queued
+  size_t pos;     // bytes already sent
+  uint64_t total; // bytes sent over lifetime
 } outq_t;
 
 int oq_init(outq_t *q);

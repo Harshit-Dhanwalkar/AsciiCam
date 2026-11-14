@@ -564,15 +564,17 @@ viewers over TCP, wrapped in synchronized-update escapes so it does not tear.
 A viewer that joins, or that missed a frame, first gets the whole picture; after
 that only the cells that changed (the `--net` encoder, lossless), so a quiet
 scene costs next to nothing over ssh. Everybody also gets a whole picture every
-ten seconds, so a stray character cannot stay. It listens on **loopback** unless given an address
-(`--serve 0.0.0.0:7000` or `*:7000`, which prints a warning): there is **no
-password and no encryption**, so over a network use `ssh -L`, which gives both.
-Addresses are numeric IPv4 or `localhost`: no name lookup. `--watch` needs no
-camera and no plugins, shows what arrives, and quits on `q` or when the server
-goes away. Make the viewing terminal at least as large as the serving one, as
-with `--play`. A viewer that cannot keep up misses frames instead of holding
-the camera back (and gets a whole picture when it catches up), and a frame is
-never cut in the middle. `--net` shapes what goes to the local terminal and is
+ten seconds, so a stray character cannot stay. It listens on **loopback** unless
+given an address (`--serve 0.0.0.0:7000` or `*:7000`, which prints a warning):
+there is **no password and no encryption**, so over a network use `ssh -L`, which
+gives both. Addresses are numeric IPv4 or `localhost`: no name lookup. `--watch`
+needs no camera and no plugins, shows what arrives, and quits on `q` or when the
+server goes away, unless you add `--retry`: it then keeps the last picture, says
+"reconnecting" and tries again every two seconds, so restarting `--serve` does
+not need a new `--watch`. Make the viewing terminal at least as large as the serving
+one, as with `--play`. A viewer that cannot keep up misses frames instead of
+holding the camera back (and gets a whole picture when it catches up), and a frame
+is never cut in the middle. `--net` shapes what goes to the local terminal and is
 separate: `--serve` always does its own diffing. Code: `src/netview.c`.
 
 ### Video calls: `--room` and `--call`
@@ -588,20 +590,20 @@ asciicam --call 7100 --name Bob --demo                 # someone without a camer
 ```
 
 `--call [host:]port` shows everybody as tiles with a chat below: type, Enter
-sends, Esc clears the line, Ctrl-C leaves. Pictures are sent as cell changes
-only (a key picture first, when a person joins or the relay asks, and every 40
-frames), 24-bit colour with `-C`. Tile size is `-W` / `-H` (default 40x20), and
-the picture is never mirrored, so your text reads right to others. The relay
-sends a person only what they can decode, lets pictures give way to chat when a
-link is slow, limits a client to 40 pictures and 5 chat lines a second, drops
-anyone who does not say hello within 10 seconds, and cleans names and chat to
-printable ASCII so nobody can send escape codes to your terminal.
+sends, Esc clears the line, Ctrl-V turns your camera off and on (peers see a
+"camera off" card; the title shows kB/s up and down), Ctrl-C leaves. Pictures
+are sent as cell changes only (a key picture first, when a person joins or the
+relay asks, and every 40 frames), 24-bit colour with `-C`. Tile size is `-W` / `-H`
+(default 40x20), and the picture is never mirrored, so your text reads right to
+others. The relay sends a person only what they can decode, lets pictures give
+way to chat when a link is slow, limits a client to 40 pictures and 5 chat lines
+a second, drops anyone who does not say hello within 10 seconds, and cleans names
+and chat to printable ASCII so nobody can send escape codes to your terminal.
 
 Like `--serve`, the relay has **no password and no encryption** and listens on
-loopback unless given an address. Put it behind ssh, which gives both. For a
-room on a server, `docker-compose.yml` builds a container with the relay and
-an sshd that can do nothing but forward to it (keys only, no shell, no other
-port):
+loopback unless given an address. Put it behind ssh, which gives both. For a room
+on a server, `docker-compose.yml` builds a container with the relay and an sshd
+that can do nothing but forward to it (keys only, no shell, no other port):
 
 ```sh
 cp ~/.ssh/id_ed25519.pub call_keys     # one public key per person
