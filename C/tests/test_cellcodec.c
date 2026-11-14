@@ -301,6 +301,72 @@ int main(void) {
   CHECK(cc_draw(&a, 1, 1, 100, 100, scr, 10) == 0, "out of room: 0");
   CHECK(cc_draw(&a, 0, 1, 10, 5, scr, sizeof(scr)) == 0, "column 0 refused");
 
+  // Diff drawing: on a screen that shows `shown`, drawing changes leaves screen
+  // showing new grid, and costs less than a whole draw
+  int diff_ok = 1;
+  int cheaper = 1;
+  int saw_move_inside_row = 0;
+  for (int round = 0; round < 60; round++) {
+    cc_grid_t shown = {0};
+    cc_grid_t now = {0};
+    cc_grid_t screen = {0};
+    int dc = 5 + (int)rnd(30);
+    int dr = 2 + (int)rnd(10);
+    cc_grid_size(&shown, dc, dr);
+    cc_grid_size(&now, dc, dr);
+    fill_random(&shown, round % 2, round % 3 == 0);
+    for (int i = 0; i < dc * dr; i++) {
+      now.cell[i] = shown.cell[i];
+    }
+
+    int changes = round % 5 == 0 ? dc * dr : 1 + (int)rnd(6);
+    for (int k = 0; k < changes; k++) {
+      int at = (int)rnd((unsigned)(dc * dr));
+      now.cell[at].glyph = glyphs[rnd(4)];
+      now.cell[at].fg = round % 2 && rnd(2) ? CC_RGB(rnd(256), 7, 9) : 0;
+      now.cell[at].bg = 0;
+    }
+
+    static uint8_t seen[CC_MAX_COLS * CC_MAX_ROWS];
+    cc_grid_size(&screen, dc, dr);
+    for (int i = 0; i < dc * dr; i++) {
+      screen.cell[i] = shown.cell[i];
+    }
+
+    size_t full = cc_draw(&now, 1, 1, 100, 100, scr, sizeof(scr));
+    size_t dd = cc_draw_diff(&now, &shown, 1, 1, 100, 100, scr + full,
+                             sizeof(scr) - full);
+    diff_ok = diff_ok && dd > 0 && dd <= cc_max_draw(dc, dr) &&
+              netenc_parse(scr + full, dd, screen.cell, seen, dr, dc) == 0 &&
+              same(&screen, &now);
+    cheaper = cheaper && (changes == dc * dr || dd < full / 2 + 8);
+    saw_move_inside_row = saw_move_inside_row || changes < 4;
+    cc_grid_free(&shown);
+    cc_grid_free(&now);
+    cc_grid_free(&screen);
+  }
+
+  CHECK(diff_ok, "diff draw leaves the screen showing the new grid");
+  CHECK(cheaper && saw_move_inside_row, "a few changes cost a few bytes");
+  {
+    cc_grid_t x = {0};
+    cc_grid_t y = {0};
+    cc_grid_size(&x, 10, 4);
+    cc_grid_size(&y, 12, 4);
+    size_t same_n = cc_draw_diff(&x, &x, 1, 1, 100, 100, scr, sizeof(scr));
+    size_t other_n = cc_draw_diff(&x, &y, 1, 1, 100, 100, scr, sizeof(scr));
+    size_t full_n = cc_draw(&x, 1, 1, 100, 100, scr, sizeof(scr));
+    CHECK(same_n == 4 && other_n == full_n &&
+              cc_draw_diff(&x, NULL, 1, 1, 100, 100, scr, sizeof(scr)) ==
+                  full_n,
+          "nothing changed: no cells; other size or none: a whole draw");
+    cc_grid_size(&y, 10, 5);
+    CHECK(cc_draw_diff(&x, &y, 1, 1, 100, 100, scr, sizeof(scr)) == full_n,
+          "a screen with other rows: a whole draw");
+    cc_grid_free(&x);
+    cc_grid_free(&y);
+  }
+
   cc_grid_free(&a);
   cc_grid_free(&b);
   cc_grid_free(&st);
@@ -312,4 +378,3 @@ int main(void) {
 
   return fail_n ? 1 : 0;
 }
-

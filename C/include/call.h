@@ -41,10 +41,13 @@ typedef struct {
   int need_key;
   int since_key;
   char log[CALL_LOG_LINES][CALL_LOG_W];
-  int log_count; // lines ever written
-  int dirty;     // screen should be redrawn
-  int sig;       // layout of last compose
-  uint64_t frames_sent, frames_skipped, frames_received;
+  int log_count;                 // lines ever written
+  int dirty;                     // screen should be redrawn
+  int sig;                       // layout of the last compose
+  cc_grid_t shown[ROOM_MAX + 1]; // screen holds of each tile (0: us)
+  uint64_t frames_sent;
+  uint64_t frames_skipped;
+  uint64_t frames_received;
 } call_t;
 
 // Connect to "host:port" and say hello

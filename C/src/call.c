@@ -290,6 +290,11 @@ void call_close(call_t *c) {
   oq_free(&c->out);
   cc_grid_free(&c->local);
   cc_grid_free(&c->sent);
+
+  for (int i = 0; i <= ROOM_MAX; i++) {
+    cc_grid_free(&c->shown[i]);
+  }
+
   for (int i = 0; i < ROOM_MAX; i++) {
     cc_grid_free(&c->peer[i].grid);
     c->peer[i].present = 0;
@@ -303,7 +308,9 @@ void call_close(call_t *c) {
 typedef struct {
   const char *name;
   const cc_grid_t *grid; // NULL: no picture yet
-  int w, h;              // cells of tile without its label
+  int slot;              // index in call_t.shown
+  int w;                 // cells of tile width without its label
+  int h;                 // cells of tile height without its label
 } tile_t;
 
 static int chat_height(int term_h) {
@@ -314,12 +321,14 @@ static int chat_height(int term_h) {
 
 static int collect(const call_t *c, tile_t *t) {
   int n = 0;
-  t[n++] = (tile_t){"you", c->local.cell ? &c->local : NULL, 0, 0};
+  t[n++] = (tile_t){
+      .name = "you", .grid = c->local.cell ? &c->local : NULL, .slot = 0};
   for (int i = 0; i < ROOM_MAX; i++) {
     if (c->peer[i].present) {
       t[n++] =
-          (tile_t){c->peer[i].name,
-                   c->peer[i].have_picture ? &c->peer[i].grid : NULL, 0, 0};
+          (tile_t){.name = c->peer[i].name,
+                   .grid = c->peer[i].have_picture ? &c->peer[i].grid : NULL,
+                   .slot = i + 1};
     }
   }
 
@@ -370,12 +379,25 @@ static void cmove(cw_t *w, int row, int col) {
   cputs(w, tmp);
 }
 
-// text clipped to width cells (ASCII only here: every byte is one cell)
+// Text clipped to width cells (ASCII only here: every byte is one cell)
 static void cclip(cw_t *w, const char *s, int width) {
   for (int i = 0; s[i] && i < width; i++) {
     char one[2] = {s[i], 0};
     cputs(w, one);
   }
+}
+
+// Copy of a tile shows on screen
+static void remember(cc_grid_t *shown, const cc_grid_t *g) {
+  if (shown->cols != g->cols || shown->rows != g->rows || !shown->cell) {
+    cc_grid_free(shown);
+    if (cc_grid_size(shown, g->cols, g->rows) != 0) {
+      return;
+    }
+  }
+
+  nl_memcpy(shown->cell, g->cell,
+            (size_t)g->cols * (size_t)g->rows * sizeof(netcell_t));
 }
 
 size_t call_compose(call_t *c, const char *typing, int term_w, int term_h,
@@ -392,7 +414,8 @@ size_t call_compose(call_t *c, const char *typing, int term_w, int term_h,
   // Signature of layout: when it changes screen is cleared first
   int sig = term_w * 31 + term_h + n * 7;
   for (int i = 0; i < n; i++) {
-    sig = sig * 131 + t[i].w * 17 + t[i].h + (t[i].grid ? 1 : 0);
+    sig = sig * 131 + t[i].w * 17 + t[i].h + (t[i].grid ? 1 : 0) +
+          t[i].slot * 977;
   }
 
   cw_t w = {out, cap, 0, 0};
@@ -400,12 +423,15 @@ size_t call_compose(call_t *c, const char *typing, int term_w, int term_h,
   if (sig != c->sig) {
     cputs(&w, "\033[2J");
     c->sig = sig;
+    for (int i = 0; i <= ROOM_MAX; i++) {
+      cc_grid_free(&c->shown[i]); // the screen is blank now
+    }
   }
 
   // Title
   char title[120];
   nl_snprintf(title, sizeof(title),
-              " asciicam call  |  %d here  |  Enter: chat   q: leave",
+              " asciicam call  |  %d here  |  Enter: send   Ctrl-C: leave",
               call_members(c));
   cmove(&w, 1, 1);
   cputs(&w, "\033[7m");
@@ -438,8 +464,9 @@ size_t call_compose(call_t *c, const char *typing, int term_w, int term_h,
         char *buf = nl_malloc(cc_max_draw(t[i].grid->cols, t[i].grid->rows));
         if (buf) {
           size_t dn =
-              cc_draw(t[i].grid, x, y + 1, term_w - x + 1, video_bottom - y,
-                      buf, cc_max_draw(t[i].grid->cols, t[i].grid->rows));
+              cc_draw_diff(t[i].grid, &c->shown[t[i].slot], x, y + 1,
+                           term_w - x + 1, video_bottom - y, buf,
+                           cc_max_draw(t[i].grid->cols, t[i].grid->rows));
           for (size_t k = 0; k < dn; k++) {
             if (w.n < w.cap) {
               w.p[w.n++] = buf[k];
@@ -449,6 +476,7 @@ size_t call_compose(call_t *c, const char *typing, int term_w, int term_h,
           }
 
           nl_free(buf);
+          remember(&c->shown[t[i].slot], t[i].grid);
         }
       } else {
         cmove(&w, y + 1, x);
@@ -486,7 +514,14 @@ size_t call_compose(call_t *c, const char *typing, int term_w, int term_h,
   }
 
   cputs(&w, "\033[0m\033[?2026l");
+  if (w.over) {
+    // written is not screen holds: start again from blank
+    c->sig = 0;
+
+    return 0;
+  }
+
   c->dirty = 0;
 
-  return w.over ? 0 : w.n;
+  return w.n;
 }

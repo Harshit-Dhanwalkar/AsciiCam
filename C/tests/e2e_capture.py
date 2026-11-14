@@ -777,6 +777,46 @@ if REAL and os.access(REAL, os.X_OK):
     _, code, out, _ = run(["--room", "7100", "--call", "7100"], 0.5)
     check(code == 2 and b"two programs" in out, "--room with --call: usage error")
 
+    # A still picture costs next to nothing: only changed cells are redrawn
+    cport = free_port()
+    room = subprocess.Popen([BIN, "--room", str(cport)], stderr=subprocess.PIPE)
+    time.sleep(0.4)
+    still = ["--image", pic, "-C", "-W", "30", "-H", "12"]
+    pa, fa = spawn_call(["--call", str(cport), "--name", "Alice"] + still)
+    pb, fb = spawn_call(["--call", str(cport), "--name", "Bob"] + still)
+    warm = pump_all([fa, fb], 2.5)
+    later = pump_all([fa, fb], 2.0)
+    rate = sum(len(v) for v in later.values()) / 2.0
+    check(rate < 120000, "--call: a still picture costs %d bytes/s on two screens" % rate)
+    try:
+        import pyte
+    except ImportError:
+        pyte = None
+    if pyte:
+        # what Bob's screen shows of Alice is what Alice sees of herself
+        screens = {}
+        for who, x in (("a", fa), ("b", fb)):
+            scr = pyte.Screen(120, 50)
+            pyte.Stream(scr).feed((warm[x] + later[x]).decode("utf8", "replace"))
+            screens[who] = scr.display
+
+        def tile(lines, name):
+            for i, line in enumerate(lines[:30]):
+                if name in line and i > 0:
+                    c = line.index(name)
+                    return [r[c:c + 30] for r in lines[i + 1:i + 13]]
+            return None
+
+        own, seen = tile(screens["a"], "you"), tile(screens["b"], "Alice")
+        check(own is not None and own == seen and any(r.strip() for r in own),
+              "--call: Bob's screen shows Alice's picture exactly as she sees it")
+    os.write(fa, b"\x03")
+    os.write(fb, b"\x03")
+    for p in (pa, pb):
+        os.waitpid(p, 0)
+    room.terminate()
+    room.communicate()
+
     _, code, out, _ = run(["--image"], 0.5)
     check(code == 2 and b"--image needs" in out, "--image without a file: usage error")
     shutil.rmtree(idir, ignore_errors=True)
