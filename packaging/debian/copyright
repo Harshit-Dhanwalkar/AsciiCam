@@ -1,0 +1,9 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: AsciiCam
+Source: https://github.com/Harshit-Dhanwalkar/AsciiCam
+
+Files: *
+Copyright: Harshit Dhanwalkar
+License: PolyForm-Noncommercial-1.0.0
+ See /usr/share/doc/asciicam/LICENCE or
+ https://polyformproject.org/licenses/noncommercial/1.0.0

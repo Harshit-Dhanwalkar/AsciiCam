@@ -1,0 +1,39 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        run: |
+          cd C
+          make
+          make test
+          test "$(nm -u build/webcam_ascii | wc -l)" = 0
+      - name: Package
+        run: |
+          ver=${GITHUB_REF_NAME#v}
+          name=asciicam-$ver-linux-x86_64
+          make -C C install PREFIX=/usr DESTDIR=$PWD/stage/$name
+          mv stage/$name/usr/* stage/$name/ && rmdir stage/$name/usr
+          install -m 644 LICENCE stage/$name/share/asciicam/
+          mkdir -p dist
+          tar -C stage -czf dist/$name.tar.gz --owner=0 --group=0 $name
+          packaging/build-deb.sh "$ver"
+          (cd dist && sha256sum * >SHA256SUMS)
+      - name: Smoke test the tarball
+        run: |
+          mkdir t && tar -xzf dist/asciicam-*.tar.gz -C t
+          t/asciicam-*/bin/asciicam --help | head -n1
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes

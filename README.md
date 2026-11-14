@@ -99,6 +99,17 @@ macOS and Windows still use their system libraries.
 
 ---
 
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Harshit-Dhanwalkar/AsciiCam/main/scripts/install.sh | sh   # to ~/.local
+nix run github:Harshit-Dhanwalkar/AsciiCam
+```
+
+`.deb`, Homebrew tap, AUR and a signed apt repository: see [packaging/README.md](packaging/README.md).
+
+---
+
 ## Build
 
 ```bash
