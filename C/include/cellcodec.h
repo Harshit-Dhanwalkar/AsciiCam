@@ -61,9 +61,9 @@ size_t cc_max_encoded(int cols, int rows);
 // header
 int cc_is_key(const uint8_t *in, size_t n);
 
-// Apply an encoded frame to state. 0 on success; -1 malformed (state is left
-// as it was); -2 delta that does not fit state (wrong size, or none yet):
-// wait for a key
+// Apply an encoded frame to state
+// Return 0 on success; -1 malformed (state is left as it was); -2 delta that
+// does not fit state (wrong size, or none yet): wait for a key
 int cc_decode(cc_grid_t *state, const uint8_t *in, size_t n);
 
 // Escapes that draw grid with its top-left cell at screen row y, column x (1
@@ -71,6 +71,11 @@ int cc_decode(cc_grid_t *state, const uint8_t *in, size_t n);
 // Bytes written, 0 when out of room
 size_t cc_draw(const cc_grid_t *g, int x, int y, int maxw, int maxh, char *out,
                size_t cap);
+
+// Same, but only cells that differ from shown (screen holds from an earlier
+// draw at same place); NULL or another size: every cell
+size_t cc_draw_diff(const cc_grid_t *g, const cc_grid_t *shown, int x, int y,
+                    int maxw, int maxh, char *out, size_t cap);
 
 // Room cc_draw may need
 size_t cc_max_draw(int cols, int rows);

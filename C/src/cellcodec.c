@@ -421,8 +421,8 @@ static void ocolour(ow_t *w, int base, uint32_t c) {
   onum(w, c & 255u);
 }
 
-size_t cc_draw(const cc_grid_t *g, int x, int y, int maxw, int maxh, char *out,
-               size_t cap) {
+size_t cc_draw_diff(const cc_grid_t *g, const cc_grid_t *shown, int x, int y,
+                    int maxw, int maxh, char *out, size_t cap) {
   if (!g->cell || x < 1 || y < 1) {
     return 0;
   }
@@ -432,15 +432,30 @@ size_t cc_draw(const cc_grid_t *g, int x, int y, int maxw, int maxh, char *out,
   ow_t o = {out, cap, 0, 0};
   uint32_t fg = 0xFFFFFFFFu; // unknown
   uint32_t bg = 0xFFFFFFFFu;
+  // Cells screen already shows are skipped, a cursor move starts each run
+  int same_size =
+      shown && shown->cell && shown->cols == g->cols && shown->rows == g->rows;
   for (int row = 0; row < h; row++) {
-    oc(&o, '\033');
-    oc(&o, '[');
-    onum(&o, (unsigned)(y + row));
-    oc(&o, ';');
-    onum(&o, (unsigned)x);
-    oc(&o, 'H');
+    int at = -1; // column cursor is at, -1: unknown
     for (int col = 0; col < w; col++) {
       const netcell_t *c = &g->cell[row * g->cols + col];
+      if (same_size) {
+        const netcell_t *old = &shown->cell[row * g->cols + col];
+        if (old->glyph == c->glyph && old->fg == c->fg && old->bg == c->bg) {
+          continue;
+        }
+      }
+
+      if (at != col) {
+        oc(&o, '\033');
+        oc(&o, '[');
+        onum(&o, (unsigned)(y + row));
+        oc(&o, ';');
+        onum(&o, (unsigned)(x + col));
+        oc(&o, 'H');
+      }
+
+      at = col + 1;
       if (c->fg != fg || c->bg != bg) {
         oc(&o, '\033');
         oc(&o, '[');
@@ -482,4 +497,9 @@ size_t cc_draw(const cc_grid_t *g, int x, int y, int maxw, int maxh, char *out,
   oc(&o, 'm');
 
   return o.over ? 0 : o.n;
+}
+
+size_t cc_draw(const cc_grid_t *g, int x, int y, int maxw, int maxh, char *out,
+               size_t cap) {
+  return cc_draw_diff(g, NULL, x, y, maxw, maxh, out, cap);
 }

@@ -522,6 +522,22 @@ int main(void) {
 
   CHECK(room_members(&room) == 2, "good clients are still in (%d)",
         room_members(&room));
+  // A screen after a small change costs a small update, not a whole screen
+  {
+    static char scr2[1 << 17];
+    cc.sig = 0; // as after a resize: everything is drawn
+    size_t first = call_compose(&cc, NULL, 100, 40, scr2, sizeof(scr2));
+    pic_change(&pic, 2);
+    size_t an = pic_ansi(&pic, abuf, sizeof(abuf));
+    call_send_picture(&ca, abuf, an);
+    spin(&room, three, 3, 6);
+    size_t next = call_compose(&cc, NULL, 100, 40, scr2, sizeof(scr2));
+    CHECK(next > 0 && next < first / 2,
+          "a small change redraws a few cells (%zu of %zu bytes)", next, first);
+    CHECK(call_compose(&cc, "x", 100, 40, scr2, sizeof(scr2)) > 0,
+          "typing still draws");
+  }
+
   spin(&room, rest, 2, 10);
   CHECK(call_say(&ca, "still here") == 0, "chat still works");
   spin(&room, rest, 2, 10);
