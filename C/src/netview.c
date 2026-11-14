@@ -236,7 +236,7 @@ int nv_accept(nv_server_t *srv) {
     int one = 1;
     __sc6(SYS_setsockopt, fd, IPPROTO_TCP, TCP_NODELAY, (long)&one, sizeof(one),
           0);
-    srv->cl[srv->nclients] = (nv_client_t){.fd = (int)fd};
+    srv->cl[srv->nclients] = (nv_client_t){.fd = (int)fd, .need_key = 1};
     srv->nclients++;
     (void)send_some((int)fd, (const uint8_t *)HELLO, sizeof(HELLO) - 1);
     fresh++;
@@ -245,7 +245,8 @@ int nv_accept(nv_server_t *srv) {
   return fresh;
 }
 
-int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n) {
+int nv_broadcast2(nv_server_t *srv, const uint8_t *delta, size_t dn,
+                  const uint8_t *key, size_t kn) {
   int served = 0;
   srv->frames++;
   for (int i = 0; i < srv->nclients;) {
@@ -268,6 +269,7 @@ int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n) {
 
       if (!dead && c->pend) {
         srv->dropped++;
+        c->need_key = 1; // it misses this one
         i++;
 
         continue;
@@ -275,13 +277,21 @@ int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n) {
     }
 
     if (!dead) {
+      int use_key = c->need_key && key;
+      const uint8_t *buf = use_key ? key : delta;
+      size_t n = use_key ? kn : dn;
       long r = send_some(c->fd, buf, n);
       if (r == -NV_EAGAIN) {
         srv->dropped++;
+        c->need_key = 1;
       } else if (r < 0) {
         dead = 1;
       } else {
         served++;
+        if (use_key) {
+          c->need_key = 0;
+        }
+
         if ((size_t)r < n) {
           c->pend = nl_malloc(n - (size_t)r);
           if (c->pend) {
@@ -305,6 +315,25 @@ int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n) {
   }
 
   return served;
+}
+
+int nv_broadcast(nv_server_t *srv, const uint8_t *buf, size_t n) {
+  return nv_broadcast2(srv, buf, n, NULL, 0);
+}
+
+int nv_wants_key(const nv_server_t *srv) {
+  int n = 0;
+  for (int i = 0; i < srv->nclients; i++) {
+    n += srv->cl[i].need_key ? 1 : 0;
+  }
+
+  return n;
+}
+
+void nv_want_key_all(nv_server_t *srv) {
+  for (int i = 0; i < srv->nclients; i++) {
+    srv->cl[i].need_key = 1;
+  }
 }
 
 void nv_close(nv_server_t *srv) {
@@ -403,6 +432,17 @@ int nv_accept_fd(int lfd) {
 
     return (int)fd;
   }
+}
+
+int nv_broadcast2(nv_server_t *srv, const uint8_t *delta, size_t dn,
+                  const uint8_t *key, size_t kn) {
+  (void)srv;
+  (void)delta;
+  (void)dn;
+  (void)key;
+  (void)kn;
+
+  return 0;
 }
 
 long nv_send(int fd, const void *buf, size_t n) {

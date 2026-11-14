@@ -1023,6 +1023,39 @@ static long parse_count(const char *s, long max) {
   return v;
 }
 
+// A frame for --serve viewers: in encoded by enc (a repaint when enc was
+// invalidated, else only what changed), or as it is when it cannot be encoded,
+// inside a synchronized-update pair
+// Length in *buf, 0 on failure
+static size_t serve_wrap(netenc_t *enc, const char *in, size_t n, char **buf,
+                         size_t *cap) {
+  size_t need = n + n / 4 + 4096 + sizeof(SYNC_BEGIN) + sizeof(SYNC_END);
+  if (*cap < need) {
+    nl_free(*buf);
+    *buf = malloc(need);
+    *cap = *buf ? need : 0;
+  }
+
+  if (!*buf) {
+    return 0;
+  }
+
+  size_t at = sizeof(SYNC_BEGIN) - 1;
+  nl_memcpy(*buf, SYNC_BEGIN, at);
+  int en = netenc_frame(enc, in, n, *buf + at, *cap - at - sizeof(SYNC_END));
+  if (en < 0) {
+    // not encodable: the whole picture as it is, and a repaint next time
+    netenc_invalidate(enc);
+    nl_memcpy(*buf + at, in, n);
+    en = (int)n;
+  }
+
+  at += (size_t)en;
+  nl_memcpy(*buf + at, SYNC_END, sizeof(SYNC_END) - 1);
+
+  return at + sizeof(SYNC_END) - 1;
+}
+
 int main(int argc, char *argv[]) {
   char **envp_base = argv + argc + 1;
 
@@ -1306,8 +1339,13 @@ int main(int argc, char *argv[]) {
 
   nv_server_t serve;
   int serve_on = 0;
-  char *serve_buf = NULL;
+  char *serve_buf = NULL; // frame for viewers that follow changes
   size_t serve_cap = 0;
+  char *serve_key = NULL; // whole picture, for new viewers and ones behind
+  size_t serve_key_cap = 0;
+  netenc_t serve_delta_enc;
+  netenc_t serve_key_enc;
+  int serve_age = 0;
   if (serve_addr) {
     uint32_t sip = 0;
     int sport = 0;
@@ -1325,6 +1363,8 @@ int main(int argc, char *argv[]) {
     }
 
     serve_on = 1;
+    netenc_init(&serve_delta_enc, 0, 0);
+    netenc_init(&serve_key_enc, 0, 0);
     if (sip != 0x7f000001u) {
       fprintf(stderr,
               "--serve: listening beyond this machine without a password: "
@@ -2923,22 +2963,25 @@ int main(int argc, char *argv[]) {
         int fresh = nv_accept(&serve);
         int before = serve.nclients;
         if (serve.nclients > 0) {
-          size_t need = (size_t)len + 2 * sizeof(SYNC_BEGIN);
-          if (serve_cap < need) {
-            nl_free(serve_buf);
-            serve_buf = malloc(need);
-            serve_cap = serve_buf ? need : 0;
+          // now and then everybody gets a whole picture: a stray character
+          // cannot stay on a viewer's screen for long
+          if (++serve_age >= fps * 10) {
+            nv_want_key_all(&serve);
+            serve_age = 0;
           }
 
-          if (serve_buf) {
-            size_t at = 0;
-            nl_memcpy(serve_buf, SYNC_BEGIN, sizeof(SYNC_BEGIN) - 1);
-            at += sizeof(SYNC_BEGIN) - 1;
-            nl_memcpy(serve_buf + at, out_buf, (size_t)len);
-            at += (size_t)len;
-            nl_memcpy(serve_buf + at, SYNC_END, sizeof(SYNC_END) - 1);
-            at += sizeof(SYNC_END) - 1;
-            nv_broadcast(&serve, (const uint8_t *)serve_buf, at);
+          size_t dn = serve_wrap(&serve_delta_enc, out_buf, (size_t)len,
+                                 &serve_buf, &serve_cap);
+          size_t kn = 0;
+          if (nv_wants_key(&serve) > 0) {
+            netenc_invalidate(&serve_key_enc);
+            kn = serve_wrap(&serve_key_enc, out_buf, (size_t)len, &serve_key,
+                            &serve_key_cap);
+          }
+
+          if (dn > 0 && (kn > 0 || nv_wants_key(&serve) == 0)) {
+            nv_broadcast2(&serve, (const uint8_t *)serve_buf, dn,
+                          (const uint8_t *)serve_key, kn);
           }
         }
 
@@ -3100,6 +3143,9 @@ int main(int argc, char *argv[]) {
 
   if (serve_on) {
     nl_free(serve_buf);
+    nl_free(serve_key);
+    netenc_free(&serve_delta_enc);
+    netenc_free(&serve_key_enc);
     nv_close(&serve);
   }
 
