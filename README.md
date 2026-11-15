@@ -627,9 +627,12 @@ your-recogniser > /tmp/captions                             # prints "~partial" 
 
 Outside a call two bars over the bottom of the picture show the last two lines.
 The key `y` turns them on and off while running, and when there is no source
-yet it makes a fifo (`$XDG_RUNTIME_DIR/asciicam-captions`, else
-`~/.asciicam-captions`), says where it is, and reads it. While hidden, lines are
-read and dropped. `captions=<path>` in `.asciicamrc` works like the option.
+yet it makes a fifo (`$XDG_RUNTIME_DIR/asciicam-captions`, else `~/.asciicam-captions`),
+says where it is, and reads it. While hidden, lines are read and dropped.
+`captions=<path>` in `.asciicamrc` works like the option.
+
+The same two bars are drawn into the picture that goes to `--vcam` and to `--serve`
+viewers, so `--watch` shows them too (in 24-bit colour: final white, guess grey).
 
 In a call the room allows 12 captions a second per person, shows the others'
 captions in two rows above the chat (Ctrl-T hides or shows them; they appear on

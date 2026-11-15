@@ -876,6 +876,41 @@ if REAL and os.access(REAL, os.X_OK):
     check(b"captions on" in out and b"shown again" in out, "--captions: y shows them again")
     os.close(wf)
 
+    # Picture sent to --watch viewers carries caption bars
+    sport = free_port()
+    vgot = bytearray()
+
+    def vw():
+        cs = socket.socket()
+        cs.settimeout(0.3)
+        end = time.monotonic() + 4.5
+        while time.monotonic() < end:
+            try:
+                cs.connect(("127.0.0.1", sport))
+                break
+            except OSError:
+                time.sleep(0.1)
+        while time.monotonic() < end:
+            try:
+                d = cs.recv(65536)
+            except socket.timeout:
+                continue
+            if not d:
+                break
+            vgot.extend(d)
+        cs.close()
+
+    sfifo = os.path.join(tempfile.mkdtemp(), "cap")
+    os.mkfifo(sfifo)
+    swf = os.open(sfifo, os.O_RDWR)
+    tv = threading.Thread(target=vw)
+    tv.start()
+    drive(["--demo", "-C", "--serve", str(sport), "--captions", sfifo],
+          [(1.5, lambda cfd: os.write(swf, b"hello viewers\n"))], 4.0)
+    tv.join()
+    os.close(swf)
+    check(b"hello viewers" in bytes(vgot), "--serve: the viewer's picture has the caption bars")
+
     rdir = tempfile.mkdtemp()
     capfile = os.path.join(rdir, "asciicam-captions")
 

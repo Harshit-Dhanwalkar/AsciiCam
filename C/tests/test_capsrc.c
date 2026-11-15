@@ -170,6 +170,27 @@ int main(void) {
   CHECK(n > 0 && nl_strstr_pos(out, "\033[2m guess") >= 0 &&
             nl_strstr_pos(out, "\033[7m") >= 0,
         "a guess is dim; no colour: reverse video");
+
+  // Style for pictures that are sent on: colours only, no attributes
+  capview_init(&v);
+  capview_push(&v, 1, "final one", 0);
+  capview_push(&v, 0, "guess", 0);
+  n = capview_render(&v, 30, 1, 40, CAPVIEW_RGB, out, sizeof(out));
+  CHECK(n > 0 && nl_strstr_pos(out, "\033[38;2;255;255;255m") >= 0 &&
+            nl_strstr_pos(out, "\033[38;2;170;170;170m") >= 0 &&
+            nl_strstr_pos(out, "\033[48;2;20;20;20m") >= 0,
+        "rgb style: final white, guess grey, dark bar");
+  int attr = 0;
+  for (int i = 0; i + 3 < n; i++) {
+    if (out[i] == '\033' && out[i + 1] == '[' &&
+        (out[i + 2] == '1' || out[i + 2] == '2' || out[i + 2] == '7') &&
+        out[i + 3] == 'm') {
+      attr++;
+    }
+  }
+
+  CHECK(attr == 0, "rgb style has no bold, dim or reverse (%d)", attr);
+
   capview_init(&v);
   capview_push(&v, 1, "a very long caption line that does not fit in ten", 0);
   n = capview_render(&v, 30, 1, 20, 1, out, sizeof(out));
