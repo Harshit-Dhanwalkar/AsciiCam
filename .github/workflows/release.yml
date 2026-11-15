@@ -17,7 +17,8 @@ jobs:
           cd C
           make
           make test
-          test "$(nm -u build/webcam_ascii | wc -l)" = 0
+          nm -u build/asciicam > undefined.txt
+          test ! -s undefined.txt
       - name: Package
         run: |
           ver=${GITHUB_REF_NAME#v}
