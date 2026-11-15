@@ -11,7 +11,7 @@
  * one (NEED_KEY, at most once a second)
  * Slow clients lose frames, not room
  * No password and no encryption: listen on loopback and reach it through ssh -L
- * (or run it in docker image of this repository)
+ * (or run it in docker image)
  */
 
 #include "callproto.h"
@@ -31,13 +31,19 @@ typedef struct {
   long window_ms;           // rate window start
   int frames_in_window;
   int chat_in_window;
+  int caption_in_window;
 } room_client_t;
 
 typedef struct {
   int lfd;
   int port;
   room_client_t cl[ROOM_MAX];
-  uint64_t frames_in, frames_out, frames_dropped, chats, kicked;
+  uint64_t frames_in;
+  uint64_t frames_out;
+  uint64_t frames_dropped;
+  uint64_t chats;
+  uint64_t kicked;
+  uint64_t captions;
 } room_t;
 
 // Listen (port 0 = any, see room->port). 0 on success

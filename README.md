@@ -611,6 +611,27 @@ way to chat when a link is slow, limits a client to 40 pictures and 5 chat lines
 a second, drops anyone who does not say hello within 10 seconds, and cleans names
 and chat to printable ASCII so nobody can send escape codes to your terminal.
 
+#### Live captions: `--captions`
+
+`--call ... --captions <file-or-fifo>` puts what you say under everybody's
+pictures. asciicam does not listen to the microphone itself: any speech
+recogniser can write its text into a fifo, one caption per line, and asciicam
+sends each line to the room. A line that starts with `~` is a guess the
+recogniser may still change (shown dim, gone after 3 s); any other line is
+final (shown bold, gone after 6 s). Blank lines are ignored, lines are cut at
+200 characters, and the room allows 12 captions a second per person. Ctrl-T
+hides or shows the two caption rows (they appear on their own when somebody
+else sends captions).
+
+```
+mkfifo /tmp/captions
+asciicam --call 7100 --name Alice --captions /tmp/captions
+your-recogniser > /tmp/captions        # e.g. one that prints "~partial" and "final" lines
+```
+
+A room built before this feature drops a client that sends captions, so run
+`--room` from the same version.
+
 Like `--serve`, the relay has **no password and no encryption** and listens on
 loopback unless given an address. Put it behind ssh, which gives both. For a room
 on a server, `docker-compose.yml` builds a container with the relay and an sshd

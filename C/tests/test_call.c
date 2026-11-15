@@ -331,6 +331,108 @@ int main(void) {
   CHECK(cb.log_count - before <= 6 && cb.log_count - before >= 1,
         "chat flood is limited (%d lines)", cb.log_count - before);
 
+  // Captions
+  static char scr_c[1 << 17];
+  CHECK(call_caption(&ca, 1, "   ") == -1, "blank caption refused");
+  CHECK(call_caption_rows(&cb) == 0, "no caption rows before any caption");
+  call_tick(&ca, now_ms);
+  call_tick(&cb, now_ms);
+  uint64_t in_before = ca.bytes_in;
+  CHECK(call_caption(&ca, 0, "good mor") == 0, "partial caption queued");
+  spin(&room, all, 2, 10);
+  CHECK(ca.bytes_in == in_before, "the relay sends nothing back to the sender");
+  CHECK(cb.cap[ca.id + 1].text[0] &&
+            nl_strcmp(cb.cap[ca.id + 1].text, "good mor") == 0 &&
+            cb.cap[ca.id + 1].final == 0,
+        "Bob gets Alice's partial caption");
+  CHECK(call_caption_rows(&cb) == 2 && call_caption_rows(&ca) == 2,
+        "caption rows appear on both screens");
+  CHECK(call_caption(&ca, 1, "good morning \x1b[31mBob") == 0, "final queued");
+  spin(&room, all, 2, 10);
+  CHECK(nl_strcmp(cb.cap[ca.id + 1].text, "good morning ?[31mBob") == 0 &&
+            cb.cap[ca.id + 1].final == 1,
+        "final replaces the partial, escape characters cannot get through");
+  CHECK(cb.cap[cb.id + 1].text[0] == 0 && ca.cap[ca.id + 1].text[0] == 0,
+        "the sender's caption is not sent back as somebody else's");
+  CHECK(nl_strcmp(ca.cap[0].text, "good morning ?[31mBob") == 0,
+        "Alice sees her own caption in slot 0");
+  size_t sn = call_compose(&cb, NULL, 100, 40, scr_c, sizeof(scr_c) - 1);
+  scr_c[sn] = 0;
+  CHECK(nl_strstr_pos(scr_c, "Alice: good morning ?[31mBob") >= 0 &&
+            nl_strstr_pos(scr_c, "\033[1mAlice: good") >= 0,
+        "caption is on Bob's screen (bold when final)");
+  call_caption(&ca, 0, "still talk");
+  spin(&room, all, 2, 10);
+  sn = call_compose(&cb, NULL, 100, 40, scr_c, sizeof(scr_c) - 1);
+  scr_c[sn] = 0;
+  CHECK(nl_strstr_pos(scr_c, "\033[2mAlice: still talk") >= 0,
+        "a partial caption is dim");
+  cb.captions_hide = 1;
+  CHECK(call_caption_rows(&cb) == 0, "Ctrl-T hides the rows");
+  sn = call_compose(&cb, NULL, 100, 40, scr_c, sizeof(scr_c) - 1);
+  scr_c[sn] = 0;
+  CHECK(nl_strstr_pos(scr_c, "still talk") < 0, "hidden: not drawn");
+  cb.captions_hide = 0;
+
+  // Newest at the bottom, only as many as there are rows
+  call_t cx;
+  CHECK(call_open(&cx, addr, "Xi") == 0, "Xi connects");
+  call_t *with_x[] = {&ca, &cb, &cx};
+  spin(&room, with_x, 3, 10);
+  call_tick(&cb, now_ms); // captions are stamped with the clock we were told
+  long t0 = cb.clock_ms;
+  call_caption(&cx, 1, "from Xi");
+  spin(&room, with_x, 3, 10);
+  sn = call_compose(&cb, NULL, 100, 40, scr_c, sizeof(scr_c) - 1);
+  scr_c[sn] = 0;
+  int pa = nl_strstr_pos(scr_c, "Alice: still talk");
+  int px = nl_strstr_pos(scr_c, "Xi: from Xi");
+  CHECK(pa >= 0 && px > pa, "two speakers: oldest first, newest below");
+  CHECK(cb.cap[cx.id + 1].text[0] != 0, "Xi's caption is there");
+
+  // They fade: a partial after 3 s, a final after 6 s
+  cb.dirty = 0;
+  call_tick(&cb, t0 + 2500);
+  CHECK(cb.cap[cx.id + 1].text[0] != 0, "not yet gone at 2.5 s");
+  call_tick(&cb, t0 + 5500);
+  CHECK(cb.cap[cx.id + 1].text[0] != 0, "a final caption lives past 3 s");
+  call_tick(&cb, t0 + 6500);
+  CHECK(cb.cap[cx.id + 1].text[0] == 0 && cb.dirty,
+        "a final caption is gone after 6 s and the screen is redrawn");
+
+  call_tick(&cb, now_ms);
+  long t1 = cb.clock_ms;
+  call_caption(&ca, 0, "hypothesis");
+  spin(&room, all, 2, 10);
+  call_tick(&cb, t1 + 2500);
+  CHECK(cb.cap[ca.id + 1].text[0] != 0, "a partial caption lives 2.5 s");
+  call_tick(&cb, t1 + 3500);
+  CHECK(cb.cap[ca.id + 1].text[0] == 0, "a partial caption is gone after 3 s");
+
+  // Somebody leaves: the caption goes with them
+  call_caption(&cx, 1, "last words");
+  spin(&room, with_x, 3, 10);
+  int xid = cx.id;
+  CHECK(cb.cap[xid + 1].text[0] != 0, "caption of Xi before leaving");
+  call_close(&cx);
+  spin(&room, all, 2, 10);
+  CHECK(cb.cap[xid + 1].text[0] == 0, "leaving clears the caption");
+
+  // Flood is limited by the relay
+  uint64_t caps_before = room.captions;
+  for (int i = 0; i < 60; i++) {
+    char one[32];
+    nl_snprintf(one, sizeof(one), "word %d", i);
+    call_caption(&ca, 0, one);
+  }
+
+  spin(&room, all, 2, 10);
+  CHECK(room.captions - caps_before <= 12 && room.captions > caps_before,
+        "caption flood is limited (%llu relayed)",
+        (unsigned long long)(room.captions - caps_before));
+  CHECK(call_caption(&cx, 1, "to nowhere") == -1,
+        "closed client sends nothing");
+
   // Late joiner gets a picture from next key on
   CHECK(call_open(&cc, addr, "Cy") == 0, "Cy connects");
   uint64_t before_frames = cc.frames_received;
@@ -371,7 +473,7 @@ int main(void) {
 
   // Compose
   static char scr[1 << 17];
-  size_t sn = call_compose(&cc, NULL, 100, 40, scr, sizeof(scr));
+  sn = call_compose(&cc, NULL, 100, 40, scr, sizeof(scr));
   CHECK(sn > 0 && sn <= call_max_compose(&cc, 100, 40),
         "screen fits its bound (%zu)", sn);
   scr[sn] = 0;

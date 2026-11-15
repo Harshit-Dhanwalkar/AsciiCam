@@ -90,14 +90,15 @@ int call_open(call_t *c, const char *hostport, const char *name) {
 
 static void on_message(call_t *c, int type, const uint8_t *p, size_t n) {
   switch (type) {
-  case CALL_WELCOME:
+  case CALL_WELCOME: {
     if (n == 1 && p[0] < ROOM_MAX) {
       c->id = p[0];
       c->dirty = 1;
     }
 
     break;
-  case CALL_JOIN:
+  }
+  case CALL_JOIN: {
     if (n >= 1 && p[0] < ROOM_MAX && (int)p[0] != c->id) {
       call_peer_t *pe = &c->peer[p[0]];
       char nm[CALL_NAME_MAX + 1];
@@ -115,18 +116,33 @@ static void on_message(call_t *c, int type, const uint8_t *p, size_t n) {
     }
 
     break;
-  case CALL_LEAVE:
+  }
+  case CALL_PCAPTION: {
+    if (n > 2 && p[0] < ROOM_MAX && (int)p[0] != c->id) {
+      int slot = p[0] + 1;
+      call_clean_text(c->cap[slot].text, p + 2, n - 2, CALL_CHAT_MAX);
+      c->cap[slot].final = p[1] != 0;
+      c->cap[slot].at = c->clock_ms;
+      c->captions_on = 1;
+      c->dirty = 1;
+    }
+
+    break;
+  }
+  case CALL_LEAVE: {
     if (n == 1 && p[0] < ROOM_MAX && c->peer[p[0]].present) {
       call_peer_t *pe = &c->peer[p[0]];
       log_note(c, pe->name, "left");
       pe->present = 0;
+      c->cap[p[0] + 1].text[0] = 0;
       pe->have_picture = 0;
       cc_grid_free(&pe->grid);
       c->dirty = 1;
     }
 
     break;
-  case CALL_PFRAME:
+  }
+  case CALL_PFRAME: {
     if (n > 1 && p[0] < ROOM_MAX && c->peer[p[0]].present) {
       call_peer_t *pe = &c->peer[p[0]];
       int rc = cc_decode(&pe->grid, p + 1, n - 1);
@@ -138,7 +154,8 @@ static void on_message(call_t *c, int type, const uint8_t *p, size_t n) {
     }
 
     break;
-  case CALL_PCHAT:
+  }
+  case CALL_PCHAT: {
     if (n > 1 && p[0] < ROOM_MAX) {
       char text[CALL_CHAT_MAX + 1];
       call_clean_text(text, p + 1, n - 1, CALL_CHAT_MAX);
@@ -151,17 +168,21 @@ static void on_message(call_t *c, int type, const uint8_t *p, size_t n) {
     }
 
     break;
-  case CALL_NEED_KEY:
+  }
+  case CALL_NEED_KEY: {
     c->need_key = 1;
 
     break;
-  case CALL_FULL:
+  }
+  case CALL_FULL: {
     c->full = 1;
     c->closed = 1;
 
     break;
-  default:
+  }
+  default: {
     break; // unknown: ignore
+  }
   }
 }
 
@@ -314,6 +335,47 @@ int call_say(call_t *c, const char *text) {
   return oq_put(&c->out, CALL_CHAT, NULL, 0, clean, len);
 }
 
+#define CAP_FINAL_MS 6000
+#define CAP_PARTIAL_MS 3000
+#define CAP_ROWS 2
+
+int call_caption(call_t *c, int final, const char *text) {
+  char clean[CALL_CHAT_MAX + 1];
+  size_t len = call_clean_text(clean, (const uint8_t *)text, nl_strlen(text),
+                               CALL_CHAT_MAX);
+  if (len == 0 || c->fd < 0 || c->closed) {
+    return -1;
+  }
+
+  nl_memcpy(c->cap[0].text, clean, len + 1);
+  c->cap[0].final = final != 0;
+  c->cap[0].at = c->clock_ms;
+  c->captions_on = 1;
+  c->dirty = 1;
+  uint8_t flag = final ? 1 : 0;
+
+  return oq_put(&c->out, CALL_CAPTION, &flag, 1, clean, len);
+}
+
+void call_tick(call_t *c, long now_ms) {
+  c->clock_ms = now_ms;
+  for (int i = 0; i <= ROOM_MAX; i++) {
+    if (!c->cap[i].text[0]) {
+      continue;
+    }
+
+    long limit = c->cap[i].final ? CAP_FINAL_MS : CAP_PARTIAL_MS;
+    if (now_ms - c->cap[i].at >= limit) {
+      c->cap[i].text[0] = 0;
+      c->dirty = 1;
+    }
+  }
+}
+
+int call_caption_rows(const call_t *c) {
+  return c->captions_on && !c->captions_hide ? CAP_ROWS : 0;
+}
+
 void call_close(call_t *c) {
   if (c->fd >= 0) {
     close(c->fd);
@@ -378,8 +440,8 @@ static int collect(const call_t *c, tile_t *t) {
 }
 
 size_t call_max_compose(const call_t *c, int term_w, int term_h) {
-  size_t total =
-      4096 + (size_t)(chat_height(term_h) + 3) * ((size_t)term_w * 4u + 64u);
+  size_t total = 4096 + (size_t)(chat_height(term_h) + 3 + CAP_ROWS) *
+                            ((size_t)term_w * 4u + 64u);
   tile_t t[ROOM_MAX + 1];
   int n = collect(c, t);
   for (int i = 0; i < n; i++) {
@@ -444,10 +506,11 @@ size_t call_compose(call_t *c, const char *typing, int term_w, int term_h,
   tile_t t[ROOM_MAX + 1];
   int n = collect(c, t);
   int chat_h = chat_height(term_h);
-  int video_bottom = term_h - chat_h - 1;
+  int cap_rows = call_caption_rows(c);
+  int video_bottom = term_h - chat_h - cap_rows - 1;
 
   // Signature of layout: when it changes screen is cleared first
-  int sig = term_w * 31 + term_h + n * 7;
+  int sig = term_w * 31 + term_h + n * 7 + cap_rows * 1009;
   for (int i = 0; i < n; i++) {
     sig = sig * 131 + t[i].w * 17 + t[i].h + (t[i].grid ? 1 : 0) +
           t[i].slot * 977;
@@ -459,7 +522,7 @@ size_t call_compose(call_t *c, const char *typing, int term_w, int term_h,
     cputs(&w, "\033[2J");
     c->sig = sig;
     for (int i = 0; i <= ROOM_MAX; i++) {
-      cc_grid_free(&c->shown[i]); // the screen is blank now
+      cc_grid_free(&c->shown[i]); // screen is blank now
     }
   }
 
@@ -524,6 +587,44 @@ size_t call_compose(call_t *c, const char *typing, int term_w, int term_h,
 
     row_h = th > row_h ? th : row_h;
     x += tw + TILE_GAP;
+  }
+
+  // Captions: who is speaking, oldest first, newest on row above chat
+  if (cap_rows > 0) {
+    int order[ROOM_MAX + 1];
+    int m = 0;
+    for (int i = 0; i <= ROOM_MAX; i++) {
+      if (c->cap[i].text[0]) {
+        int k = m++;
+        while (k > 0 && c->cap[order[k - 1]].at > c->cap[i].at) {
+          order[k] = order[k - 1];
+          k--;
+        }
+
+        order[k] = i;
+      }
+    }
+
+    int first = m > cap_rows ? m - cap_rows : 0;
+    for (int r = 0; r < cap_rows; r++) {
+      int row = term_h - chat_h - cap_rows + r;
+      cmove(&w, row, 1);
+      cputs(&w, "\033[2K");
+      int k = first + r - (cap_rows - (m - first));
+      if (k < first || k >= m) {
+        continue;
+      }
+
+      int slot = order[k];
+      const char *who = slot == 0 ? "you" : c->peer[slot - 1].name;
+      char line[CALL_CHAT_MAX + CALL_NAME_MAX + 8];
+      int ln =
+          nl_snprintf(line, sizeof(line), "%s: %s", who, c->cap[slot].text);
+      int start = ln > term_w ? ln - term_w : 0; // end is news
+      cputs(&w, c->cap[slot].final ? "\033[1m" : "\033[2m");
+      cclip(&w, line + start, term_w);
+      cputs(&w, "\033[0m");
+    }
   }
 
   // Chat: last lines, newest at bottom of area

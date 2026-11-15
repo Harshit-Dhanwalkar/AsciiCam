@@ -43,20 +43,40 @@ typedef struct {
   char log[CALL_LOG_LINES][CALL_LOG_W];
   int log_count;                 // lines ever written
   int dirty;                     // screen should be redrawn
-  int sig;                       // layout of the last compose
+  int sig;                       // layout of last compose
   cc_grid_t shown[ROOM_MAX + 1]; // screen holds of each tile (0: us)
   uint64_t frames_sent;
   uint64_t frames_skipped;
   uint64_t frames_received;
   uint64_t bytes_in;     // bytes read from room
   int rate_in, rate_out; // bytes per second, set by caller
-  int video_off;         // send a "camera off" card, not picture
+  long clock_ms;         // set by call_tick: when captions were heard
+  int captions_on;   // caption rows are on screen (a source or a peer exists)
+  int captions_hide; // user turned them off (Ctrl-T)
+  struct {
+    char text[CALL_CHAT_MAX + 1]; // "" = nothing to show
+    int final;
+    long at;
+  } cap[ROOM_MAX + 1]; // slot 0: us, i + 1: peer i
+  int video_off;       // send a "camera off" card, not picture
 } call_t;
 
 // Picture shown in place of sender's camera when video is off: cols x rows
 // cells, centred text
 // Return bytes written, 0 when it does not fit
 size_t call_off_card(char *out, size_t cap, int cols, int rows);
+
+// Caption (speech recogniser output): shown on screen and sent to others
+// final = 0 for a hypothesis that may change
+// Return 0, -1 when there is nothing to send or room is empty
+int call_caption(call_t *c, int final, const char *text);
+
+// Tell clock (monotonic ms): old captions fade
+// Sets dirty when one goes
+void call_tick(call_t *c, long now_ms);
+
+// Rows kept for captions under the pictures, 0 when there are none
+int call_caption_rows(const call_t *c);
 
 // Connect to "host:port" and say hello
 // Return 0 on success

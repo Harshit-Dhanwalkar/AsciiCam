@@ -352,7 +352,8 @@ int webcam_set_auto_exposure(const webcam_t *cam, int enable) {
   return -1;
 }
 
-int webcam_set_auto_white_balance(const webcam_t *cam, int enable) {
+int webcam_adjust_white_balance(const webcam_t *cam, int delta,
+                                int *out_value) {
   (void)cam;
   (void)enable;
 
