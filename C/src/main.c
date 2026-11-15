@@ -206,6 +206,8 @@ static void print_usage(const char *prog) {
       "                7100 or host:7100, loopback by default, use ssh -L    \n"
       "  --call <a>    join a room with camera and chat; --name <n> is your  \n"
       "                name (Enter sends, Ctrl-C leaves); -C for colour      \n"
+      "  --captions <f> with --call: send caption lines from file/fifo f     \n"
+      "                (\"~\" starts a partial line); Ctrl-T to hide captions\n"
       "  --speed <x>   playback speed for --play (default 1, e.g. 0.5, 2)    \n"
       "  --loop        repeat --play until quit                              \n"
       "  --curve <s>   tone curve: points \"0,0 64,40 255,255\", a preset    \n"
@@ -1311,11 +1313,13 @@ int main(int argc, char *argv[]) {
   const char *room_addr = NULL;
   const char *call_addr = NULL;
   const char *call_name = "guest";
+  const char *call_captions = NULL;
   for (int i = 1; i < argc; i++) {
     int is_room = nl_strcmp(argv[i], "--room") == 0;
     int is_call = nl_strcmp(argv[i], "--call") == 0;
     int is_name = nl_strcmp(argv[i], "--name") == 0;
-    if (!is_room && !is_call && !is_name) {
+    int is_caps = nl_strcmp(argv[i], "--captions") == 0;
+    if (!is_room && !is_call && !is_name && !is_caps) {
       continue;
     }
 
@@ -1329,6 +1333,8 @@ int main(int argc, char *argv[]) {
       room_addr = argv[i + 1];
     } else if (is_call) {
       call_addr = argv[i + 1];
+    } else if (is_caps) {
+      call_captions = argv[i + 1];
     } else {
       call_name = argv[i + 1];
     }
@@ -1953,6 +1959,9 @@ int main(int argc, char *argv[]) {
     // a tile is a fraction of the screen: the full-screen default is too big
     int tile_w = ascii_w == DEFAULT_ASCII_WIDTH ? 40 : ascii_w;
     int tile_h = ascii_h == DEFAULT_ASCII_HEIGHT ? 20 : ascii_h;
+
+    call_ui_set_captions(call_captions);
+
 
     return call_main(call_addr, call_name, device, cap_w, cap_h, fps, tile_w,
                      tile_h, &opts);

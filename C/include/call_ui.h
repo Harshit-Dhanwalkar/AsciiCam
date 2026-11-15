@@ -12,6 +12,10 @@
 // Exit status
 int room_main(const char *addr);
 
+// Caption lines for sender side of call are read from this file or fifo
+// NULL: no captions
+void call_ui_set_captions(const char *path);
+
 // Join room at "[host:]port" as name, sending our camera as tile_w x tile_h
 // cells rendered with opts (24-bit colour when opts->color)
 // Exit status

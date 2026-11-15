@@ -9,6 +9,7 @@
 #include "ascii.h"
 #include "call.h"
 #include "call_ui.h"
+#include "capsrc.h"
 #include "capture.h"
 #include "demo.h"
 #include "netview.h"
@@ -146,6 +147,13 @@ static int handle_keys(call_t *c, typing_t *t, const char *k, ssize_t n) {
       return 1;
     }
 
+    if (ch == 20) { // Ctrl-T
+      c->captions_hide = !c->captions_hide;
+      c->dirty = 1;
+
+      continue;
+    }
+
     if (ch == 22) { // Ctrl-V
       c->video_off = !c->video_off;
       c->need_key = 1;
@@ -186,6 +194,36 @@ static int handle_keys(call_t *c, typing_t *t, const char *k, ssize_t n) {
   return 0;
 }
 
+static const char *caption_path;
+
+void call_ui_set_captions(const char *path) { caption_path = path; }
+
+typedef struct {
+  call_t *call;
+  long last_partial_ms;
+  char last_partial[CAPSRC_LINE + 1];
+} cap_sink_t;
+
+// A line from recogniser. Hypotheses come fast: send at most ~7 a second and
+// only when they differ
+static void cap_line(void *user, int final, const char *text) {
+  cap_sink_t *s = user;
+  long now = ui_now_ms();
+  if (!final) {
+    if (now - s->last_partial_ms < 150 ||
+        nl_strcmp(text, s->last_partial) == 0) {
+      return;
+    }
+
+    s->last_partial_ms = now;
+    nl_strncpy_safe(s->last_partial, text, sizeof(s->last_partial));
+  } else {
+    s->last_partial[0] = 0;
+  }
+
+  call_caption(s->call, final, text);
+}
+
 int call_main(const char *addr, const char *name, const char *device, int cap_w,
               int cap_h, int fps, int tile_w, int tile_h,
               const ascii_opts_t *opts_in) {
@@ -195,6 +233,15 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
 
   if (tile_h > CC_MAX_ROWS) {
     tile_h = CC_MAX_ROWS;
+  }
+
+  capsrc_t capsrc;
+  capsrc_init(&capsrc);
+  if (caption_path && capsrc_open(&capsrc, caption_path) != 0) {
+    fprintf(stderr, "--captions: cannot open %s\n", caption_path);
+
+    capsrc_close(&capsrc);
+    return 1;
   }
 
   static call_t call;
@@ -214,8 +261,8 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
       fprintf(stderr, "no usable camera at %s: try -d demo\n", device);
     }
 
+    capsrc_close(&capsrc);
     call_close(&call);
-
     return 1;
   }
 
@@ -248,6 +295,7 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
     nl_free(rgb);
     nl_free(pic);
     webcam_cleanup(&cam);
+    capsrc_close(&capsrc);
     call_close(&call);
 
     return 1;
@@ -273,6 +321,11 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
   long rate_at = ui_now_ms();
   uint64_t last_out = 0;
   uint64_t last_in = 0;
+
+  cap_sink_t sink = {.call = &call, .last_partial_ms = 0, .last_partial = {0}};
+  if (caption_path) {
+    call.captions_on = 1;
+  }
 
   ui_write(UI_ENTER, sizeof(UI_ENTER) - 1);
   term_raw_mode();
@@ -310,6 +363,9 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
     if (call_pump(&call) < 0) {
       break;
     }
+
+    call_tick(&call, ui_now_ms());
+    capsrc_poll(&capsrc, cap_line, &sink);
 
     // Traffic, per second
     now = ui_now_ms();
@@ -414,6 +470,7 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
   nl_free(rgb);
   nl_free(pic);
   webcam_cleanup(&cam);
+  capsrc_close(&capsrc);
   call_close(&call);
 
   return rc;

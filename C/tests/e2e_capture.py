@@ -720,7 +720,7 @@ if REAL and os.access(REAL, os.X_OK):
         while time.time() < end:
             try:
                 d = c.recv(65536)
-            except socket.timeout:
+            except TimeoutError:
                 continue
             if not d:
                 break
@@ -835,9 +835,15 @@ if REAL and os.access(REAL, os.X_OK):
         return got
 
     cport = free_port()
+    cap_tmp = tempfile.TemporaryDirectory(prefix="asciicam-captions-")
+    capfifo = os.path.join(cap_tmp.name, "captions.fifo")
+    os.mkfifo(capfifo)
     room = subprocess.Popen([BIN, "--room", str(cport)], stderr=subprocess.PIPE)
     time.sleep(0.4)
-    pa, fa = spawn_call(["--call", str(cport), "--name", "Alice", "--demo", "-C"])
+    pa, fa = spawn_call([
+        "--call", str(cport), "--name", "Alice", "--demo", "-C",
+        "--captions", capfifo,
+    ])
     pb, fb = spawn_call(["--call", str(cport), "--name", "Bob", "--demo"])
     first = pump_all([fa, fb], 2.0)
     os.write(fa, b"hello bob\r")
@@ -864,9 +870,36 @@ if REAL and os.access(REAL, os.X_OK):
     back = pump_all([fa, fb], 1.0)
     check(b"^V cam off" in back[fa], "--call: Ctrl-V again turns the camera back on")
 
+    # captions: a recogniser writes lines into the fifo, the others read them
+    all_bob = first[fb] + second[fb] + off[fb] + back[fb]
+    wfd = os.open(capfifo, os.O_RDWR)
+    os.write(wfd, b"~good morn\ngood morning bob\n")
+    cap = pump_all([fa, fb], 1.5)
+    all_bob += cap[fb]
+    check(b"you: good morning bob" in cap[fa], "--captions: own caption shows at home")
+    if _pyte:
+        bscr = _pyte.Screen(120, 50)
+        _pyte.Stream(bscr).feed(all_bob.decode("utf8", "replace"))
+        check(any("Alice: good morning bob" in row for row in bscr.display),
+              "--captions: Bob reads Alice's caption under the pictures")
+        check(not any("good morn" in row and "morning" not in row for row in bscr.display),
+              "--captions: the partial line was replaced by the final one")
+    else:
+        check(b"Alice: good morning bob" in cap[fb], "--captions: Bob reads Alice's caption")
+    os.write(fb, b"\x14")  # Ctrl-T: Bob hides captions
+    hid = pump_all([fa, fb], 1.0)
+    all_bob += hid[fb]
+    if _pyte:
+        bscr = _pyte.Screen(120, 50)
+        _pyte.Stream(bscr).feed(all_bob.decode("utf8", "replace"))
+        check(not any("good morning bob" in row for row in bscr.display),
+              "--captions: Ctrl-T hides them")
+    os.close(wfd)
+
     # nobody reads the screens now: leaving must not hang on a full tty
     os.write(fa, b"\x03")
     os.write(fb, b"\x03")
+    cap_tmp.cleanup()
     codes = [os.waitstatus_to_exitcode(os.waitpid(p, 0)[1]) for p in (pa, pb)]
     check(codes == [0, 0], "--call: Ctrl-C leaves cleanly")
     room.terminate()
@@ -874,6 +907,8 @@ if REAL and os.access(REAL, os.X_OK):
     check(b"2 in the room" in rerr and b"0 in the room" in rerr, "--room: reports who is in")
     _, code, out, _ = run(["--call", "%d" % free_port(), "--demo"], 1.0)
     check(code == 1 and b"cannot connect" in out, "--call: no room there: clear message")
+    _, code, out, _ = run(["--call", str(cport), "--captions", "/no/such/fifo", "--demo"], 1.0)
+    check(code == 1 and b"--captions: cannot open" in out, "--captions: missing file: clear message")
     _, code, out, _ = run(["--room", "x"], 0.5)
     check(code == 2 and b"--room needs a port" in out, "--room with a bad address: usage error")
     _, code, out, _ = run(["--room", "7100", "--call", "7100"], 0.5)

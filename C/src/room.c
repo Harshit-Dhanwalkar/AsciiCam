@@ -14,6 +14,7 @@
 #define NEED_KEY_GAP_MS 1000
 #define MAX_FRAMES_PER_SEC 40
 #define MAX_CHATS_PER_SEC 5
+#define MAX_CAPTIONS_PER_SEC 12
 
 static void drop_client(room_t *r, int i);
 
@@ -140,6 +141,7 @@ static void accept_all(room_t *r, long now_ms) {
     c->window_ms = now_ms;
     c->frames_in_window = 0;
     c->chat_in_window = 0;
+    c->caption_in_window = 0;
   }
 }
 
@@ -228,6 +230,34 @@ static void on_chat(room_t *r, int from, const uint8_t *p, size_t n) {
   }
 }
 
+// Captions are for the moment: a partial one is dropped for a client that is
+// behind (as pictures are), none of them is worth throwing a client out
+static void on_caption(room_t *r, int from, const uint8_t *p, size_t n) {
+  if (n < 2) {
+    return;
+  }
+
+  uint8_t head[2] = {(uint8_t)from, p[0] ? 1 : 0};
+  char text[CALL_CHAT_MAX + 1];
+  size_t len = call_clean_text(text, p + 1, n - 1, CALL_CHAT_MAX);
+  if (len == 0) {
+    return;
+  }
+
+  r->captions++;
+  for (int to = 0; to < ROOM_MAX; to++) {
+    if (to == from || !is_member(r, to)) {
+      continue;
+    }
+
+    outq_t *q = &at(r, to)->out;
+    size_t limit = head[1] ? CALL_OUTQ / 4 * 3 : CALL_OUTQ / 2;
+    if (oq_pending(q) < limit) {
+      oq_put(q, CALL_PCAPTION, head, 2, text, len);
+    }
+  }
+}
+
 static int handle(room_t *r, int i, long now_ms) {
   room_client_t *c = at(r, i);
   int handled = 0;
@@ -252,6 +282,7 @@ static int handle(room_t *r, int i, long now_ms) {
       c->window_ms = now_ms;
       c->frames_in_window = 0;
       c->chat_in_window = 0;
+      c->caption_in_window = 0;
     }
 
     if (!c->joined) {
@@ -271,6 +302,10 @@ static int handle(room_t *r, int i, long now_ms) {
     } else if (type == CALL_CHAT) {
       if (++c->chat_in_window <= MAX_CHATS_PER_SEC) {
         on_chat(r, i, p, n);
+      }
+    } else if (type == CALL_CAPTION) {
+      if (++c->caption_in_window <= MAX_CAPTIONS_PER_SEC) {
+        on_caption(r, i, p, n);
       }
     } else {
       drop_client(r, i); // nothing else is allowed from a client
@@ -367,4 +402,3 @@ void room_close(room_t *r) {
 
   r->lfd = -1;
 }
-

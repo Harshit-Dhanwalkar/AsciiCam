@@ -7,22 +7,27 @@
  * A message is 4 header bytes (type, then payload length as 24 bit big endian)
  * and payload
  * Client to relay:
- *   HELLO  version (1 byte), name         first message, nothing else before
- *   FRAME  cellcodec frame                own picture
+ *   HELLO  version (1 byte), name               first message, nothing else
+ *                                               before
+ *   FRAME  cellcodec frame                      own picture
  *   CHAT   text
+ *   CAPTION final (1 byte, 0 = partial), text   speech recogniser output)
  * Relay to client:
- *   WELCOME id (1 byte)                   answer to HELLO
- *   JOIN   id, name                       somebody is in room (also sent
- *                                         for everybody already there)
+ *   WELCOME id (1 byte)                         answer to HELLO
+ *   JOIN   id, name                             somebody is in room (also sent
+ *                                               for everybody already there)
  *   LEAVE  id
- *   PFRAME id, cellcodec frame            picture of somebody else
- *   PCHAT  id, text                       chat line, own lines come back too
- *   NEED_KEY                              send a key frame next
- *   FULL                                  room is full, connection closes
+ *   PFRAME id, cellcodec frame                  picture of somebody else
+ *   PCHAT  id, text                             chat line, own lines come back
+ *                                               too
+ *   PCAPTION id, final, text                    caption of somebody else
+ *                                               (sender does not get its back)
+ *   NEED_KEY                                    send a key frame next FULL room
+ *                                               is full, connection closes
  *
  * A reader (msgbuf) takes bytes as they come and hands out whole messages; a
- * writer (outq) queues whole messages and sends what socket takes
- * Neither ever blocks
+ * writer (outq) queues whole messages and sends what socket takes Neither ever
+ * blocks
  */
 
 #include "nl_types.h"
@@ -37,13 +42,15 @@ enum {
   CALL_HELLO = 1,
   CALL_FRAME = 2,
   CALL_CHAT = 3,
+  CALL_CAPTION = 4,
   CALL_WELCOME = 16,
   CALL_JOIN = 17,
   CALL_LEAVE = 18,
   CALL_PFRAME = 19,
   CALL_PCHAT = 20,
   CALL_NEED_KEY = 21,
-  CALL_FULL = 22
+  CALL_FULL = 22,
+  CALL_PCAPTION = 23
 };
 
 // Reader
