@@ -4,6 +4,7 @@
 #include "ascii.h"
 #include "browser.h"
 #include "call_ui.h"
+#include "capsrc.h"
 #include "capture.h"
 #include "curve.h"
 #include "curve_ui.h"
