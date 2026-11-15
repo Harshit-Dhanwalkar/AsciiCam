@@ -720,7 +720,7 @@ if REAL and os.access(REAL, os.X_OK):
         while time.time() < end:
             try:
                 d = c.recv(65536)
-            except socket.timeout:
+            except TimeoutError:
                 continue
             if not d:
                 break
@@ -835,9 +835,15 @@ if REAL and os.access(REAL, os.X_OK):
         return got
 
     cport = free_port()
+    cap_tmp = tempfile.TemporaryDirectory(prefix="asciicam-captions-")
+    capfifo = os.path.join(cap_tmp.name, "captions.fifo")
+    os.mkfifo(capfifo)
     room = subprocess.Popen([BIN, "--room", str(cport)], stderr=subprocess.PIPE)
     time.sleep(0.4)
-    pa, fa = spawn_call(["--call", str(cport), "--name", "Alice", "--demo", "-C"])
+    pa, fa = spawn_call([
+        "--call", str(cport), "--name", "Alice", "--demo", "-C",
+        "--captions", capfifo,
+    ])
     pb, fb = spawn_call(["--call", str(cport), "--name", "Bob", "--demo"])
     first = pump_all([fa, fb], 2.0)
     os.write(fa, b"hello bob\r")
@@ -893,6 +899,7 @@ if REAL and os.access(REAL, os.X_OK):
     # nobody reads the screens now: leaving must not hang on a full tty
     os.write(fa, b"\x03")
     os.write(fb, b"\x03")
+    cap_tmp.cleanup()
     codes = [os.waitstatus_to_exitcode(os.waitpid(p, 0)[1]) for p in (pa, pb)]
     check(codes == [0, 0], "--call: Ctrl-C leaves cleanly")
     room.terminate()

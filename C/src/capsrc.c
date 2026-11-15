@@ -83,7 +83,7 @@ long capsrc_poll(capsrc_t *c, capsrc_fn fn, void *user) {
   }
 
   long total = 0;
-  char tmp[1024];
+  char tmp[1024] = {0};
   for (int rounds = 0; rounds < 8; rounds++) {
     ssize_t r = read(c->fd, tmp, sizeof(tmp));
     if (r <= 0) {
