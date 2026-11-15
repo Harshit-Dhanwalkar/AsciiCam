@@ -1957,6 +1957,8 @@ int main(int argc, char *argv[]) {
   capsrc_init(&caps_src);
   capview_init(&caps_view);
   int caps_show = 0;
+  char *caps_pic = NULL; // picture + caption bars for vcam / viewers
+  size_t caps_pic_cap = 0;
   char caps_path[256];
   caps_path[0] = '\0';
   {
@@ -3103,7 +3105,38 @@ int main(int argc, char *argv[]) {
 
       write_all(STDOUT_FILENO, wire, wire_len);
 
-      if (vcam_on && vcam_frame(&vcam, out_buf, (size_t)len) < 0) {
+      // Captions are read once per frame
+      // Whoever gets a copy of picture (virtual camera, viewers) gets bars
+      // drawn into it: 24-bit colour only, wire format has no attributes
+      if (caps_src.fd >= 0) {
+        // hidden captions are read and thrown away, not saved for later
+        capsrc_poll(&caps_src, caps_show ? caps_line : caps_drop, &caps_view);
+        if (capview_tick(&caps_view, caps_now_ms())) {
+          net_dirty = 1;
+        }
+      }
+
+      const char *shared_pic = out_buf;
+      size_t shared_len = (size_t)len;
+      if (caps_show && (vcam_on || serve_on) && capview_count(&caps_view) > 0) {
+        char bar[2048];
+        int bn = capview_render(&caps_view, ascii_h - 1, 1, ascii_w,
+                                CAPVIEW_RGB, bar, sizeof(bar));
+        if (bn > 0 && (size_t)len + (size_t)bn + 1 > caps_pic_cap) {
+          nl_free(caps_pic);
+          caps_pic = malloc((size_t)len + (size_t)bn + 1);
+          caps_pic_cap = caps_pic ? (size_t)len + (size_t)bn + 1 : 0;
+        }
+
+        if (bn > 0 && (size_t)len + (size_t)bn + 1 <= caps_pic_cap) {
+          nl_memcpy(caps_pic, out_buf, (size_t)len);
+          nl_memcpy(caps_pic + len, bar, (size_t)bn);
+          shared_pic = caps_pic;
+          shared_len = (size_t)len + (size_t)bn;
+        }
+      }
+
+      if (vcam_on && vcam_frame(&vcam, shared_pic, shared_len) < 0) {
         TOAST("virtual camera stopped: cannot write to %s", vcam_path);
         vcam_close(&vcam);
         vcam_on = 0;
@@ -3120,12 +3153,12 @@ int main(int argc, char *argv[]) {
             serve_age = 0;
           }
 
-          size_t dn = serve_wrap(&serve_delta_enc, out_buf, (size_t)len,
+          size_t dn = serve_wrap(&serve_delta_enc, shared_pic, shared_len,
                                  &serve_buf, &serve_cap);
           size_t kn = 0;
           if (nv_wants_key(&serve) > 0) {
             netenc_invalidate(&serve_key_enc);
-            kn = serve_wrap(&serve_key_enc, out_buf, (size_t)len, &serve_key,
+            kn = serve_wrap(&serve_key_enc, shared_pic, shared_len, &serve_key,
                             &serve_key_cap);
           }
 
@@ -3250,21 +3283,13 @@ int main(int argc, char *argv[]) {
 
       // Captions: two bars over the bottom of the picture, above a toast
       int caps_on = 0;
-      if (caps_src.fd >= 0) {
-        // hidden captions are read and thrown away, not saved for later
-        capsrc_poll(&caps_src, caps_show ? caps_line : caps_drop, &caps_view);
-        if (capview_tick(&caps_view, caps_now_ms())) {
-          net_dirty = 1;
-        }
-
-        if (caps_show) {
-          char cbuf[2048];
-          int cn = capview_render(&caps_view, frame_bottom - 1, frame_x,
-                                  ascii_w, opts.color, cbuf, sizeof(cbuf));
-          if (cn > 0) {
-            (void)write(STDOUT_FILENO, cbuf, (size_t)cn);
-            caps_on = 1;
-          }
+      if (caps_show && caps_src.fd >= 0) {
+        char cbuf[2048];
+        int cn = capview_render(&caps_view, frame_bottom - 1, frame_x, ascii_w,
+                                opts.color, cbuf, sizeof(cbuf));
+        if (cn > 0) {
+          (void)write(STDOUT_FILENO, cbuf, (size_t)cn);
+          caps_on = 1;
         }
       }
 

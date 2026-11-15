@@ -155,7 +155,7 @@ int capview_tick(capview_t *v, long now_ms) {
 int capview_count(const capview_t *v) { return v->n; }
 
 int capview_render(const capview_t *v, int bottom_row, int col, int width,
-                   int color, char *buf, size_t size) {
+                   int style, char *buf, size_t size) {
   if (v->n == 0 || width < 8 || bottom_row < v->n + 1 || col < 1 || size < 64) {
     return 0;
   }
@@ -175,11 +175,19 @@ int capview_render(const capview_t *v, int bottom_row, int col, int width,
     }
 
     line[k] = 0;
-    char head[96];
-    int hk = nl_snprintf(head, sizeof(head), "\033[%d;%dH%s%s", row, col,
-                         color ? "\033[38;2;255;255;255m\033[48;2;20;20;20m"
-                               : "\033[7m",
-                         v->final[i] ? "\033[1m" : "\033[2m");
+    char head[112];
+    const char *look;
+    if (style == CAPVIEW_RGB) {
+      look = v->final[i] ? "\033[38;2;255;255;255m\033[48;2;20;20;20m"
+                         : "\033[38;2;170;170;170m\033[48;2;20;20;20m";
+    } else if (style == CAPVIEW_COLOR) {
+      look = v->final[i] ? "\033[38;2;255;255;255m\033[48;2;20;20;20m\033[1m"
+                         : "\033[38;2;255;255;255m\033[48;2;20;20;20m\033[2m";
+    } else {
+      look = v->final[i] ? "\033[7m\033[1m" : "\033[7m\033[2m";
+    }
+
+    int hk = nl_snprintf(head, sizeof(head), "\033[%d;%dH%s", row, col, look);
     if (hk <= 0 || pos + (size_t)hk + (size_t)k + 8 >= size) {
       break;
     }

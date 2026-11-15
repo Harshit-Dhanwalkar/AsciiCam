@@ -70,12 +70,19 @@ int capview_tick(capview_t *v, long now_ms);
 // Number of lines to show
 int capview_count(const capview_t *v);
 
+// Styles for capview_render
+#define CAPVIEW_MONO 0  // reverse video, bold / dim
+#define CAPVIEW_COLOR 1 // dark bar, white text, bold / dim
+#define CAPVIEW_RGB                                                            \
+  2 // 24-bit colours only (final white, guess grey)
+    // for pictures sent on (netenc has no attributes)
+
 // Escape sequences drawing lines in bottom_row-1 .. bottom_row rows inside
 // width columns starting at col, bottom aligned (last line is newest)
 // A long line shows its end
 // Return bytes, 0 when nothing to show or room is too small
 int capview_render(const capview_t *v, int bottom_row, int col, int width,
-                   int color, char *buf, size_t size);
+                   int style, char *buf, size_t size);
 
 // Where "asciicam --captions" reads by default (key y without a path):
 // $XDG_RUNTIME_DIR/asciicam-captions, else ~/.asciicam-captions. 0 on success,
