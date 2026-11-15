@@ -495,7 +495,7 @@ needed, so it works anywhere the binary does, including over ssh
 (`ssh host asciicam --play file.cast`), where only the saved bytes cross the
 wire. Keys: `q` quits, space pauses, `+` / `-` halve or double the speed.
 If your terminal is smaller than the one it was recorded in, a note says so
-before it starts (enlarge the window first, otherwise lines wrap).
+before it starts (enlarge the window first, otherwise lines are cut at the edge).
 
 ## Virtual camera: `--vcam`
 
@@ -600,16 +600,12 @@ asciicam --call 7100 --name Alice -C                   # you (add -d, -W, -H as 
 asciicam --call 7100 --name Bob --demo                 # someone without a camera
 ```
 
-`--call [host:]port` shows everybody as tiles with a chat below: type, Enter
-sends, Esc clears the line, Ctrl-V turns your camera off and on (peers see a
-"camera off" card; the title shows kB/s up and down), Ctrl-C leaves. Pictures
-are sent as cell changes only (a key picture first, when a person joins or the
-relay asks, and every 40 frames), 24-bit colour with `-C`. Tile size is `-W` / `-H`
-(default 40x20), and the picture is never mirrored, so your text reads right to
-others. The relay sends a person only what they can decode, lets pictures give
-way to chat when a link is slow, limits a client to 40 pictures and 5 chat lines
-a second, drops anyone who does not say hello within 10 seconds, and cleans names
-and chat to printable ASCII so nobody can send escape codes to your terminal.
+Captions are lines of text from a speech recogniser. asciicam does not listen
+to the microphone itself: any recogniser can write its text into a file or fifo,
+one caption per line, and asciicam shows the lines (and in a call sends them).
+A line that starts with `~` is a guess the recogniser may still change (dim, gone
+after 3 s); any other line is final (bold, gone after 6 s). Blank lines are
+ignored and lines are cut at 200 characters.
 
 #### Live captions: `--captions`
 
@@ -624,13 +620,21 @@ hides or shows the two caption rows (they appear on their own when somebody
 else sends captions).
 
 ```
-mkfifo /tmp/captions
-asciicam --call 7100 --name Alice --captions /tmp/captions
-your-recogniser > /tmp/captions        # e.g. one that prints "~partial" and "final" lines
+asciicam --captions /tmp/captions                           # captions over your own picture
+asciicam --call 7100 --name Alice --captions /tmp/captions  # and sent to the room
+your-recogniser > /tmp/captions                             # prints "~partial" and "final" lines
 ```
 
-A room built before this feature drops a client that sends captions, so run
-`--room` from the same version.
+Outside a call two bars over the bottom of the picture show the last two lines.
+The key `y` turns them on and off while running, and when there is no source
+yet it makes a fifo (`$XDG_RUNTIME_DIR/asciicam-captions`, else
+`~/.asciicam-captions`), says where it is, and reads it. While hidden, lines are
+read and dropped. `captions=<path>` in `.asciicamrc` works like the option.
+
+In a call the room allows 12 captions a second per person, shows the others'
+captions in two rows above the chat (Ctrl-T hides or shows them; they appear on
+their own when somebody else sends captions). A room built before this feature
+drops a client that sends captions, so run `--room` from the same version.
 
 Like `--serve`, the relay has **no password and no encryption** and listens on
 loopback unless given an address. Put it behind ssh, which gives both. For a room
