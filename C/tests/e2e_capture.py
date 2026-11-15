@@ -498,6 +498,9 @@ if REAL and os.access(REAL, os.X_OK):
     check(t_two and 0.4 < t_two < 0.8 and t_three and 0.9 < t_three < 1.4,
           f"--play: keeps recorded timing (0.5 s / 1.0 s, got {t_two and round(t_two, 2)} / {t_three and round(t_three, 2)})")
     check(b"\xc3\xa9" in b"".join(d for _, d in ch), "--play: UTF-8 bytes arrive intact")
+    allp = b"".join(d for _, d in ch)
+    check(b"\x1b[?7l" in allp and allp.rfind(b"\x1b[?7h") > allp.rfind(b"\x1b[?7l"),
+          "--play: wrap is off while playing and back on after")
     check(b"\x1b[?1049l" in ch[-1][1] and b"\x1b[?25h" in b"".join(d for _, d in ch), "--play: screen and cursor restored")
 
     code, ch = play(["--play", cast, "--speed", "2"])
@@ -807,6 +810,93 @@ if REAL and os.access(REAL, os.X_OK):
     check(b"BEFORE-RESTART" in out and b"reconnecting" in out and b"AFTER-RESTART" in out,
           "--watch --retry: reconnects after the server restarts")
     check(code == 0, "--watch --retry: q still quits (%s)" % code)
+    check(b"\x1b[?7l" in out and out.rfind(b"\x1b[?7h") > out.rfind(b"\x1b[?7l"),
+          "--watch: lines are cut at the edge of a small terminal, wrap is put back on leaving")
+
+    # captions on local picture (no call): fifo given, y toggles, y makes one
+    def drive(args, steps, total, env_extra=None):
+        pid, cfd = pty.fork()
+        if pid == 0:
+            fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 120, 0, 0))
+            env = dict(os.environ)
+            env.update(env_extra or {})
+            os.execve(BIN, [BIN] + args, env)
+        fcntl.ioctl(cfd, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 120, 0, 0))
+        out = b""
+        t0 = time.monotonic()
+        pending = sorted(steps, key=lambda x: x[0])
+        while time.monotonic() - t0 < total:
+            while pending and time.monotonic() - t0 >= pending[0][0]:
+                _, act = pending.pop(0)
+                act(cfd)
+            r, _, _ = select.select([cfd], [], [], 0.05)
+            if r:
+                try:
+                    out += os.read(cfd, 65536)
+                except OSError:
+                    break
+        os.write(cfd, b"q")
+        try:
+            end = time.monotonic() + 3
+            while time.monotonic() < end:
+                r, _, _ = select.select([cfd], [], [], 0.1)
+                if r:
+                    try:
+                        d = os.read(cfd, 65536)
+                    except OSError:
+                        break
+                    if not d:
+                        break
+                    out += d
+        finally:
+            _, st = os.waitpid(pid, 0)
+        return os.waitstatus_to_exitcode(st), out
+
+    cdir = tempfile.mkdtemp()
+    ffifo = os.path.join(cdir, "cap")
+    os.mkfifo(ffifo)
+    wf = os.open(ffifo, os.O_RDWR)
+
+    def say(data):
+        return lambda cfd: os.write(wf, data)
+
+    def press(k):
+        return lambda cfd: os.write(cfd, k)
+
+    code, out = drive(["--demo", "-C", "--captions", ffifo],
+                      [(1.0, say(b"~good mor\n")), (1.5, say(b"good morning\n")),
+                       (2.5, press(b"y")), (3.2, say(b"hidden words\n")),
+                       (4.0, press(b"y")), (4.4, say(b"shown again\n"))], 5.5)
+    check(code == 0, "--captions: runs and quits (%s)" % code)
+    check(b"good morning" in out and b"\x1b[48;2;20;20;20m" in out and b"\x1b[1m good morning" in out,
+          "--captions: a final line is drawn as a bold bar over the picture")
+    check(b"\x1b[2m good mor" in out, "--captions: the guess came first, dim")
+    check(b"captions off" in out and b"hidden words" not in out,
+          "--captions: y hides them (lines still read, not shown)")
+    check(b"captions on" in out and b"shown again" in out, "--captions: y shows them again")
+    os.close(wf)
+
+    rdir = tempfile.mkdtemp()
+    capfile = os.path.join(rdir, "asciicam-captions")
+
+    def write_default(cfd):
+        try:
+            fd2 = os.open(capfile, os.O_WRONLY | os.O_NONBLOCK)
+        except OSError:
+            return
+        os.write(fd2, b"made on demand\n")
+        os.close(fd2)
+
+    code, out = drive(["--demo"], [(1.0, press(b"y")), (1.8, write_default)], 3.5,
+                      {"XDG_RUNTIME_DIR": rdir})
+    import stat as _stat
+    check(os.path.exists(capfile) and _stat.S_ISFIFO(os.stat(capfile).st_mode),
+          "key y with no source: makes a fifo in the runtime directory")
+    check(b"captions on: write lines to " in out and b"made on demand" in out,
+          "key y with no source: toast names the fifo, lines written to it show up")
+
+    _, code, out, _ = run(["--demo", "--captions", "/no/such/dir/captions"], 1.0)
+    check(code == 1 and b"--captions: cannot open" in out, "--captions: missing path: clear message")
 
     _, code, out, _ = run(["--watch", "127.0.0.1:%d" % free_port()], 1.0)
     check(code == 1 and b"cannot connect" in out, "--watch: nobody there: clear message")

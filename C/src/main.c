@@ -4,6 +4,7 @@
 #include "ascii.h"
 #include "browser.h"
 #include "call_ui.h"
+#include "capsrc.h"
 #include "capture.h"
 #include "curve.h"
 #include "curve_ui.h"
@@ -74,6 +75,7 @@ volatile sig_atomic_t keep_running = 1;
 // }
 
 static char g_curve_cfg[256];             // curve= from .asciicamrc
+static char g_captions_cfg[256];          // captions= from .asciicamrc
 static const char *g_plugin_dir = NULL;   // NULL: chosen by app_paths_resolve
 static const char *g_plugin_cache = NULL; // NULL: chosen by app_paths_resolve
 
@@ -206,8 +208,9 @@ static void print_usage(const char *prog) {
       "                7100 or host:7100, loopback by default, use ssh -L    \n"
       "  --call <a>    join a room with camera and chat; --name <n> is your  \n"
       "                name (Enter sends, Ctrl-C leaves); -C for colour      \n"
-      "  --captions <f> with --call: send caption lines from file/fifo f     \n"
-      "                (\"~\" starts a partial line); Ctrl-T to hide captions\n"
+      "  --captions <f> show caption lines from file/fifo f over the picture;\n"
+      "                \"~\" starts a partial line; key y turns them on/off; \n"
+      "                with --call they are sent to others (Ctrl-T hides)    \n"
       "  --speed <x>   playback speed for --play (default 1, e.g. 0.5, 2)    \n"
       "  --loop        repeat --play until quit                              \n"
       "  --curve <s>   tone curve: points \"0,0 64,40 255,255\", a preset    \n"
@@ -484,6 +487,8 @@ static void load_config_file(const char *path, char **device, int *ascii_w,
           }
         } else if (nl_strcmp(key, "curve") == 0) {
           nl_strncpy_safe(g_curve_cfg, val, sizeof(g_curve_cfg));
+        } else if (nl_strcmp(key, "captions") == 0) {
+          nl_strncpy_safe(g_captions_cfg, val, sizeof(g_captions_cfg));
         } else if (nl_strcmp(key, "render_mode") == 0) {
           opts->render_mode = parse_render_mode(val);
         } else if (nl_strcmp(key, "edge_mode") == 0) {
@@ -1004,6 +1009,12 @@ static double parse_speed(const char *s) {
 static const char SCREEN_ENTER[] = "\033[?1049h\033[2J\033[H\033[?25l";
 static const char SCREEN_LEAVE[] = "\033[0m\033[?25h\033[?1049l";
 
+// Viewers of somebody else's picture: a line wider than this terminal is cut
+// at edge, not wrapped into a mess (mode outlives alt screen, so it is put back
+// on leaving)
+static const char WRAP_OFF[] = "\033[?7l";
+static const char WRAP_ON[] = "\033[?7h";
+
 // Main
 // A non-negative decimal number not larger than max, or -1
 static long parse_count(const char *s, long max) {
@@ -1047,7 +1058,7 @@ static size_t serve_wrap(netenc_t *enc, const char *in, size_t n, char **buf,
   nl_memcpy(*buf, SYNC_BEGIN, at);
   int en = netenc_frame(enc, in, n, *buf + at, *cap - at - sizeof(SYNC_END));
   if (en < 0) {
-    // not encodable: the whole picture as it is, and a repaint next time
+    // not encodable: whole picture as it is, and a repaint next time
     netenc_invalidate(enc);
     nl_memcpy(*buf + at, in, n);
     en = (int)n;
@@ -1057,6 +1068,26 @@ static size_t serve_wrap(netenc_t *enc, const char *in, size_t n, char **buf,
   nl_memcpy(*buf + at, SYNC_END, sizeof(SYNC_END) - 1);
 
   return at + sizeof(SYNC_END) - 1;
+}
+
+static long caps_now_ms(void) {
+  struct timespec ts = {0};
+  if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+    return 0;
+  }
+
+  return (long)ts.tv_sec * 1000L + (long)(ts.tv_nsec / 1000000L);
+}
+
+static void caps_drop(void *user, int final, const char *text) {
+  (void)user;
+  (void) final;
+  (void)text;
+}
+
+// A caption line from recogniser goes to on-screen view
+static void caps_line(void *user, int final, const char *text) {
+  capview_push((capview_t *)user, final, text, caps_now_ms());
 }
 
 int main(int argc, char *argv[]) {
@@ -1492,18 +1523,20 @@ int main(int argc, char *argv[]) {
     if (rw > 0 && ((tw > 0 && tw < rw) || (th > 0 && th < rh))) {
       fprintf(stderr,
               "note: recorded at %dx%d, this terminal is %dx%d: the picture "
-              "will wrap; enlarge the window first\n",
+              "will be cut at the edge; enlarge the window first\n",
               rw, rh, tw, th);
       nl_usleep(1500000);
     }
 
     (void)write(STDOUT_FILENO, SCREEN_ENTER, sizeof(SCREEN_ENTER) - 1);
+    (void)write(STDOUT_FILENO, WRAP_OFF, sizeof(WRAP_OFF) - 1);
     term_raw_mode();
 
     int played = 0;
     int rc = browser_play_cast(play_path, play_speed, play_loop, &played);
     term_restore();
 
+    (void)write(STDOUT_FILENO, WRAP_ON, sizeof(WRAP_ON) - 1);
     (void)write(STDOUT_FILENO, SCREEN_LEAVE, sizeof(SCREEN_LEAVE) - 1);
     if (rc < 0) {
       fprintf(stderr, "cannot read %s\n", play_path);
@@ -1533,6 +1566,7 @@ int main(int argc, char *argv[]) {
     }
 
     (void)write(STDOUT_FILENO, SCREEN_ENTER, sizeof(SCREEN_ENTER) - 1);
+    (void)write(STDOUT_FILENO, WRAP_OFF, sizeof(WRAP_OFF) - 1);
     term_raw_mode();
     int closed = 0;
     char wbuf[16384];
@@ -1614,6 +1648,7 @@ int main(int argc, char *argv[]) {
     }
 
     term_restore();
+    (void)write(STDOUT_FILENO, WRAP_ON, sizeof(WRAP_ON) - 1);
     (void)write(STDOUT_FILENO, SCREEN_LEAVE, sizeof(SCREEN_LEAVE) - 1);
     if (closed) {
       fprintf(stderr, "--watch: %s closed the connection\n", watch_addr);
@@ -1913,6 +1948,31 @@ int main(int argc, char *argv[]) {
 
   picker_t picker;
   nl_memset(&picker, 0, sizeof(picker));
+
+  // Captions on picture: --captions <file|fifo> (or captions= in rc file) from
+  // start, key y turns them on and off, and makes a fifo to write into when
+  // there is no source yet
+  capsrc_t caps_src;
+  capview_t caps_view;
+  capsrc_init(&caps_src);
+  capview_init(&caps_view);
+  int caps_show = 0;
+  char caps_path[256];
+  caps_path[0] = '\0';
+  {
+    const char *cp = call_captions ? call_captions : g_captions_cfg;
+    if (cp[0]) {
+      if (capsrc_open(&caps_src, cp) != 0) {
+        fprintf(stderr, "--captions: cannot open %s\n", cp);
+
+        return 1;
+      }
+
+      nl_strncpy_safe(caps_path, cp, sizeof(caps_path));
+      caps_show = 1;
+    }
+  }
+
   char toast_msg[160];
   toast_msg[0] = '\0';
   int toast_frames = 0;
@@ -1961,7 +2021,6 @@ int main(int argc, char *argv[]) {
     int tile_h = ascii_h == DEFAULT_ASCII_HEIGHT ? 20 : ascii_h;
 
     call_ui_set_captions(call_captions);
-
 
     return call_main(call_addr, call_name, device, cap_w, cap_h, fps, tile_w,
                      tile_h, &opts);
@@ -2692,6 +2751,29 @@ int main(int argc, char *argv[]) {
 
         break;
       }
+      case 'y':
+      case 'Y': {
+        if (caps_src.fd < 0) {
+          // first time: make a fifo anybody can write caption lines into
+          if (capsrc_default_path(caps_path, sizeof(caps_path),
+                                  app_getenv(envp, "XDG_RUNTIME_DIR"),
+                                  app_getenv(envp, "HOME")) != 0 ||
+              capsrc_make_fifo(caps_path) != 0 ||
+              capsrc_open(&caps_src, caps_path) != 0) {
+            TOAST("captions: no fifo here, start with --captions <file>");
+          } else {
+            caps_show = 1;
+            TOAST("captions on: write lines to %s", caps_path);
+          }
+        } else {
+          caps_show = !caps_show;
+          capview_init(&caps_view);
+          net_dirty = 1;
+          TOAST(caps_show ? "captions on" : "captions off");
+        }
+
+        break;
+      }
       case 's':
       case 'S': {
         want_shot = 1; // taken from next frame that is rendered
@@ -3166,8 +3248,29 @@ int main(int argc, char *argv[]) {
         (void)write(STDOUT_FILENO, ovl, (size_t)on);
       }
 
+      // Captions: two bars over the bottom of the picture, above a toast
+      int caps_on = 0;
+      if (caps_src.fd >= 0) {
+        // hidden captions are read and thrown away, not saved for later
+        capsrc_poll(&caps_src, caps_show ? caps_line : caps_drop, &caps_view);
+        if (capview_tick(&caps_view, caps_now_ms())) {
+          net_dirty = 1;
+        }
+
+        if (caps_show) {
+          char cbuf[2048];
+          int cn = capview_render(&caps_view, frame_bottom - 1, frame_x,
+                                  ascii_w, opts.color, cbuf, sizeof(cbuf));
+          if (cn > 0) {
+            (void)write(STDOUT_FILENO, cbuf, (size_t)cn);
+            caps_on = 1;
+          }
+        }
+      }
+
       // An overlay that just went away leaves its cells wrong on screen
-      int overlay_now = on > 0 || browser.active || mouse_drag.dragging;
+      int overlay_now =
+          on > 0 || caps_on || browser.active || mouse_drag.dragging;
       if (browser_was_open && !browser.active) {
         net_dirty = 1; // panel retracted: repaint what it covered
       }
