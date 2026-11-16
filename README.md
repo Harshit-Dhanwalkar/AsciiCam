@@ -694,6 +694,58 @@ are tested, the container files are not. Code: `src/room.c` (relay),
 `src/call.c` (client), `src/call_ui.c` (terminal and camera),
 `src/cellcodec.c` (picture wire format), `src/callproto.c` (messages).
 
+#### Full sentences: `--listen --model`
+
+For real dictation, point `--model` at a `model.safetensors` and `--tokenizer` at
+its `tokenizer.json` (default: beside the weights). The `config.json` beside
+the weights says how big the network is, so other sizes load too; without it
+the smallest one is assumed:
+
+    arecord -q -t wav -f S16_LE -r 16000 -c 1 | asciicam --listen - --model model.safetensors
+
+The engine is pure C like the rest: the weights are a file you point at,
+nothing is linked and `nm -u` stays 0. It reads safetensors itself (every
+length and range is checked, the file is treated as untrusted), runs the
+causal convolutions and sliding-window encoder as the audio arrives, and a
+decoder with a key/value cache. A loudness gate cuts the audio into
+utterances; while someone talks the text so far is re-read every second
+(`~` partial lines, or live captions in a call) and a pause finishes the
+sentence. A shape the engine cannot hold, or a file whose tensors do not fit
+the config, is refused with the key or tensor that is wrong. Speed on real
+weights has not been measured yet.
+
+All the maths it needs (`exp`, `log`, `sin`, `cos`, `erf`, `asinh`, `tanh`,
+`sqrt`, `fmod`, `floor`, `ceil`) is in one header, `lib/nl_math.h`, static
+inline, so there is no libm and nothing to link.
+
+Code: `src/asr.c` (utterances, partial and final lines), `src/asrnet.c` (the
+network), `src/asrcfg.c` (`config.json`), `src/nn.c` (layers),
+`src/safetensors.c`, `src/tokdec.c` (`tokenizer.json`). Tests: `test_asrnet`
+checks the network against a numpy transcription of the published model code on a
+small random model (`tests/gen_asrnet_vectors.py`), `test_asrcfg`, `test_tokdec`,
+`test_asr` (when lines come out, whatever the chunking of the audio) and
+`test_math` (`lib/nl_math.h` against values from Python, bit for bit for
+`fmod`, `floor`, `ceil`). `tests/ref_asrnet.py` prints the reference
+implementation's transcript of a wav, to compare with asciicam's.
+
+##### What the model is, and where it came from
+
+The model is not part of this repository and no copy of it is shipped.
+
+- Network: Moonshine v2 streaming, English, 34 M parameters (Kudlur, King, Wang,
+  Warden, _Moonshine v2: Ergodic Streaming Encoder ASR_, arXiv 2602.12241),
+  by Useful Sensors, MIT licensed.
+- Weights, vocabulary and shape: `model.safetensors`, `tokenizer.json` and
+  `config.json` from
+  [UsefulSensors/moonshine-streaming-tiny](https://huggingface.co/UsefulSensors/moonshine-streaming-tiny)
+  on Hugging Face. Put the three files in one folder and give `--model` the
+  path of the `.safetensors` file.
+- The C code was written from the published modelling code in the
+  `transformers` library (`modeling_moonshine_streaming.py`), operation by
+  operation. It is a reimplementation: none of their libraries is linked.
+- safetensors is the weights file format of Hugging Face; the reader is
+  `src/safetensors.c`.
+
 ### Loader hardening
 
 `nl_dlopen` reads a file from disk and then writes to addresses computed from it,
@@ -779,6 +831,18 @@ The image is `FROM scratch`: one static binary plus the prebuilt plugins
   - [ ] Hardware controls via `IAMCameraControl` / `IAMVideoProcAmp` (capture works, controls stubbed)
   - [ ] macOS hardware controls via `AVCaptureDevice` exposure/white-balance APIs (capture works, controls stubbed)
 - [x] Runtime plugin catalog: search, build and load plugins while running (`/`)
+- [x] Speech recognition without libraries
+  * [x] Speaker-dependent words and phrases (`--listen`, `--voice-enroll`)
+  * [x] Live captions in the picture, `--vcam`, `--serve` and calls
+  * [x] Full sentences with a neural network in pure C (`--listen --model`)
+    + [x] safetensors reader, `config.json`, `tokenizer.json`, streaming encoder, decoder with key/value cache
+    + [x] Network checked against a numpy transcription of the reference on a small random model
+  * [ ] Run it on the real weights: transcript against `tests/ref_asrnet.py`, then measure speed (real-time factor)
+  * [ ] Faster: SIMD matrix products, 8-bit weights
+  * [ ] Models other than the smallest English one (`config.json` is read, none tried on real weights)
+  * [ ] Native microphone capture (today: `arecord` or any recorder into a pipe or file)
+  * [ ] Subtitle export (`.srt`) from the final lines, audio visualiser
+- [x] All maths in one header, `lib/nl_math.h` (no libm), with `nl_fmod`
 
 ## Fixes
 

@@ -328,13 +328,13 @@ test: all
 	$(CC) -O2 $(TEST_FLAGS) tests/test_math.c $(TEST_LIBS) -o $(TESTDIR)/math_O2
 	$(CC) -O0 $(TEST_FLAGS) tests/test_asrnet.c $(SRCDIR)/nn.c $(SRCDIR)/safetensors.c $(SRCDIR)/asrnet.c $(SRCDIR)/asrcfg.c $(TEST_LIBS) -o $(TESTDIR)/asrnet_O0
 	$(CC) -O0 $(TEST_FLAGS) tests/test_tokdec.c $(SRCDIR)/tokdec.c $(TEST_LIBS) -o $(TESTDIR)/tokdec_O0
-	$(cc) -o0 $(test_flags) tests/test_asrcfg.c $(srcdir)/asrcfg.c $(srcdir)/asrnet.c $(srcdir)/nn.c $(srcdir)/safetensors.c $(test_libs) -o $(testdir)/asrcfg_o0
-	$(cc) -o0 $(test_flags) tests/test_asr.c $(srcdir)/asr.c $(srcdir)/speech.c $(srcdir)/nn.c $(srcdir)/safetensors.c $(srcdir)/asrnet.c $(srcdir)/asrcfg.c $(srcdir)/tokdec.c $(test_libs) -o $(testdir)/asr_o0
+	$(cc) -o0 $(TEST_FLAGS) tests/test_asrcfg.c $(SRCDIR)/asrcfg.c $(SRCDIR)/asrnet.c $(SRCDIR)/nn.c $(SRCDIR)/safetensors.c $(TEST_LIBS) -o $(testdir)/asrcfg_o0
+	$(cc) -o0 $(TEST_FLAGS) tests/test_asr.c $(SRCDIR)/asr.c $(SRCDIR)/speech.c $(SRCDIR)/nn.c $(SRCDIR)/safetensors.c $(SRCDIR)/asrnet.c $(SRCDIR)/asrcfg.c $(SRCDIR)/tokdec.c $(TEST_LIBS) -o $(testdir)/asr_o0
 	$(CC) -O0 $(TEST_FLAGS) tests/test_capsrc.c $(SRCDIR)/capsrc.c $(TEST_LIBS) -o $(TESTDIR)/capsrc_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_asrnet.c $(SRCDIR)/nn.c $(SRCDIR)/safetensors.c $(SRCDIR)/asrnet.c $(SRCDIR)/asrcfg.c $(TEST_LIBS) -o $(TESTDIR)/asrnet_O2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_tokdec.c $(SRCDIR)/tokdec.c $(TEST_LIBS) -o $(TESTDIR)/tokdec_O2
-	$(cc) -o2 $(test_flags) tests/test_asrcfg.c $(srcdir)/asrcfg.c $(srcdir)/asrnet.c $(srcdir)/nn.c $(srcdir)/safetensors.c $(test_libs) -o $(testdir)/asrcfg_o2
-	$(cc) -o2 $(test_flags) tests/test_asr.c $(srcdir)/asr.c $(srcdir)/speech.c $(srcdir)/nn.c $(srcdir)/safetensors.c $(srcdir)/asrnet.c $(srcdir)/asrcfg.c $(srcdir)/tokdec.c $(test_libs) -o $(testdir)/asr_o2
+	$(cc) -o2 $(TEST_FLAGS) tests/test_asrcfg.c $(SRCDIR)/asrcfg.c $(SRCDIR)/asrnet.c $(SRCDIR)/nn.c $(SRCDIR)/safetensors.c $(TEST_LIBS) -o $(testdir)/asrcfg_o2
+	$(cc) -o2 $(TEST_FLAGS) tests/test_asr.c $(SRCDIR)/asr.c $(SRCDIR)/speech.c $(SRCDIR)/nn.c $(SRCDIR)/safetensors.c $(SRCDIR)/asrnet.c $(SRCDIR)/asrcfg.c $(SRCDIR)/tokdec.c $(TEST_LIBS) -o $(testdir)/asr_o2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_capsrc.c $(SRCDIR)/capsrc.c $(TEST_LIBS) -o $(TESTDIR)/capsrc_O2
 	$(CC) -O0 $(TEST_FLAGS) tests/test_call.c $(SRCDIR)/call.c $(SRCDIR)/room.c $(SRCDIR)/callproto.c $(SRCDIR)/cellcodec.c $(SRCDIR)/netenc.c $(SRCDIR)/netview.c $(TEST_LIBS) -o $(TESTDIR)/call_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_call.c $(SRCDIR)/call.c $(SRCDIR)/room.c $(SRCDIR)/callproto.c $(SRCDIR)/cellcodec.c $(SRCDIR)/netenc.c $(SRCDIR)/netview.c $(TEST_LIBS) -o $(TESTDIR)/call_O2

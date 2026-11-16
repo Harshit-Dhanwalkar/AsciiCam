@@ -13,10 +13,10 @@ float nn_dot(const float *a, const float *b, size_t n) {
   v4 s1 = {0, 0, 0, 0};
   size_t i = 0;
   for (; i + 8 <= n; i += 8) {
-    v4 a0 = *(const v4 *)(const void *)(a + i);
-    v4 b0 = *(const v4 *)(const void *)(b + i);
-    v4 a1 = *(const v4 *)(const void *)(a + i + 4);
-    v4 b1 = *(const v4 *)(const void *)(b + i + 4);
+    v4 a0 = *(const v4 *)(a + i);
+    v4 b0 = *(const v4 *)(b + i);
+    v4 a1 = *(const v4 *)(a + i + 4);
+    v4 b1 = *(const v4 *)(b + i + 4);
     s0 += a0 * b0;
     s1 += a1 * b1;
   }

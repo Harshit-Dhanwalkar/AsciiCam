@@ -644,7 +644,7 @@ static void conv1_out(an_stream_t *s, const float *c1v) {
 static void frame_in(an_stream_t *s, const float *x) {
   const an_model_t *m = s->m;
   size_t hid = (size_t)s->c->hid;
-  // MoonshineStreamingFrameCMVN
+  // Streaming Frame CMVN
   double mean = 0;
   for (int i = 0; i < AN_FRAME; i++) {
     mean += x[i];
@@ -660,14 +660,14 @@ static void frame_in(an_stream_t *s, const float *x) {
   }
 
   var /= AN_FRAME;
-  float inv = (float)(1.0 / nm_sqrt(var + 1e-6));
-  // MoonshineStreamingAsinhCompression
-  float k = (float)nm_exp((double)m->log_k);
+  float inv = (float)(1.0 / nl_sqrt(var + 1e-6));
+  // Streaming A sinh Compression
+  float k = (float)nl_exp((double)m->log_k);
   for (int i = 0; i < AN_FRAME; i++) {
-    cx[i] = (float)nm_asinh((double)(k * cx[i] * inv));
+    cx[i] = (float)nl_asinh((double)(k * cx[i] * inv));
   }
 
-  // silu(linear(frame))
+  // SiLu(linear(frame))
   float h[1024];
   if (hid > 1024) {
     return;

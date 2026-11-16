@@ -623,7 +623,7 @@ const float *st_f32(const st_t *st, const st_tensor_t *t) {
 
   if (t->dtype == ST_F32) {
     if (((uintptr_t)src & 3u) == 0) {
-      return (const float *)(const void *)src;
+      return (const float *)src;
     }
 
     if (!w->f32) {

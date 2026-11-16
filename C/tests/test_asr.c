@@ -100,8 +100,8 @@ static void quiet(int ms) {
 static void talk(int ms) {
   for (int i = 0; i < ms * 16; i++) {
     double t = (double)i / RATE;
-    double v = 6000.0 * nm_sin(6.2831853 * 180.0 * t) +
-               3000.0 * nm_sin(6.2831853 * 540.0 * t) + (rnd() % 2000 - 1000);
+    double v = 6000.0 * nl_sin(6.2831853 * 180.0 * t) +
+               3000.0 * nl_sin(6.2831853 * 540.0 * t) + (rnd() % 2000 - 1000);
     sig[sig_n++] = (int16_t)v;
   }
 }

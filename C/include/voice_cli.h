@@ -16,6 +16,7 @@
  *                           have been taught it
  */
 
+#include "asr.h"
 #include "speech.h"
 
 typedef struct voice_opts_s {
@@ -29,7 +30,7 @@ typedef struct voice_opts_s {
   int list;
 } voice_opts_t;
 
-// 1 if enroll, list or forget were asked for: they run and exit
+// Return 1 if enroll, list or forget were asked for: they run and exit
 int voice_is_command(const voice_opts_t *o);
 
 // Run that command, returns exit status

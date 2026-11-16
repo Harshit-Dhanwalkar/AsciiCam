@@ -97,7 +97,7 @@ int an_load(an_model_t *m, const char *path, const an_config_t *cfg, char *err,
 
 // Same from a parsed file; model borrows st and an_free closes it
 int an_load_st(an_model_t *m, const st_t *st, const an_config_t *cfg,
-               size_t err_size);
+               char *err, size_t err_size);
 void an_free(an_model_t *m);
 
 an_stream_t *an_stream_new(const an_model_t *m);

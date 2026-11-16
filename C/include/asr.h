@@ -22,13 +22,13 @@
 #include "speech.h"
 #include "tokdec.h"
 
-#define asr_block 320       // 20 ms of audio, unit of loudness gate
-#define asr_partial_ms 1000 // between partial lines
-#define asr_end_ms 600      // silence that ends an utterance
-#define asr_preroll 10      // blocks kept from before onset
-#define asr_min_loud 8      // loud blocks an utterance needs (160 ms)
-#define asr_max_ms 30000    // longest utterance, then it is cut
-#define asr_text 512
+#define ASR_BLOCK 320       // 20 ms of audio, unit of loudness gate
+#define ASR_PARTIAL_MS 1000 // between partial lines
+#define ASR_END_MS 600      // silence that ends an utterance
+#define ASR_PREROLL 10      // blocks kept from before onset
+#define ASR_MIN_LOUD 8      // loud blocks an utterance needs (160 ms)
+#define ASR_MAX_MS 30000    // longest utterance, then it is cut
+#define ASR_TEXT 512
 
 typedef void (*asr_text_fn)(void *user, int final, const char *text);
 
@@ -44,9 +44,9 @@ typedef struct {
   void *text_user;
 
   // gate
-  int16_t blk[asr_block];
+  int16_t blk[ASR_BLOCK];
   int nblk;
-  int16_t pre[asr_preroll][asr_block];
+  int16_t pre[ASR_PREROLL][ASR_BLOCK];
   int pre_n, pre_i;
   float floor; // noise level, mean absolute sample
   int run_on;  // consecutive loud blocks
@@ -55,7 +55,7 @@ typedef struct {
   int loud;        // loud blocks this utterance
   long blocks;     // blocks of this utterance
   long since_part; // blocks since last partial
-  char last[asr_text];
+  char last[ASR_TEXT];
 
   long last_frames, last_blocks; // last utterance: encoder frames, blocks
   int utterances;                // statistics
