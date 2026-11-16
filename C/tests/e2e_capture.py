@@ -16,6 +16,7 @@ import fcntl
 import json
 import os
 import pty
+import random
 import re
 import select
 import shutil
@@ -1331,6 +1332,67 @@ with open(wp, "wb") as fh:
 r = subprocess.run([BIN, "--voice-enroll", "alpha", wp], env=env, capture_output=True, timeout=30)
 check(os.path.exists(os.path.join(vdir, "xdg", "asciicam", "voice.tpl")), f"default path under XDG_CONFIG_HOME: {r.stderr!r}")
 shutil.rmtree(vdir, ignore_errors=True)
+
+# Sentences from a neural model (--listen --model)
+# Weights are tiny random model of unit tests, so words are noise: what is checked is that
+# eal binary loads weights + tokenizer.json + config.json, cuts audio into utterances and
+# prints one line per sentence
+try:
+    import numpy  # noqa: F401  (gen_moonshine_vectors needs it)
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
+    import gen_moonshine_vectors as gmv
+except Exception as exc:  # numpy missing: skip
+    gmv = None
+    print("skip: --model e2e needs numpy:", exc)
+if gmv is not None:
+    mdir = tempfile.mkdtemp(prefix="asciicam-model-")
+    with open(os.path.join(mdir, "model.safetensors"), "wb") as fh:
+        fh.write(gmv.safetensors_bytes(gmv.gen_weights(gmv.CFG)))
+    with open(os.path.join(mdir, "tokenizer.json"), "w") as fh:
+        fh.write('{"model":{"vocab":{"<pad>":0,"<s>":1,"</s>":2'
+                 + "".join(',"\u2581w%d":%d' % (i, i) for i in range(3, 50)) + "}}}")
+    cfg = {"encoder_config": {"hidden_size": 32, "intermediate_size": 64, "num_hidden_layers": 3,
+                             "num_attention_heads": 2, "sliding_windows": [[5, 4], [5, 0], [4, 3]]},
+           "vocab_size": 50, "hidden_size": 32, "intermediate_size": 48, "num_hidden_layers": 2,
+           "num_attention_heads": 2, "bos_token_id": 1, "eos_token_id": 2}
+    with open(os.path.join(mdir, "config.json"), "w") as fh:
+        json.dump(cfg, fh)
+    model = os.path.join(mdir, "model.safetensors")
+
+    def talk(ms):
+        out = []
+        for i in range(ms * 16):
+            t = i / 16000
+            out.append(int(6000 * math.sin(2 * math.pi * 180 * t) + 3000 * math.sin(2 * math.pi * 540 * t)
+                           + random.randint(-1000, 1000)))
+        return array.array("h", out)
+
+    random.seed(5)
+    sentences = quiet(800) + talk(2500) + quiet(1000) + talk(1500) + quiet(900)
+    wavp = os.path.join(mdir, "s.wav")
+    with open(wavp, "wb") as fh:
+        fh.write(wav_bytes(sentences))
+    r = subprocess.run([BIN, "--listen", wavp, "--model", model], capture_output=True, timeout=60)
+    lines = r.stdout.decode().splitlines()
+    finals = [x for x in lines if not x.startswith("~")]
+    check(r.returncode == 0 and len(finals) == 2 and all(x.startswith("w") for x in finals),
+          f"--model: two sentences from two utterances: {lines!r} {r.stderr!r}")
+    r = subprocess.run([BIN, "--listen", "-", "--model", model], input=wav_bytes(sentences),
+                       capture_output=True, timeout=60)
+    check(r.stdout.decode().splitlines() == lines, "--model: stdin gives the same lines")
+    # a wrong config is refused with the reason
+    with open(os.path.join(mdir, "config.json"), "w") as fh:
+        fh.write('{"hidden_size": 33}')
+    r = subprocess.run([BIN, "--listen", wavp, "--model", model], capture_output=True, timeout=30)
+    check(r.returncode == 1 and b"--model" in r.stderr and r.stdout == b"", f"bad config refused: {r.stderr!r}")
+    os.remove(os.path.join(mdir, "config.json"))  # no config: tiny shape, which these weights are not
+    r = subprocess.run([BIN, "--listen", wavp, "--model", model], capture_output=True, timeout=30)
+    check(r.returncode == 1 and b"wrong shape" in r.stderr, f"shape mismatch named: {r.stderr!r}")
+    r = subprocess.run([BIN, "--listen", wavp, "--model", os.path.join(mdir, "none.safetensors")],
+                       capture_output=True, timeout=30)
+    check(r.returncode == 1 and b"cannot open" in r.stderr, "missing weights")
+    shutil.rmtree(mdir, ignore_errors=True)
+
 
 print("e2e:", "FAILED" if failures else "all passed")
 sys.exit(1 if failures else 0)

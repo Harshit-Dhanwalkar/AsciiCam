@@ -10,6 +10,10 @@
  *   --voice-list            what is enrolled
  *   --voice-forget <w>      remove w
  *   --listen <a>            recognise audio from file or fifo a, as captions
+ *   --model <w>             with --listen: full sentences from a Moonshine
+ *                           model (weights file w, vocabulary --tokenizer <j>,
+ *                           default tokenizer.json beside w) instead of words
+ *                           have been taught it
  */
 
 #include "speech.h"
@@ -17,6 +21,8 @@
 typedef struct voice_opts_s {
   const char *voice;
   const char *listen;
+  const char *model;
+  const char *tokenizer;
   const char *enroll_word;
   const char *enroll_src;
   const char *forget;
@@ -33,6 +39,16 @@ int voice_command(const voice_opts_t *o, const char *xdg, const char *home);
 // Return 0 on success, else a message went to stderr
 int voice_load(sp_t *sp, const voice_opts_t *o, const char *xdg,
                const char *home);
+
+// Get recogniser behind --listen ready: model (into a, wired to sp) or enrolled
+// words (into sp)
+// Return 0 on success, else a message went to stderr
+int voice_prepare(sp_t *sp, asr_t *a, const voice_opts_t *o, const char *xdg,
+                  const char *home);
+
+// Where recognised text goes, whichever recogniser it is
+void voice_set_text(sp_t *sp, asr_t *a, const voice_opts_t *o, sp_text_fn fn,
+                    void *user);
 
 // --listen without a call: lines on stdout ("~" starts a partial one), until
 // a file ends or forever for a fifo

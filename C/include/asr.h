@@ -1,0 +1,89 @@
+#ifndef asr_h
+#define asr_h
+
+/*
+ * asr - live recognition of sentences with a neural model, no dependencies
+ *
+ * ast.h is network; this is everything around it that makes it a live
+ * captioner: it cuts incoming audio into utterances by loudness, feeds model as
+ * audio arrives (encoder keeps up with speaker), and while someone is talking
+ * re-reads what model makes of it so far every asr_partial_ms, telling caller a
+ * partial line each time it changes. when speaker pauses utterance is finished
+ * and its text goes out as final
+ *
+ *   audio -> loudness gate -> an_feed ... -> partial (every second)
+ *                                         -> pause -> flush -> final
+ *
+ * models are files: weights (model.safetensors) and vocabulary (tokenizer.json)
+ * of model
+ */
+
+#include "asrnet.h"
+#include "speech.h"
+#include "tokdec.h"
+
+#define asr_block 320       // 20 ms of audio, unit of loudness gate
+#define asr_partial_ms 1000 // between partial lines
+#define asr_end_ms 600      // silence that ends an utterance
+#define asr_preroll 10      // blocks kept from before onset
+#define asr_min_loud 8      // loud blocks an utterance needs (160 ms)
+#define asr_max_ms 30000    // longest utterance, then it is cut
+#define asr_text 512
+
+typedef void (*asr_text_fn)(void *user, int final, const char *text);
+
+typedef struct {
+  an_model_t own_model; // when asr_open loaded them
+  tokdec_t own_tok;
+  int owns;
+  const an_model_t *model;
+  const tokdec_t *tok;
+  an_stream_t *stream;
+
+  asr_text_fn text;
+  void *text_user;
+
+  // gate
+  int16_t blk[asr_block];
+  int nblk;
+  int16_t pre[asr_preroll][asr_block];
+  int pre_n, pre_i;
+  float floor; // noise level, mean absolute sample
+  int run_on;  // consecutive loud blocks
+  int speaking;
+  int quiet;       // quiet blocks since last loud one
+  int loud;        // loud blocks this utterance
+  long blocks;     // blocks of this utterance
+  long since_part; // blocks since last partial
+  char last[asr_text];
+
+  long last_frames, last_blocks; // last utterance: encoder frames, blocks
+  int utterances;                // statistics
+  int partials;
+} asr_t;
+
+void asr_init(asr_t *a);
+
+// Load model weights and vocabulary. if tokenizer is null it is tokenizer.json
+// next to weights
+// Return 0 on success, -1 with a reason in err
+int asr_open(asr_t *a, const char *model_path, const char *tokenizer_path,
+             char *err, size_t err_size);
+
+// Use a model already loaded (tests); a keeps pointers to them, not a copy
+int asr_use(asr_t *a, const an_model_t *model, const tokdec_t *tok);
+
+void asr_close(asr_t *a);
+
+void asr_set_text(asr_t *a, asr_text_fn fn, void *user);
+
+// 16 khz mono samples
+void asr_feed(asr_t *a, const int16_t *pcm, size_t n);
+
+// Audio ended: finish utterance in progress
+void asr_flush(asr_t *a);
+
+// Route a speech.h stream into a (sp_on_pcm)
+void asr_attach(asr_t *a, sp_t *sp);
+
+#endif

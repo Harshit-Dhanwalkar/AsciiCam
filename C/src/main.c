@@ -221,6 +221,9 @@ static void print_usage(const char *prog) {
       "                (\"-\" = stdin); say it a few times, pause 0.3 s apart\n"
       "  --voice-list / --voice-forget <w>   show / remove what is enrolled  \n"
       "  --voice <f>   voice file (default ~/.config/asciicam/voice.tpl)     \n"
+      "  --model <w>   with --listen: full sentences from a model            \n"
+      "                (weights w; vocabulary --tokenizer <j>, default       \n"
+      "                tokenizer.json beside w)                              \n"
       "  --speed <x>   playback speed for --play (default 1, e.g. 0.5, 2)    \n"
       "  --loop        repeat --play until quit                              \n"
       "  --curve <s>   tone curve: points \"0,0 64,40 255,255\", a preset    \n"
@@ -1398,7 +1401,10 @@ int main(int argc, char *argv[]) {
     int is_enroll = nl_strcmp(argv[i], "--voice-enroll") == 0;
     int is_forget = nl_strcmp(argv[i], "--voice-forget") == 0;
     int is_list = nl_strcmp(argv[i], "--voice-list") == 0;
-    if (!is_listen && !is_voice && !is_enroll && !is_forget && !is_list) {
+    int is_model = nl_strcmp(argv[i], "--model") == 0;
+    int is_tok = nl_strcmp(argv[i], "--tokenizer") == 0;
+    if (!is_listen && !is_voice && !is_enroll && !is_forget && !is_list &&
+        !is_model && !is_tok) {
       continue;
     }
 
@@ -1412,6 +1418,10 @@ int main(int argc, char *argv[]) {
 
     if (is_listen) {
       voice.listen = argv[i + 1];
+    } else if (is_model) {
+      voice.model = argv[i + 1];
+    } else if (is_tok) {
+      voice.tokenizer = argv[i + 1];
     } else if (is_voice) {
       voice.voice = argv[i + 1];
     } else if (is_enroll) {

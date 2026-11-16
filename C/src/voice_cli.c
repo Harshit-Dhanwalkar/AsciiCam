@@ -125,7 +125,7 @@ int voice_command(const voice_opts_t *o, const char *xdg, const char *home) {
 
 static void out_line(void *user, int final, const char *text) {
   (void)user;
-  char line[SP_WORD + 4];
+  char line[ASR_TEXT + 4];
   int n = nl_snprintf(line, sizeof(line), "%s%s\n", final ? "" : "~", text);
   if (n > 0) {
     ssize_t w = write(1, line, (size_t)n);
@@ -133,29 +133,65 @@ static void out_line(void *user, int final, const char *text) {
   }
 }
 
+int voice_prepare(sp_t *sp, asr_t *a, const voice_opts_t *o, const char *xdg,
+                  const char *home) {
+  if (o->model) {
+    char err[128];
+    if (asr_open(a, o->model, o->tokenizer, err, sizeof(err)) != 0) {
+      fprintf(stderr, "--model: %s: %s\n", o->model, err);
+
+      return -1;
+    }
+
+    asr_attach(a, sp);
+
+    return 0;
+  }
+
+  if (voice_load(sp, o, xdg, home) != 0) {
+    return -1;
+  }
+
+  if (sp->ntpl == 0) {
+    fprintf(stderr, "--listen: nothing enrolled yet, teach it some words with "
+                    "--voice-enroll <word> <audio file>, or use --model for "
+                    "full sentences\n");
+
+    return -1;
+  }
+
+  return 0;
+}
+
+void voice_set_text(sp_t *sp, asr_t *a, const voice_opts_t *o, sp_text_fn fn,
+                    void *user) {
+  if (o->model) {
+    asr_set_text(a, fn, user);
+  } else {
+    sp_set_text(sp, fn, user);
+  }
+}
+
 int voice_listen_main(const voice_opts_t *o, const char *xdg,
                       const char *home) {
   static sp_t sp;
+  static asr_t asr;
   static sp_src_t src;
   sp_init(&sp);
-  if (voice_load(&sp, o, xdg, home) != 0) {
-    return 1;
-  }
 
-  if (sp.ntpl == 0) {
-    fprintf(stderr, "--listen: nothing enrolled yet, teach it some words with "
-                    "--voice-enroll <word> <audio file>\n");
-
+  asr_init(&asr);
+  if (voice_prepare(&sp, &asr, o, xdg, home) != 0) {
     return 1;
   }
 
   if (sp_src_open(&src, o->listen) != 0) {
     fprintf(stderr, "--listen: cannot open %s\n", o->listen);
+    asr_close(&asr);
 
     return 1;
   }
 
-  sp_set_text(&sp, out_line, NULL);
+  voice_set_text(&sp, &asr, o, out_line, NULL);
   while (!src.eof) {
     long n = sp_src_poll(&src, &sp);
     if (!src.st.ok) {
@@ -170,8 +206,10 @@ int voice_listen_main(const voice_opts_t *o, const char *xdg,
     }
   }
 
+  sp_flush(&sp);
   sp_src_close(&src);
   sp_free(&sp);
+  asr_close(&asr);
 
   return 0;
 }

@@ -53,6 +53,9 @@ typedef void (*sp_text_fn)(void *user, int final, const char *text);
 // A finished utterance (features, mean normalised) for sp_on_utterance
 typedef void (*sp_utt_fn)(void *user, const float *f, int nfr);
 
+// Samples as they come, and (NULL, 0) when the audio ends: see sp_on_pcm
+typedef void (*sp_pcm_fn)(void *user, const int16_t *pcm, size_t n);
+
 typedef struct {
   // Template store
   sp_tpl_t tpl[SP_MAX_TPL];
@@ -88,6 +91,8 @@ typedef struct {
 
   sp_text_fn text;
   void *text_user;
+  sp_pcm_fn pcm_fn; // when set, samples go here and nothing is recognised
+  void *pcm_user;
   sp_utt_fn utt; // when set, utterances go here instead of being recognised
   void *utt_user;
 
@@ -105,6 +110,11 @@ void sp_set_text(sp_t *s, sp_text_fn fn, void *user);
 // Hand utterance features to fn and skip recognition (used to enrol)
 void sp_on_utterance(sp_t *s, sp_utt_fn fn, void *user);
 
+// Take over 16 kHz samples (for a recogniser of sentences): sp_feed hands them
+// to fn instead of its own recognition, and sp_flush calls fn(user, NULL, 0)
+// Return NULL fn goes back to templates
+void sp_on_pcm(sp_t *s, sp_pcm_fn fn, void *user);
+
 // 16 kHz mono samples
 void sp_feed(sp_t *s, const int16_t *pcm, size_t n);
 
@@ -116,8 +126,8 @@ void sp_reset(sp_t *s);
 
 /* Templates */
 
-// Add a template; oldest of this word goes when it already has
-// SP_PER_WORD. Returns 0, or -1 for an empty word, nfr out of range or no room
+// Add a template; oldest of this word goes when it already has SP_PER_WORD
+// Returns 0, or -1 for an empty word, nfr out of range or no room
 int sp_add(sp_t *s, const char *word, const float *f, int nfr);
 
 int sp_words(const sp_t *s); // distinct words

@@ -466,6 +466,11 @@ void sp_set_text(sp_t *s, sp_text_fn fn, void *user) {
   s->text_user = user;
 }
 
+void sp_on_pcm(sp_t *s, sp_pcm_fn fn, void *user) {
+  s->pcm_fn = fn;
+  s->pcm_user = user;
+}
+
 void sp_on_utterance(sp_t *s, sp_utt_fn fn, void *user) {
   s->utt = fn;
   s->utt_user = user;
@@ -723,6 +728,11 @@ static void on_frame(sp_t *s, const float *x) {
 }
 
 void sp_feed(sp_t *s, const int16_t *pcm, size_t n) {
+  if (s->pcm_fn) { // samples go on to someone else, see sp_on_pcm
+    s->pcm_fn(s->pcm_user, pcm, n);
+    return;
+  }
+
   for (size_t i = 0; i < n; i++) {
     s->pcm[s->npcm++] = (float)pcm[i];
     if (s->npcm == SP_FRAME) {
@@ -737,6 +747,11 @@ void sp_feed(sp_t *s, const int16_t *pcm, size_t n) {
 }
 
 void sp_flush(sp_t *s) {
+  if (s->pcm_fn) {
+    s->pcm_fn(s->pcm_user, NULL, 0);
+    return;
+  }
+
   if (s->speaking) {
     int keep = s->quiet < SP_KEEP_TAIL ? s->quiet : SP_KEEP_TAIL;
     end_utterance(s, s->quiet - keep);
