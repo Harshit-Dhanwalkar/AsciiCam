@@ -1,6 +1,10 @@
-asciicam (0.1.0-1) unstable; urgency=medium
+asciicam (0.2.0-1) unstable; urgency=medium
 
-  * Initial packaging.
+  * New upstream release.
+  * Add speaker-dependent speech recognition: --listen reads audio from a
+    file, fifo or stdin and prints recognised words and phrases as lines,
+    or as live captions during a --call.
+  * Add --voice-enroll, --voice-list, --voice-forget and --voice to teach
+    and manage the words it knows.
 
- -- Harshit Dhanwalkar <harshitpd1729@gmail.com>  Thu, 14 Nov 2026 12:00:00 +0530
-
+ -- Harshit Dhanwalkar <harshitpd1729@gmail.com>  Mon, 16 Nov 2026 14:30:00 +0530
