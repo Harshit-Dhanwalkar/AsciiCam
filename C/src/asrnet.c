@@ -15,13 +15,15 @@
 
 #include <stdint.h>
 
+#ifdef __LINUX_NOLIBC__
 void *memmove(void *dest, const void *src, size_t n);
+#endif
 
 struct an_stream {
   const an_model_t *m;
   const an_config_t *c;
 
-  // frontend
+  // Frontend
   float frame[AN_FRAME];
   int nframe;
   long n_h0; // 5 ms frames done
@@ -31,20 +33,20 @@ struct an_stream {
   float *c1; // last 5 conv1 outputs after silu: 5 * 2hid
   int flushed;
 
-  // encoder layers
+  // Encoder layers
   struct {
     float *x, *k, *v; // AN_RING rows of hid
     long nin, nout;
   } L[AN_MAX_LAYERS];
 
-  // encoder output and decoder's view of it
+  // Encoder output and decoder's view of it
   float *enc; // cap * hid
   long nenc;
   long cap;
   float *ck[AN_MAX_LAYERS]; // cap * dhid
   float *cv[AN_MAX_LAYERS];
 
-  // scratch
+  // Scratch
   float *t1, *t2, *t3, *t4, *t5; // ffn sized
   float *scores;
 };
@@ -275,7 +277,7 @@ int an_load_st(an_model_t *m, const st_t *st, const an_config_t *cfg, char *err,
   m->embed = want(m, "decoder.embed_tokens.weight", (size_t)c->vocab, dhid, 0,
                   err, err_size, &bad);
 
-  // position table is added to encoder output; its length is whatever file has,
+  // Position table is added to encoder output; its length is whatever file has,
   // at least as long as a stream can get
   char pn[ST_NAME];
   nl_snprintf(pn, sizeof(pn), "model.decoder.pos_emb.weight");
