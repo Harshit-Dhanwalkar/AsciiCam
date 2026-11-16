@@ -21,6 +21,7 @@
 #include "thread_sharing.h"
 #include "timing.h"
 #include "vcam.h"
+#include "voice_cli.h"
 
 // Defaults
 #define DEFAULT_ASCII_WIDTH 80
@@ -214,7 +215,7 @@ static void print_usage(const char *prog) {
       "  --listen <a>  live speech recognition: audio from file/fifo a       \n"
       "                (16 kHz mono 16 bit raw, or WAV); with --call it      \n"
       "                becomes captions, alone it prints lines               \n"
-      "                "(\"~\" = partial). It knows only words you taught it \n"
+      "                (\"~\" = partial). It knows only words you taught it  \n"
       "                in your voice:                                        \n"
       "  --voice-enroll <w> <a>  teach word or phrase w from audio file a    \n"
       "                (\"-\" = stdin); say it a few times, pause 0.3 s apart\n"
