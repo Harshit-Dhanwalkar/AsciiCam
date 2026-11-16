@@ -9,6 +9,15 @@
 
 #include "nolibc.h"
 
+#if !defined(__LINUX_NOLIBC__)
+#if defined(PLATFORM_WINDOWS)
+#include <direct.h>
+#define mkdir(p, m) _mkdir(p)
+#else
+#include <sys/stat.h>
+#endif
+#endif
+
 #include "speech.h"
 
 #define SP_O_NONBLOCK 04000
