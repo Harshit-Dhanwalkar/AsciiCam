@@ -639,6 +639,42 @@ captions in two rows above the chat (Ctrl-T hides or shows them; they appear on
 their own when somebody else sends captions). A room built before this feature
 drops a client that sends captions, so run `--room` from the same version.
 
+#### Speech recognition: `--listen`
+
+asciicam can also do the listening, with no libraries and no model file. It is a
+small **speaker-dependent** recogniser: it knows the words and phrases you teach
+it, in your voice (think "mute", "next slide", "good morning"), not free dictation,
+which needs a neural model far bigger than this program. Pipeline: 16 kHz audio,
+25 ms frames every 10 ms, mel filterbank and cepstra (MFCC), a voice activity
+detector with an adaptive noise floor, then dynamic time warping against your
+recorded templates. A word is accepted when it is close to one of its templates
+(`thresh`) and clearly closer than any other word (`margin`).
+
+```sh
+# teach it: record each word 2-3 times (WAV or raw 16 kHz mono s16le)
+arecord -q -d 2 -t wav -f S16_LE -r 16000 -c 1 yes.wav
+asciicam --voice-enroll yes yes.wav           # up to 5 templates per word
+arecord -q -d 2 -t wav -f S16_LE -r 16000 -c 1 - | asciicam --voice-enroll "good morning" -
+asciicam --voice-list                         # what it knows
+asciicam --voice-forget yes
+
+# listen: lines on stdout ("~word" is a guess, "word" final)
+arecord -q -t wav -f S16_LE -r 16000 -c 1 > /tmp/mic & asciicam --listen /tmp/mic
+# or as the captions of a call
+asciicam --call 7100 --name Alice --listen /tmp/mic
+```
+
+Phrases are enrolled as one utterance: say them without a pause over 0.3 s. Templates
+are in `$XDG_CONFIG_HOME/asciicam/voice.tpl` (or `~/.config/asciicam/voice.tpl`;
+`--voice <file>` picks another). Enrol with the same microphone you listen with and
+use 16 kHz capture (`arecord -r 16000`): a different rate is converted with a crude
+filter, and a 8 kHz recording lacks the high frequencies the templates have. Words
+it does not know, and other people's voices, are not output. A final shows about
+0.3 s after you stop speaking; `--listen` without `--call` prints to stdout, so it
+also feeds `--captions`. Tests: `tests/test_speech.c` (synthesised vowel-like words,
+spoken slower, faster and at another pitch, plus noise, clicks and silence) and
+the speech part of `tests/e2e_capture.py`. Code: `src/speech.c`, `src/voice_cli.c`.
+
 Like `--serve`, the relay has **no password and no encryption** and listens on
 loopback unless given an address. Put it behind ssh, which gives both. For a room
 on a server, `docker-compose.yml` builds a container with the relay and an sshd

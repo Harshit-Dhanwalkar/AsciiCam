@@ -893,7 +893,7 @@ if REAL and os.access(REAL, os.X_OK):
         while time.monotonic() < end:
             try:
                 d = cs.recv(65536)
-            except socket.timeout:
+            except TimeoutError:
                 continue
             if not d:
                 break
@@ -1158,6 +1158,179 @@ check(b"pt 2/3" in out[marks[1]:], "click in the graph adds a point and selects 
 check(b"frame: 40x20" in out or last_frame(out) in (None, (40, 20)), "the frame was not dragged by clicks on the panel")
 shutil.rmtree(cdir, ignore_errors=True)
 
+# ---- Speech recognition: --voice-enroll, --voice-list, --listen, --voice-forget
+# Speech is synthesised (a buzz shaped by two moving formants), so this needs no audio files
+# and no sound card
+import array
+import math
+
+_SIN = [math.sin(2 * math.pi * i / 8192) for i in range(8192)]
+
+
+def synth(segs, tempo=1.0, f0=120.0):
+    out = array.array("h")
+    n = 0
+    for ms, f1, f2 in segs:
+        ln = int(ms * tempo * 16)
+        for i in range(ln):
+            t = (n + i) / 16000.0
+            v = 0.0
+            h = 1
+            while h * f0 < 4500:
+                f = h * f0
+                w1 = 0.12 * f1 + 60
+                w2 = 0.12 * f2 + 60
+                a = 1 / (1 + ((f - f1) / w1) ** 2) + 0.7 / (1 + ((f - f2) / w2) ** 2)
+                ph = f * t
+                v += a * _SIN[int((ph - int(ph)) * 8192) & 8191]
+                h += 1
+            env = min(1.0, i / 80, (ln - i) / 80)
+            out.append(int(v * env * 1500))
+        n += ln
+    return out
+
+
+def quiet(ms):
+    return array.array("h", [0] * (ms * 16))
+
+
+def wav_bytes(samples):
+    data = samples.tobytes()
+    return (b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVEfmt " +
+            struct.pack("<IHHIIHH", 16, 1, 1, 16000, 32000, 2, 16) +
+            b"data" + struct.pack("<I", len(data)) + data)
+
+
+VW = {
+    "alpha": [(120, 300, 2200), (150, 700, 1200), (120, 400, 800)],
+    "bravo": [(150, 600, 1000), (120, 300, 2500), (150, 500, 1500)],
+}
+VX = [(160, 900, 1700), (160, 250, 3200), (140, 750, 2400)]  # never taught
+
+vdir = tempfile.mkdtemp(prefix="asciicam-voice-")
+vfile = os.path.join(vdir, "sub", "voice.tpl")
+
+
+def vrun(args, stdin=None):
+    return subprocess.run([BIN, "--voice", vfile] + args, input=stdin,
+                          capture_output=True, timeout=60)
+
+
+r = vrun(["--voice-list"])
+check(r.returncode == 0 and b"0 words" in r.stderr, "an empty voice file lists nothing")
+
+for name, segs in VW.items():
+    for tempo, f0 in ((1.0, 120), (0.85, 105), (1.2, 135)):
+        wp = os.path.join(vdir, f"{name}.wav")
+        with open(wp, "wb") as fh:
+            fh.write(wav_bytes(quiet(300) + synth(segs, tempo, f0) + quiet(500)))
+        r = vrun(["--voice-enroll", name, wp])
+        check(r.returncode == 0 and b"1 new" in r.stderr, f"enrol {name} {tempo}: {r.stderr!r}")
+
+check(os.path.exists(vfile), "the voice file was created, with its directories")
+r = vrun(["--voice-list"])
+check(b"2 words, 6 templates" in r.stderr and b"alpha" in r.stderr and b"bravo" in r.stderr,
+      f"list shows both words: {r.stderr!r}")
+
+# Enrolling from stdin ("-"), a raw PCM stream
+r = vrun(["--voice-enroll", "alpha", "-"], stdin=(quiet(300) + synth(VW["alpha"], 0.95, 125) + quiet(500)).tobytes())
+check(r.returncode == 0 and b"4 of 5" in r.stderr, f"enrol from stdin: {r.stderr!r}")
+
+# A sentence: known, unknown, known, known. Said at other speeds and pitch
+said = (quiet(600) + synth(VW["bravo"], 0.92, 112) + quiet(700) + synth(VX, 1.0, 120) +
+        quiet(700) + synth(VW["alpha"], 1.1, 128) + quiet(700) + synth(VW["bravo"], 1.0, 118) + quiet(600))
+pcm_path = os.path.join(vdir, "said.pcm")
+with open(pcm_path, "wb") as fh:
+    fh.write(said.tobytes())
+wav_path = os.path.join(vdir, "said.wav")
+with open(wav_path, "wb") as fh:
+    fh.write(wav_bytes(said))
+
+for label, path in (("raw pcm", pcm_path), ("wav", wav_path)):
+    r = vrun(["--listen", path])
+    lines = r.stdout.decode().split()
+    finals = [x for x in lines if not x.startswith("~")]
+    check(r.returncode == 0, f"--listen {label} ends at the end of the file")
+    check(finals == ["bravo", "alpha", "bravo"],
+          f"{label}: the three taught words in order, the unknown one skipped ({lines})")
+    check(any(x.startswith("~") for x in lines), f"{label}: hypotheses come before finals")
+
+# The same from a pipe on stdin
+r = vrun(["--listen", "-"], stdin=said.tobytes())
+check(r.stdout.decode().split().count("bravo") >= 2, "--listen - reads stdin")
+
+# A live fifo, written at about real time, is followed and gives lines as it goes
+fifo = os.path.join(vdir, "mic.fifo")
+os.mkfifo(fifo)
+proc = subprocess.Popen([BIN, "--voice", vfile, "--listen", fifo], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+time.sleep(0.3)
+fd = os.open(fifo, os.O_WRONLY)
+data = said.tobytes()
+got = []
+rd_done = threading.Event()
+
+
+def reader():
+    for ln in proc.stdout:
+        got.append((time.time(), ln.decode().strip()))
+    rd_done.set()
+
+
+threading.Thread(target=reader, daemon=True).start()
+t_start = time.time()
+chunk = 3200
+for i in range(0, len(data), chunk):
+    os.write(fd, data[i:i + chunk])
+    time.sleep(0.05)  # twice real time: the recogniser does not care
+time.sleep(1.0)
+check(proc.poll() is None, "--listen on a fifo keeps running when the writer pauses")
+os.close(fd)
+time.sleep(0.4)
+check(proc.poll() is None, "and when the writer closes it")
+proc.terminate()
+proc.wait(timeout=5)
+f_live = [t for _, t in got if not t.startswith("~")]
+check(f_live == ["bravo", "alpha", "bravo"], f"live fifo gives the words: {f_live}")
+
+# Not usable: nothing enrolled, a bad file, a bad format
+r = subprocess.run([BIN, "--voice", os.path.join(vdir, "none.tpl"), "--listen", pcm_path], capture_output=True, timeout=30)
+check(r.returncode == 1 and b"nothing enrolled" in r.stderr, f"nothing enrolled is said: {r.stderr!r}")
+r = vrun(["--listen", os.path.join(vdir, "absent.pcm")])
+check(r.returncode == 1 and b"cannot open" in r.stderr, "missing audio file is an error")
+bad8 = wav_bytes(quiet(200)).replace(struct.pack("<HH", 2, 16), struct.pack("<HH", 1, 8))
+with open(os.path.join(vdir, "bad8.wav"), "wb") as fh:
+    fh.write(bad8)
+r = vrun(["--listen", os.path.join(vdir, "bad8.wav")])
+check(r.returncode == 1 and b"16 bit" in r.stderr, f"8 bit audio is refused: {r.stderr!r}")
+r = vrun(["--voice-enroll", "x", os.path.join(vdir, "bad8.wav")])
+check(r.returncode == 1, "and so is enrolling it")
+silent = os.path.join(vdir, "silent.wav")
+with open(silent, "wb") as fh:
+    fh.write(wav_bytes(quiet(2000)))
+r = vrun(["--voice-enroll", "x", silent])
+check(r.returncode == 1 and b"no speech" in r.stderr, "enrolling silence says so")
+r = subprocess.run([BIN, "--voice-enroll", "x"], capture_output=True, timeout=10)
+check(r.returncode == 2 and b"needs" in r.stderr, "--voice-enroll needs two values")
+r = subprocess.run([BIN, "--listen"], capture_output=True, timeout=10)
+check(r.returncode == 2, "--listen needs a value")
+
+# Forget
+r = vrun(["--voice-forget", "alpha"])
+check(r.returncode == 0 and b"forgot" in r.stderr, "forget alpha")
+r = vrun(["--voice-forget", "alpha"])
+check(r.returncode == 1 and b"not enrolled" in r.stderr, "forgetting twice is reported")
+r = vrun(["--listen", pcm_path])
+check(r.stdout.decode().split().count("alpha") == 0 and "bravo" in r.stdout.decode(),
+      "a forgotten word is no longer heard")
+
+# Default location comes from XDG_CONFIG_HOME
+env = dict(os.environ, XDG_CONFIG_HOME=os.path.join(vdir, "xdg"))
+wp = os.path.join(vdir, "alpha.wav")
+with open(wp, "wb") as fh:
+    fh.write(wav_bytes(quiet(300) + synth(VW["alpha"]) + quiet(500)))
+r = subprocess.run([BIN, "--voice-enroll", "alpha", wp], env=env, capture_output=True, timeout=30)
+check(os.path.exists(os.path.join(vdir, "xdg", "asciicam", "voice.tpl")), f"default path under XDG_CONFIG_HOME: {r.stderr!r}")
+shutil.rmtree(vdir, ignore_errors=True)
 
 print("e2e:", "FAILED" if failures else "all passed")
 sys.exit(1 if failures else 0)
