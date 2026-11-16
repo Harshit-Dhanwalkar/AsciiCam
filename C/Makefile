@@ -148,6 +148,8 @@ CORE_SRCS := $(SRCDIR)/app_paths.c \
              $(SRCDIR)/call.c \
              $(SRCDIR)/call_ui.c \
              $(SRCDIR)/capsrc.c \
+             $(SRCDIR)/speech.c \
+             $(SRCDIR)/voice_cli.c \
              $(SRCDIR)/recorder.c \
              $(SRCDIR)/vcam.c
 
@@ -314,6 +316,8 @@ test: all
 	$(CC) -O2 $(TEST_FLAGS) tests/test_netview.c $(SRCDIR)/netview.c $(TEST_LIBS) -o $(TESTDIR)/netview_O2
 	$(CC) -O0 $(TEST_FLAGS) tests/test_cellcodec.c $(SRCDIR)/cellcodec.c $(SRCDIR)/netenc.c $(TEST_LIBS) -o $(TESTDIR)/cellcodec_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_cellcodec.c $(SRCDIR)/cellcodec.c $(SRCDIR)/netenc.c $(TEST_LIBS) -o $(TESTDIR)/cellcodec_O2
+	$(CC) -O0 $(TEST_FLAGS) tests/test_speech.c $(SRCDIR)/speech.c $(TEST_LIBS) -o $(TESTDIR)/speech_O0
+	$(CC) -O2 $(TEST_FLAGS) tests/test_speech.c $(SRCDIR)/speech.c $(TEST_LIBS) -o $(TESTDIR)/speech_O2
 	$(CC) -O0 $(TEST_FLAGS) tests/test_capsrc.c $(SRCDIR)/capsrc.c $(TEST_LIBS) -o $(TESTDIR)/capsrc_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_capsrc.c $(SRCDIR)/capsrc.c $(TEST_LIBS) -o $(TESTDIR)/capsrc_O2
 	$(CC) -O0 $(TEST_FLAGS) tests/test_call.c $(SRCDIR)/call.c $(SRCDIR)/room.c $(SRCDIR)/callproto.c $(SRCDIR)/cellcodec.c $(SRCDIR)/netenc.c $(SRCDIR)/netview.c $(TEST_LIBS) -o $(TESTDIR)/call_O0
@@ -376,6 +380,8 @@ test: all
 	$(TESTDIR)/netview_O2
 	$(TESTDIR)/cellcodec_O0
 	$(TESTDIR)/cellcodec_O2
+	$(TESTDIR)/speech_O0
+	$(TESTDIR)/speech_O2
 	$(TESTDIR)/capsrc_O0
 	$(TESTDIR)/capsrc_O2
 	$(TESTDIR)/call_O0

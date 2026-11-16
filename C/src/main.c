@@ -21,6 +21,7 @@
 #include "thread_sharing.h"
 #include "timing.h"
 #include "vcam.h"
+#include "voice_cli.h"
 
 // Defaults
 #define DEFAULT_ASCII_WIDTH 80
@@ -211,6 +212,15 @@ static void print_usage(const char *prog) {
       "  --captions <f> show caption lines from file/fifo f over the picture;\n"
       "                \"~\" starts a partial line; key y turns them on/off; \n"
       "                with --call they are sent to others (Ctrl-T hides)    \n"
+      "  --listen <a>  live speech recognition: audio from file/fifo a       \n"
+      "                (16 kHz mono 16 bit raw, or WAV); with --call it      \n"
+      "                becomes captions, alone it prints lines               \n"
+      "                (\"~\" = partial). It knows only words you taught it  \n"
+      "                in your voice:                                        \n"
+      "  --voice-enroll <w> <a>  teach word or phrase w from audio file a    \n"
+      "                (\"-\" = stdin); say it a few times, pause 0.3 s apart\n"
+      "  --voice-list / --voice-forget <w>   show / remove what is enrolled  \n"
+      "  --voice <f>   voice file (default ~/.config/asciicam/voice.tpl)     \n"
       "  --speed <x>   playback speed for --play (default 1, e.g. 0.5, 2)    \n"
       "  --loop        repeat --play until quit                              \n"
       "  --curve <s>   tone curve: points \"0,0 64,40 255,255\", a preset    \n"
@@ -1379,6 +1389,59 @@ int main(int argc, char *argv[]) {
     i--;
   }
 
+  // Speech recognition: --listen <audio>, --voice <file>, --voice-enroll <word>
+  // <audio>, --voice-list, --voice-forget <word>
+  voice_opts_t voice = {0};
+  for (int i = 1; i < argc; i++) {
+    int is_listen = nl_strcmp(argv[i], "--listen") == 0;
+    int is_voice = nl_strcmp(argv[i], "--voice") == 0;
+    int is_enroll = nl_strcmp(argv[i], "--voice-enroll") == 0;
+    int is_forget = nl_strcmp(argv[i], "--voice-forget") == 0;
+    int is_list = nl_strcmp(argv[i], "--voice-list") == 0;
+    if (!is_listen && !is_voice && !is_enroll && !is_forget && !is_list) {
+      continue;
+    }
+
+    int need = is_list ? 0 : is_enroll ? 2 : 1;
+    if (i + need >= argc) {
+      fprintf(stderr, "%s needs %s\n", argv[i],
+              is_enroll ? "a word and an audio file" : "a value");
+
+      return 2;
+    }
+
+    if (is_listen) {
+      voice.listen = argv[i + 1];
+    } else if (is_voice) {
+      voice.voice = argv[i + 1];
+    } else if (is_enroll) {
+      voice.enroll_word = argv[i + 1];
+      voice.enroll_src = argv[i + 2];
+    } else if (is_forget) {
+      voice.forget = argv[i + 1];
+    } else {
+      voice.list = 1;
+    }
+
+    for (int k = i; k + need + 1 < argc; k++) {
+      argv[k] = argv[k + need + 1];
+    }
+
+    argc -= need + 1;
+    argv[argc] = NULL;
+    i--;
+  }
+
+  if (voice_is_command(&voice)) {
+    return voice_command(&voice, app_getenv(envp_base, "XDG_CONFIG_HOME"),
+                         app_getenv(envp_base, "HOME"));
+  }
+
+  if (voice.listen && !call_addr) {
+    return voice_listen_main(&voice, app_getenv(envp_base, "XDG_CONFIG_HOME"),
+                             app_getenv(envp_base, "HOME"));
+  }
+
   if ((room_addr || call_addr) && (serve_addr || watch_addr)) {
     fprintf(stderr, "--room and --call do not go together with --serve and "
                     "--watch\n");
@@ -2023,6 +2086,8 @@ int main(int argc, char *argv[]) {
     int tile_h = ascii_h == DEFAULT_ASCII_HEIGHT ? 20 : ascii_h;
 
     call_ui_set_captions(call_captions);
+    call_ui_set_listen(&voice, app_getenv(envp_base, "XDG_CONFIG_HOME"),
+                       app_getenv(envp_base, "HOME"));
 
     return call_main(call_addr, call_name, device, cap_w, cap_h, fps, tile_w,
                      tile_h, &opts);

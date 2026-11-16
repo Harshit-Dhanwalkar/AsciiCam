@@ -1,0 +1,177 @@
+/*
+ * src/voice_cli.c - enrolling, listing and listening
+ */
+
+#include "platform.h"
+
+#include "nolibc.h"
+
+#include "voice_cli.h"
+
+static int voice_path(char *out, size_t size, const voice_opts_t *o,
+                      const char *xdg, const char *home) {
+  if (o->voice) {
+    if (nl_strlen(o->voice) + 1 > size) {
+      return -1;
+    }
+
+    nl_strncpy_safe(out, o->voice, size);
+
+    return 0;
+  }
+
+  return sp_default_path(out, size, xdg, home);
+}
+
+int voice_is_command(const voice_opts_t *o) {
+  return o->enroll_word || o->list || o->forget;
+}
+
+int voice_load(sp_t *sp, const voice_opts_t *o, const char *xdg,
+               const char *home) {
+  char path[SP_PATH];
+  if (voice_path(path, sizeof(path), o, xdg, home) != 0) {
+    fprintf(stderr, "voice: no template file (set --voice <file> or HOME)\n");
+
+    return -1;
+  }
+
+  if (sp_load(sp, path) != 0) {
+    fprintf(stderr, "voice: %s is damaged or not a voice file\n", path);
+
+    return -1;
+  }
+
+  return 0;
+}
+
+int voice_command(const voice_opts_t *o, const char *xdg, const char *home) {
+  static sp_t sp;
+  char path[SP_PATH];
+  sp_init(&sp);
+  if (voice_path(path, sizeof(path), o, xdg, home) != 0) {
+    fprintf(stderr, "voice: no template file (set --voice <file> or HOME)\n");
+
+    return 1;
+  }
+
+  if (sp_load(&sp, path) != 0) {
+    fprintf(stderr, "voice: %s is damaged or not a voice file\n", path);
+
+    return 1;
+  }
+
+  int rc = 0;
+  if (o->enroll_word) {
+    char err[64] = {0};
+    int n = sp_enroll(&sp, o->enroll_word, o->enroll_src, err, sizeof(err));
+    if (n == -1) {
+      fprintf(stderr, "--voice-enroll: cannot read %s\n", o->enroll_src);
+      rc = 1;
+    } else if (n == -2) {
+      fprintf(stderr, "--voice-enroll: %s: %s (use 16 bit PCM)\n",
+              o->enroll_src, err);
+      rc = 1;
+    } else if (n == 0) {
+      fprintf(stderr,
+              "--voice-enroll: no speech found in %s (too quiet, or "
+              "shorter than 0.1 s)\n",
+              o->enroll_src);
+      rc = 1;
+    } else if (sp_save(&sp, path) != 0) {
+      fprintf(stderr, "--voice-enroll: cannot write %s\n", path);
+      rc = 1;
+    } else {
+      fprintf(stderr, "\"%s\": %d new, %d of %d kept (%s)\n", o->enroll_word, n,
+              sp_count(&sp, o->enroll_word), SP_PER_WORD, path);
+    }
+  }
+
+  if (rc == 0 && o->forget) {
+    int n = sp_remove(&sp, o->forget);
+    if (n == 0) {
+      fprintf(stderr, "--voice-forget: \"%s\" is not enrolled\n", o->forget);
+      rc = 1;
+    } else if (sp_save(&sp, path) != 0) {
+      fprintf(stderr, "--voice-forget: cannot write %s\n", path);
+      rc = 1;
+    } else {
+      fprintf(stderr, "forgot \"%s\" (%d)\n", o->forget, n);
+    }
+  }
+
+  if (rc == 0 && o->list) {
+    fprintf(stderr, "%s: %d words, %d templates\n", path, sp_words(&sp),
+            sp.ntpl);
+    for (int i = 0; i < sp.ntpl; i++) {
+      int first = 1;
+      for (int j = 0; j < i; j++) {
+        if (nl_strcmp(sp.tpl[j].word, sp.tpl[i].word) == 0) {
+          first = 0;
+        }
+      }
+
+      if (first) {
+        fprintf(stderr, "  %-20s %d\n", sp.tpl[i].word,
+                sp_count(&sp, sp.tpl[i].word));
+      }
+    }
+  }
+
+  sp_free(&sp);
+
+  return rc;
+}
+
+static void out_line(void *user, int final, const char *text) {
+  (void)user;
+  char line[SP_WORD + 4];
+  int n = nl_snprintf(line, sizeof(line), "%s%s\n", final ? "" : "~", text);
+  if (n > 0) {
+    ssize_t w = write(1, line, (size_t)n);
+    (void)w;
+  }
+}
+
+int voice_listen_main(const voice_opts_t *o, const char *xdg,
+                      const char *home) {
+  static sp_t sp;
+  static sp_src_t src;
+  sp_init(&sp);
+  if (voice_load(&sp, o, xdg, home) != 0) {
+    return 1;
+  }
+
+  if (sp.ntpl == 0) {
+    fprintf(stderr, "--listen: nothing enrolled yet, teach it some words with "
+                    "--voice-enroll <word> <audio file>\n");
+
+    return 1;
+  }
+
+  if (sp_src_open(&src, o->listen) != 0) {
+    fprintf(stderr, "--listen: cannot open %s\n", o->listen);
+
+    return 1;
+  }
+
+  sp_set_text(&sp, out_line, NULL);
+  while (!src.eof) {
+    long n = sp_src_poll(&src, &sp);
+    if (!src.st.ok) {
+      fprintf(stderr, "--listen: %s: %s\n", o->listen, src.st.err);
+      sp_src_close(&src);
+
+      return 1;
+    }
+
+    if (n == 0) {
+      usleep(20000);
+    }
+  }
+
+  sp_src_close(&src);
+  sp_free(&sp);
+
+  return 0;
+}

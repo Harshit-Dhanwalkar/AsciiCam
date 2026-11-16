@@ -14,6 +14,7 @@
 #include "demo.h"
 #include "netview.h"
 #include "room.h"
+#include "voice_cli.h"
 
 #define UI_ENTER "\033[?1049h\033[?25l\033[2J"
 #define UI_LEAVE "\033[?25h\033[?1049l"
@@ -198,6 +199,31 @@ static const char *caption_path;
 
 void call_ui_set_captions(const char *path) { caption_path = path; }
 
+// Speech recogniser as caption source: it is a lot of state, so one of it
+static voice_opts_t listen_opts;
+static const char *listen_xdg;
+static const char *listen_home;
+static int listening;
+static sp_t speech;
+static sp_src_t speech_src;
+
+void call_ui_set_listen(const voice_opts_t *o, const char *xdg,
+                        const char *home) {
+  listening = o && o->listen;
+  if (listening) {
+    listen_opts = *o;
+    listen_xdg = xdg;
+    listen_home = home;
+  }
+}
+
+static void listen_close(void) {
+  if (listening) {
+    sp_src_close(&speech_src);
+    sp_free(&speech);
+  }
+}
+
 typedef struct {
   call_t *call;
   long last_partial_ms;
@@ -244,12 +270,41 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
     return 1;
   }
 
+  if (listening) {
+    sp_init(&speech);
+    if (voice_load(&speech, &listen_opts, listen_xdg, listen_home) != 0) {
+      capsrc_close(&capsrc);
+
+      return 1;
+    }
+
+    if (speech.ntpl == 0) {
+      fprintf(stderr, "--listen: nothing enrolled yet, teach it some words "
+                      "with --voice-enroll <word> <audio file>\n");
+      sp_free(&speech);
+      capsrc_close(&capsrc);
+
+      return 1;
+    }
+
+    if (sp_src_open(&speech_src, listen_opts.listen) != 0) {
+      fprintf(stderr, "--listen: cannot open %s\n", listen_opts.listen);
+      sp_free(&speech);
+      capsrc_close(&capsrc);
+
+      return 1;
+    }
+  }
+
   static call_t call;
   if (call_open(&call, addr, name) != 0) {
     fprintf(stderr,
             "--call: cannot connect to %s (is --room running there? over "
             "ssh: ssh -L 7100:localhost:7100 host)\n",
             addr);
+
+    capsrc_close(&capsrc);
+    listen_close();
 
     return 1;
   }
@@ -262,7 +317,9 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
     }
 
     capsrc_close(&capsrc);
+    listen_close();
     call_close(&call);
+
     return 1;
   }
 
@@ -294,8 +351,10 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
     nl_free(gray);
     nl_free(rgb);
     nl_free(pic);
+
     webcam_cleanup(&cam);
     capsrc_close(&capsrc);
+    listen_close();
     call_close(&call);
 
     return 1;
@@ -323,8 +382,12 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
   uint64_t last_in = 0;
 
   cap_sink_t sink = {.call = &call, .last_partial_ms = 0, .last_partial = {0}};
-  if (caption_path) {
+  if (caption_path || listening) {
     call.captions_on = 1;
+  }
+
+  if (listening) {
+    sp_set_text(&speech, cap_line, &sink);
   }
 
   ui_write(UI_ENTER, sizeof(UI_ENTER) - 1);
@@ -366,6 +429,14 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
 
     call_tick(&call, ui_now_ms());
     capsrc_poll(&capsrc, cap_line, &sink);
+
+    if (listening) {
+      sp_src_poll(&speech_src, &speech);
+      if (!speech_src.st.ok) {
+        call_caption(&call, 1, "(--listen: unusable audio format)");
+        listening = 0;
+      }
+    }
 
     // Traffic, per second
     now = ui_now_ms();
@@ -469,8 +540,10 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
   nl_free(gray);
   nl_free(rgb);
   nl_free(pic);
+
   webcam_cleanup(&cam);
   capsrc_close(&capsrc);
+  listen_close();
   call_close(&call);
 
   return rc;
