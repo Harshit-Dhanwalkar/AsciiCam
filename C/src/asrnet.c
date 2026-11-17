@@ -113,8 +113,9 @@ static const float *want(an_model_t *m, const char *name, size_t d0, size_t d1,
 
   size_t want_n = d0 * (d1 ? d1 : 1) * (d2 ? d2 : 1);
   int dims = d2 ? 3 : d1 ? 2 : 1;
-  int ok = t->numel == want_n && t->ndim == dims;
-  if (ok) {
+  int scalar = d0 == 1 && !d1 && !d2 && t->ndim == 0;
+  int ok = t->numel == want_n && (t->ndim == dims || scalar);
+  if (ok && !scalar) {
     size_t w[3] = {d0, d1, d2};
     for (int i = 0; i < dims; i++) {
       ok = ok && t->shape[i] == w[i];
