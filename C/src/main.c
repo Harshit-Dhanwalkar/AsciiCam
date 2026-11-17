@@ -1397,14 +1397,15 @@ int main(int argc, char *argv[]) {
   voice_opts_t voice = {0};
   for (int i = 1; i < argc; i++) {
     int is_listen = nl_strcmp(argv[i], "--listen") == 0;
+    int is_mic = nl_strcmp(argv[i], "--mic") == 0;
     int is_voice = nl_strcmp(argv[i], "--voice") == 0;
     int is_enroll = nl_strcmp(argv[i], "--voice-enroll") == 0;
     int is_forget = nl_strcmp(argv[i], "--voice-forget") == 0;
     int is_list = nl_strcmp(argv[i], "--voice-list") == 0;
     int is_model = nl_strcmp(argv[i], "--model") == 0;
     int is_tok = nl_strcmp(argv[i], "--tokenizer") == 0;
-    if (!is_listen && !is_voice && !is_enroll && !is_forget && !is_list &&
-        !is_model && !is_tok) {
+    if (!is_listen && !is_mic && !is_voice && !is_enroll && !is_forget &&
+        !is_list && !is_model && !is_tok) {
       continue;
     }
 
@@ -1420,6 +1421,8 @@ int main(int argc, char *argv[]) {
       voice.listen = argv[i + 1];
     } else if (is_model) {
       voice.model = argv[i + 1];
+    } else if (is_mic) {
+      voice.mic = argv[i + 1];
     } else if (is_tok) {
       voice.tokenizer = argv[i + 1];
     } else if (is_voice) {
@@ -1447,7 +1450,7 @@ int main(int argc, char *argv[]) {
                          app_getenv(envp_base, "HOME"));
   }
 
-  if (voice.listen && !call_addr) {
+  if ((voice.listen || voice.mic) && !call_addr) {
     return voice_listen_main(&voice, app_getenv(envp_base, "XDG_CONFIG_HOME"),
                              app_getenv(envp_base, "HOME"));
   }

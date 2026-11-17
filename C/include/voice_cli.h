@@ -10,6 +10,8 @@
  *   --voice-list            what is enrolled
  *   --voice-forget <w>      remove w
  *   --listen <a>            recognise audio from file or fifo a, as captions
+ *   --mic <d>               same, from sound card d: default, hw:C,D or a
+ *                           device path (Linux, ALSA; Ctrl-C to stop)
  *   --model <w>             with --listen: full sentences from a neural model
  *                           (weights file w, vocabulary --tokenizer <j>,
  *                           default tokenizer.json beside w) instead of words
@@ -22,6 +24,7 @@
 typedef struct voice_opts_s {
   const char *voice;
   const char *listen;
+  const char *mic;
   const char *model;
   const char *tokenizer;
   const char *enroll_word;

@@ -6,6 +6,7 @@
 
 #include "nolibc.h"
 
+#include "mic.h"
 #include "voice_cli.h"
 
 static int voice_path(char *out, size_t size, const voice_opts_t *o,
@@ -172,6 +173,41 @@ void voice_set_text(sp_t *sp, asr_t *a, const voice_opts_t *o, sp_text_fn fn,
   }
 }
 
+// --mic: read sound card in 20 ms blocks until it fails or we are killed
+static int voice_mic_loop(sp_t *sp, asr_t *asr, const voice_opts_t *o) {
+  static mic_t mic;
+  char err[128];
+  if (mic_open(&mic, o->mic, err, sizeof err) != 0) {
+    fprintf(stderr, "--mic: %s\n", err);
+    asr_close(asr);
+
+    return 1;
+  }
+
+  voice_set_text(sp, asr, o, out_line, NULL);
+  int16_t block[320];
+  int status = 0;
+  for (;;) {
+    long n = mic_read(&mic, block, sizeof block / sizeof block[0]);
+    if (n < 0) {
+      fprintf(stderr, "--mic: %s: read failed\n", o->mic);
+      status = 1;
+      break;
+    }
+
+    if (n > 0) {
+      sp_feed(sp, block, (size_t)n);
+    }
+  }
+
+  sp_flush(sp);
+  mic_close(&mic);
+  sp_free(sp);
+  asr_close(asr);
+
+  return status;
+}
+
 int voice_listen_main(const voice_opts_t *o, const char *xdg,
                       const char *home) {
   static sp_t sp;
@@ -182,6 +218,10 @@ int voice_listen_main(const voice_opts_t *o, const char *xdg,
   asr_init(&asr);
   if (voice_prepare(&sp, &asr, o, xdg, home) != 0) {
     return 1;
+  }
+
+  if (o->mic) {
+    return voice_mic_loop(&sp, &asr, o);
   }
 
   if (sp_src_open(&src, o->listen) != 0) {
