@@ -173,7 +173,15 @@ void voice_set_text(sp_t *sp, asr_t *a, const voice_opts_t *o, sp_text_fn fn,
   }
 }
 
-// --mic: read sound card in 20 ms blocks until it fails or we are killed
+// --mic: set by Ctrl-C / SIGTERM so loop can flush last line and exit
+static volatile int voice_mic_stop;
+
+static void voice_mic_on_signal(int sig) {
+  (void)sig;
+  voice_mic_stop = 1;
+}
+
+// --mic: read sound card in 20 ms blocks until Ctrl-C or a read error
 static int voice_mic_loop(sp_t *sp, asr_t *asr, const voice_opts_t *o) {
   static mic_t mic;
   char err[128];
@@ -187,11 +195,17 @@ static int voice_mic_loop(sp_t *sp, asr_t *asr, const voice_opts_t *o) {
   voice_set_text(sp, asr, o, out_line, NULL);
   int16_t block[320];
   int status = 0;
-  for (;;) {
+  voice_mic_stop = 0;
+  signal(SIGINT, voice_mic_on_signal);
+  signal(SIGTERM, voice_mic_on_signal);
+  while (!voice_mic_stop) {
     long n = mic_read(&mic, block, sizeof block / sizeof block[0]);
     if (n < 0) {
-      fprintf(stderr, "--mic: %s: read failed\n", o->mic);
-      status = 1;
+      // A signal interrupts blocking read: that is a normal stop
+      if (!voice_mic_stop) {
+        fprintf(stderr, "--mic: %s: read failed\n", o->mic);
+        status = 1;
+      }
       break;
     }
 
@@ -200,6 +214,8 @@ static int voice_mic_loop(sp_t *sp, asr_t *asr, const voice_opts_t *o) {
     }
   }
 
+  signal(SIGINT, (void (*)(int))0);
+  signal(SIGTERM, (void (*)(int))0);
   sp_flush(sp);
   mic_close(&mic);
   sp_free(sp);
