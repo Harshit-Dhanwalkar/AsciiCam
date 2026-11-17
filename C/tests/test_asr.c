@@ -7,7 +7,7 @@
  * speech and end of stream
  */
 
-#include "../lib/nolibc.h"
+#include "nolibc.h"
 #include "platform.h"
 
 #include "asr.h"
@@ -165,10 +165,103 @@ static int same(const log_t *a, const log_t *b) {
   return 1;
 }
 
+static int same_ids(const int *a, int na, const int *b, int nb) {
+  if (na != nb) {
+    return 0;
+  }
+
+  for (int i = 0; i < na; i++) {
+    if (a[i] != b[i]) {
+      return 0;
+    }
+  }
+
+  return 1;
+}
+
+// True when some word of text is said n times in a row
+static int words_repeat(const char *text, int n) {
+  char prev[ASR_TEXT] = "";
+  int run = 0;
+  const char *p = text;
+  while (*p) {
+    const char *e = p;
+    while (*e && *e != ' ') {
+      e++;
+    }
+
+    size_t len = (size_t)(e - p);
+    char word[ASR_TEXT];
+    if (len >= sizeof(word)) {
+      len = sizeof(word) - 1;
+    }
+
+    for (size_t k = 0; k < len; k++) {
+      word[k] = p[k];
+    }
+
+    word[len] = 0;
+    if (len > 0 && nl_strcmp(word, prev) == 0) {
+      run++;
+    } else {
+      run = 1;
+    }
+
+    if (run >= n) {
+      return 1;
+    }
+
+    nl_strncpy_safe(prev, word, sizeof(prev));
+    p = *e ? e + 1 : e;
+  }
+
+  return 0;
+}
+
+static void test_trim(void) {
+  int out[64];
+  int in1[] = {1, 2, 3, 3, 3, 3};
+  int want1[] = {1, 2, 3, 3};
+  int n = asr_trim_repeats(in1, 6, out);
+  CHECK(same_ids(out, n, want1, 4), "run of 1 cut to 2: %d ids", n);
+
+  int in2[] = {4, 1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3};
+  int want2[] = {4, 1, 2, 3, 1, 2, 3};
+  n = asr_trim_repeats(in2, 13, out);
+  CHECK(same_ids(out, n, want2, 7), "block of 3 repeated: cut to 2 copies");
+
+  int in3[] = {5, 6, 5, 6, 7};
+  n = asr_trim_repeats(in3, 5, out);
+  CHECK(same_ids(out, n, in3, 5), "two copies are kept as they are");
+
+  int in4[] = {9, 9, 9};
+  n = asr_trim_repeats(in4, 3, out);
+  CHECK(same_ids(out, n, in4, 2), "three in a row: the third goes");
+
+  int in5[] = {1, 2, 1, 2, 1, 2, 1, 2, 1};
+  n = asr_trim_repeats(in5, 9, out);
+  CHECK(n == 5, "alternating loop cut to two copies: %d", n);
+  CHECK(asr_trim_repeats(in5, 0, out) == 0, "empty");
+
+  // Nothing repeats: unchanged
+  int in6[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+  n = asr_trim_repeats(in6, 10, out);
+  CHECK(same_ids(out, n, in6, 10), "no repeats: unchanged");
+
+  // A loop longer than longest block is kept (ASR_REPEAT_LEN is 8)
+  int in7[18];
+  for (int i = 0; i < 18; i++) {
+    in7[i] = i % 9 + 20;
+  }
+
+  n = asr_trim_repeats(in7, 18, out);
+  CHECK(n == 18, "period 9 is not looked at: %d", n);
+}
+
 static void test_cutting(void) {
   static log_t l, l2;
 
-  // quiet, a 1.6 s burst, a pause, a 3.2 s burst, quiet
+  // Quiet, a 1.6 s Burst, a Pause, a 3.2 s Burst, Quiet
   sig_n = 0;
   quiet(1000);
   talk(1600);
@@ -179,25 +272,25 @@ static void test_cutting(void) {
   CHECK(utt == 2 && count(&l, 'F') == 2, "two utterances: %d, %d finals", utt,
         count(&l, 'F'));
   CHECK(count(&l, 'P') >= 1, "the long one gave partials: %d", count(&l, 'P'));
-  // a partial line is only sent when it changed
+  // A partial line is only sent when it changed
   for (int i = 1; i < l.n; i++) {
     CHECK(!(l.kind[i] == 'P' && l.kind[i - 1] == 'P' &&
             nl_strcmp(l.text[i], l.text[i - 1]) == 0),
           "partial %d repeats", i);
   }
 
-  // the end of the utterance is flushed through the encoder, so the last
-  // frames (held back for lookahead) are in: one frame per 20 ms block
+  // End of utterance is flushed through encoder, so last frames (held back for
+  // lookahead) are in: one frame per 20 ms block
   CHECK(last_frames >= last_blocks - 2 && last_frames <= last_blocks + 2,
         "%ld frames for %ld blocks", last_frames, last_blocks);
 
-  // a partial is always followed, sooner or later, by a final
+  // A partial is always followed, sooner or later, by a final
   CHECK(l.n > 0 && l.kind[l.n - 1] == 'F', "ends on a final");
   for (int i = 0; i < l.n; i++) {
     CHECK(l.text[i][0] == 'w', "line %d is text: '%s'", i, l.text[i]);
   }
 
-  // however the audio arrives
+  // However audio arrives
   size_t odd[] = {1, 319, 320, 321, 4000, 7, 640};
   run(&l2, sig, sig_n, odd, 7, 1);
   CHECK(same(&l, &l2), "chunking changes nothing (%d vs %d lines)", l.n, l2.n);
@@ -205,7 +298,7 @@ static void test_cutting(void) {
   run(&l2, sig, sig_n, one, 1, 1);
   CHECK(same(&l, &l2), "one sample at a time gives the same (%d lines)", l2.n);
 
-  // a click is not speech, a short noise is not either
+  // A click is not speech, a short noise is not either
   sig_n = 0;
   quiet(800);
   talk(60);
@@ -213,7 +306,7 @@ static void test_cutting(void) {
   utt = run(&l, sig, sig_n, NULL, 0, 1);
   CHECK(utt == 0 && l.n == 0, "a click says nothing: %d", l.n);
 
-  // steady noise is not speech: the floor follows it
+  // Steady noise is not speech: floor follows it
   sig_n = 0;
   for (int i = 0; i < 6 * RATE; i++) {
     sig[sig_n++] = (int16_t)(rnd() % 801 - 400);
@@ -222,8 +315,7 @@ static void test_cutting(void) {
   utt = run(&l, sig, sig_n, NULL, 0, 1);
   CHECK(utt == 0 && l.n == 0, "steady noise says nothing: %d", l.n);
 
-  // speech that runs on to the end of the audio is finished by the flush,
-  // and not before
+  // Speech that runs on to end of audio is finished by flush and not before
   sig_n = 0;
   quiet(500);
   talk(2500);
@@ -240,7 +332,7 @@ static void test_cutting(void) {
   utt = run(&l, sig, sig_n, NULL, 0, 1);
   CHECK(utt >= 2, "long speech is cut: %d utterances", utt);
 
-  // no audio at all
+  // No audio at all
   utt = run(&l, sig, 0, NULL, 0, 1);
   CHECK(utt == 0 && l.n == 0, "empty");
 }
@@ -278,7 +370,7 @@ static void test_open(void) {
   CHECK(asr_open(&a, "/nonexistent/model.safetensors", "/nonexistent/t.json",
                  err, sizeof(err)) == -1,
         "missing tokenizer refused");
-  // never opened: feeding and closing do nothing
+  // Never opened: feeding and closing do nothing
   int16_t x[1000] = {0};
   asr_feed(&a, x, 1000);
   asr_flush(&a);
@@ -295,6 +387,7 @@ int main(void) {
   CHECK(st_parse(&st, file, size, err, sizeof(err)) == 0, "parse: %s", err);
   CHECK(an_load_st(&model, &st, &cfg, err, sizeof(err)) == 0, "load: %s", err);
   make_tokenizer();
+  test_trim();
   test_cutting();
   test_tap();
   test_open();

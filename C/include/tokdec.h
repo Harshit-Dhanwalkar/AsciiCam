@@ -33,6 +33,9 @@ int tokdec_parse(tokdec_t *t, const char *json, size_t size, char *err,
 
 void tokdec_free(tokdec_t *t);
 
+// 1 when id prints something: a known id that is not a control token
+int tokdec_is_text(const tokdec_t *t, int id);
+
 // Append text of one token to out (NUL terminated, at most size bytes including
 // NUL). A byte-fallback token that is start of a multibyte character is kept as
 // is: bytes of one character come from consecutive tokens, so result is only

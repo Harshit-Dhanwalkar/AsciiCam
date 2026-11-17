@@ -80,7 +80,7 @@ int main(void) {
   CHECK(text(&t, a, 0, out, sizeof(out)) == 0 && out[0] == 0, "empty");
   tokdec_free(&t);
 
-  // Control tokens print nothing even when the file does not mark them
+  // Control tokens print nothing even when file does not mark them
   const char *J2 =
       "{\"model\":{\"vocab\":{\"<s>\":0,\"</s>\":1,\"<pad>\":2,\"a\":3,"
       "\"<unk>\":4}}}";
@@ -88,6 +88,16 @@ int main(void) {
   int g[] = {0, 3, 1, 3, 2, 4, 3};
   text(&t, g, 7, out, sizeof(out));
   CHECK(streq(out, "aaa"), "unmarked control tokens: '%s'", out);
+  tokdec_free(&t);
+
+  // tokdec_is_text: ids that print are text, control and unknown ids are not
+  const char *J3 =
+      "{\"model\":{\"vocab\":{\"<s>\":0,\"</s>\":1,\"<pad>\":2,\"a\":3}}}";
+  CHECK(tokdec_parse(&t, J3, nl_strlen(J3), err, sizeof(err)) == 0, "J3");
+  CHECK(!tokdec_is_text(&t, 0) && !tokdec_is_text(&t, 1) &&
+            !tokdec_is_text(&t, 2) && tokdec_is_text(&t, 3) &&
+            !tokdec_is_text(&t, 99) && !tokdec_is_text(&t, -1),
+        "control and unknown ids are not text");
   tokdec_free(&t);
 
   // Malformed files are refused, none crash

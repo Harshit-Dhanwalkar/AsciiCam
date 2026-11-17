@@ -1,5 +1,5 @@
-#include "nolibc.h"
 #include "tokdec.h"
+#include "nolibc.h"
 
 static void fail(char *err, size_t size, const char *msg) {
   if (err && size) {
@@ -619,6 +619,11 @@ static int byte_token(const char *s) {
   }
 
   return -1;
+}
+
+int tokdec_is_text(const tokdec_t *t, int id) {
+  return id >= 0 && id < t->n && t->piece[id] && !t->special[id] &&
+         !control_piece(t->piece[id]);
 }
 
 size_t tokdec_append(const tokdec_t *t, int id, char *out, size_t out_size,

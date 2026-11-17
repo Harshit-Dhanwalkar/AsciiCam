@@ -152,14 +152,65 @@ static void say(asr_t *a, int final, const char *text) {
 }
 
 // Text of utterance so far
+int asr_trim_repeats(const int *in, int n, int *out) {
+  int w = 0;
+  int i = 0;
+  while (i < n) {
+    int cut = 0;
+    for (int p = 1; p <= ASR_REPEAT_LEN && !cut; p++) {
+      // Copies of block of length p that starts at i
+      int copies = 1;
+      while (i + (copies + 1) * p <= n) {
+        int same = 1;
+        for (int k = 0; k < p && same; k++) {
+          same = in[i + k] == in[i + copies * p + k];
+        }
+
+        if (!same) {
+          break;
+        }
+
+        copies++;
+      }
+
+      if (copies > ASR_REPEAT_MAX) {
+        for (int c = 0; c < ASR_REPEAT_MAX * p; c++) {
+          out[w++] = in[i + c];
+        }
+
+        i += copies * p;
+        cut = 1;
+      }
+    }
+
+    if (!cut) {
+      out[w++] = in[i++];
+    }
+  }
+
+  return w;
+}
+
 static void read_text(asr_t *a, char *out, size_t size) {
   int toks[256];
+  int kept[256];
   int n = an_decode(a->stream, toks, 256);
   if (n < 0) {
     n = 0;
   }
 
-  tokdec_text(a->tok, toks, n, out, size);
+  // Only ids that print count as repeats: a control token between two words
+  // must not hide a loop of them
+  int shown[256];
+  int m = 0;
+  for (int i = 0; i < n; i++) {
+    if (tokdec_is_text(a->tok, toks[i])) {
+      shown[m++] = toks[i];
+    }
+  }
+
+  n = asr_trim_repeats(shown, m, kept);
+  tokdec_text(a->tok, kept, n, out, size);
 }
 
 static void partial(asr_t *a) {

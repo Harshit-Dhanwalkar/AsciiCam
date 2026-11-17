@@ -29,6 +29,16 @@
 #define ASR_MIN_LOUD 8      // loud blocks an utterance needs (160 ms)
 #define ASR_MAX_MS 30000    // longest utterance, then it is cut
 #define ASR_TEXT 512
+#define ASR_REPEAT_MAX 2 // copies of a short block allowed in a row
+#define ASR_REPEAT_LEN 8 // longest block looked at for repeats
+
+// Copy n token ids to out, keeping at most ASR_REPEAT_MAX copies in a row of
+// any block of 1..ASR_REPEAT_LEN ids
+// Small models loop on quiet or noisy audio ("the the the the ..."); loop is
+// cut, rest is kept
+// Out must hold n ids
+// Returns the number kept
+int asr_trim_repeats(const int *in, int n, int *out);
 
 typedef void (*asr_text_fn)(void *user, int final, const char *text);
 
