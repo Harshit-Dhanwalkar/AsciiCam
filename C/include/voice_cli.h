@@ -10,10 +10,10 @@
  *   --voice-list            what is enrolled
  *   --voice-forget <w>      remove w
  *   --listen <a>            recognise audio from file or fifo a, as captions
- *   --model <w>             with --listen: full sentences from a Moonshine
- *                           model (weights file w, vocabulary --tokenizer <j>,
+ *   --model <w>             with --listen: full sentences from a neural model
+ *                           (weights file w, vocabulary --tokenizer <j>,
  *                           default tokenizer.json beside w) instead of words
- *                           have been taught it
+ *                           have been taught to it
  */
 
 #include "asr.h"

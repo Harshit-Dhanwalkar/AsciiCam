@@ -1,8 +1,7 @@
 /*
  * src/asrnet.c - streaming speech recognition network
  *
- * Follows transformers' modeling_moonshine_streaming.py operation by operation;
- * names in comments are names of its modules
+ * Network is written out operation by operation
  */
 
 #include "platform.h"

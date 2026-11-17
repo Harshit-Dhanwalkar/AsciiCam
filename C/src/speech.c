@@ -18,12 +18,11 @@
 #endif
 #endif
 
+#include "nl_math.h"
 #include "speech.h"
 
 #define SP_O_NONBLOCK 04000
 #define SP_INF 1e30f
-#define SP_PI 3.14159265358979323846
-#define SP_LN2 0.69314718055994531
 
 #define SP_ON_FRAMES 3   // loud frames in a row that start an utterance
 #define SP_HANG 30       // quiet frames that end it (300 ms)
@@ -36,90 +35,9 @@
 #define SP_MIN_ON_DB 40.0f
 #define SP_MIN_OFF_DB 36.0f
 
-/* Maths helpers */
-
-static double sp_ln(double x) {
-  if (x <= 0) {
-    return -700.0;
-  }
-
-  union {
-    double d;
-    uint64_t u;
-  } v = {x};
-  // NOLINTNEXTLINE(bugprone-signed-bitwise)
-  int e = (int)((v.u >> 52) & 0x7ffu) - 1023;
-  v.u = (v.u & 0xfffffffffffffULL) | 0x3ff0000000000000ULL;
-  double m = v.d;
-  if (m > 1.41421356237) {
-    m *= 0.5;
-    e++;
-  }
-
-  double s = (m - 1) / (m + 1);
-  double s2 = s * s;
-  double r =
-      s *
-      (1 + s2 * (1 / 3.0 +
-                 s2 * (1 / 5.0 + s2 * (1 / 7.0 + s2 * (1 / 9.0 + s2 / 11.0)))));
-
-  return 2 * r + e * SP_LN2;
-}
-
-static double sp_exp(double x) {
-  int k = (int)(x / SP_LN2 + (x < 0 ? -0.5 : 0.5));
-  double r = x - k * SP_LN2;
-  double t = 1, s = 1;
-  for (int i = 1; i < 14; i++) {
-    t *= r / i;
-    s += t;
-  }
-
-  while (k > 0) {
-    s *= 2;
-    k--;
-  }
-
-  while (k < 0) {
-    s *= 0.5;
-    k++;
-  }
-
-  return s;
-}
-
-static double sp_sin(double x) {
-  double k = x / (2 * SP_PI);
-  long n = (long)(k + (k < 0 ? -0.5 : 0.5));
-  x -= (double)n * 2 * SP_PI;
-
-  double x2 = x * x, t = x, r = x;
-  for (int i = 1; i < 12; i++) {
-    t *= -x2 / ((2.0 * i) * (2.0 * i + 1));
-    r += t;
-  }
-
-  return r;
-}
-
-static double sp_cos(double x) { return sp_sin(x + SP_PI / 2); }
 
 static float sp_sqrtf(float x) {
-  if (x <= 0) {
-    return 0;
-  }
-
-  union {
-    float f;
-    uint32_t u;
-  } v = {x};
-  v.u = (v.u >> 1u) + 0x1fbd1df5u;
-  float y = v.f;
-  y = 0.5f * (y + x / y);
-  y = 0.5f * (y + x / y);
-  y = 0.5f * (y + x / y);
-
-  return y;
+  return x <= 0 ? 0.0f : (float)nl_sqrt((double)x);
 }
 
 /* Tables, built once */
@@ -132,8 +50,8 @@ static float tab_fb[SP_NMEL][SP_NFFT / 2 + 1];
 static float tab_dct[SP_NCEP][SP_NMEL];
 static float tab_lift[SP_NCEP];
 
-static double hz_to_mel(double f) { return 1127.0 * sp_ln(1.0 + f / 700.0); }
-static double mel_to_hz(double m) { return 700.0 * (sp_exp(m / 1127.0) - 1.0); }
+static double hz_to_mel(double f) { return 1127.0 * nl_log(1.0 + f / 700.0); }
+static double mel_to_hz(double m) { return 700.0 * (nl_exp(m / 1127.0) - 1.0); }
 
 static void tables(void) {
   if (tab_ready) {
@@ -141,12 +59,12 @@ static void tables(void) {
   }
 
   for (int i = 0; i < SP_FRAME; i++) {
-    tab_win[i] = (float)(0.54 - 0.46 * sp_cos(2 * SP_PI * i / (SP_FRAME - 1)));
+    tab_win[i] = (float)(0.54 - 0.46 * nl_cos(2 * NL_PI * i / (SP_FRAME - 1)));
   }
 
   for (int i = 0; i < SP_NFFT / 2; i++) {
-    tab_cos[i] = (float)sp_cos(2 * SP_PI * i / SP_NFFT);
-    tab_sin[i] = (float)-sp_sin(2 * SP_PI * i / SP_NFFT);
+    tab_cos[i] = (float)nl_cos(2 * NL_PI * i / SP_NFFT);
+    tab_sin[i] = (float)-nl_sin(2 * NL_PI * i / SP_NFFT);
   }
 
   int bits = 0;
@@ -192,10 +110,10 @@ static void tables(void) {
   // c1..c12 of DCT-II, with a sine lifter so that coefficients weigh about same
   for (int k = 0; k < SP_NCEP; k++) {
     for (int m = 0; m < SP_NMEL; m++) {
-      tab_dct[k][m] = (float)sp_cos(SP_PI * (k + 1) * (m + 0.5) / SP_NMEL);
+      tab_dct[k][m] = (float)nl_cos(NL_PI * (k + 1) * (m + 0.5) / SP_NMEL);
     }
 
-    tab_lift[k] = (float)(1.0 + 11.0 * sp_sin(SP_PI * (k + 1) / 22.0));
+    tab_lift[k] = (float)(1.0 + 11.0 * nl_sin(NL_PI * (k + 1) / 22.0));
   }
 
   tab_ready = 1;
@@ -241,7 +159,7 @@ static void frame_features(const float *x, float *ceps, float *db) {
     en += (double)x[i] * x[i];
   }
 
-  *db = (float)(4.342944819032518 * sp_ln(en / SP_FRAME + 1.0)); // 10 log10
+  *db = (float)(4.342944819032518 * nl_log(en / SP_FRAME + 1.0)); // 10 log10
 
   for (int i = 0; i < SP_FRAME; i++) {
     float prev = i ? x[i - 1] : x[0];
@@ -265,7 +183,7 @@ static void frame_features(const float *x, float *ceps, float *db) {
       }
     }
 
-    lm[m] = (float)sp_ln((double)acc + 1.0);
+    lm[m] = (float)nl_log((double)acc + 1.0);
   }
 
   for (int k = 0; k < SP_NCEP; k++) {

@@ -5,9 +5,10 @@
  * capsrc - caption lines from a speech recogniser
  *
  * `asciicam --call ... --captions <path>` reads lines of text from a file or
- * fifo, so any recogniser can feed it (libasciiasr's tools, whisper.cpp, a
- * script): one line is one caption. A line that starts with "~" is a hypothesis
- * recogniser may still change (partial), any other line is final
+ * fifo, so any recogniser can feed it (--listen, another tool, a script): one
+ * line is one caption
+ * A line that starts with "~" is a hypothesis recogniser may still change
+ * (partial), any other line is final
  * Blank lines are ignored; carriage returns are dropped; a line longer than
  * CAPSRC_LINE is cut
  */
@@ -43,10 +44,8 @@ long capsrc_poll(capsrc_t *c, capsrc_fn fn, void *user);
 
 void capsrc_close(capsrc_t *c);
 
-/*
- * Captions on local screen (not in a call): last two lines, a partial one is
- * replaced by what comes next, they fade
- */
+/* Captions on local screen (not in a call): last two lines, a partial one is
+ * replaced by what comes next, they fade */
 
 #define CAPVIEW_ROWS 2
 #define CAPVIEW_FINAL_MS 6000

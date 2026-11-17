@@ -1,5 +1,5 @@
-#ifndef MOONSHINE_H
-#define MOONSHINE_H
+#ifndef ASRNET_H
+#define ASRNET_H
 
 /*
  * asrnet - streaming speech recognition network

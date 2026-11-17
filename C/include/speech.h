@@ -27,6 +27,7 @@
  */
 
 #include "nl_types.h"
+#include "nl_math.h"
 
 #define SP_RATE 16000
 #define SP_FRAME 400 // 25 ms

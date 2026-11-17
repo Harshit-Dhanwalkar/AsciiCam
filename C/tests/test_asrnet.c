@@ -464,7 +464,7 @@ int main(void) {
   test_encoder_and_decoder();
   test_loader();
   test_malformed();
-  fprintf(stderr, "moonshine: %d passed, %d failed\n", pass_n, fail_n);
+  fprintf(stderr, "asrnet: %d passed, %d failed\n", pass_n, fail_n);
 
   return fail_n ? 1 : 0;
 }

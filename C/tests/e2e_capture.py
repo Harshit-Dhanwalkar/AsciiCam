@@ -1338,9 +1338,9 @@ shutil.rmtree(vdir, ignore_errors=True)
 # eal binary loads weights + tokenizer.json + config.json, cuts audio into utterances and
 # prints one line per sentence
 try:
-    import numpy  # noqa: F401  (gen_moonshine_vectors needs it)
+    import numpy  # noqa: F401  (gen_asrnet_vectors needs it)
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
-    import gen_moonshine_vectors as gmv
+    import gen_asrnet_vectors as gmv
 except Exception as exc:  # numpy missing: skip
     gmv = None
     print("skip: --model e2e needs numpy:", exc)

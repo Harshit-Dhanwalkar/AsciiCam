@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Reference for tests/test_asrnet.c: network written from transformers'
-modeling_asrnet_streaming.py with numpy, run on a small model whose
+Reference for tests/test_asrnet.c: network written from the published
+reference implementation with numpy, run on a small model whose
 weights come from a PRNG that C test
 
     python3 tests/gen_asrnet_vectors.py > tests/asrnet_vectors.inc
 
 Also usable as a library: gen_weights(), forward()
 """
+
 import math
 import struct
 import sys
@@ -196,7 +197,7 @@ def encoder(w, c, audio):
 
 
 def rope(x, pos, c, hd):
-    # x [heads, hd]; HF: partial rotary on the first `rot` dims, interleaved pairs
+    # x [heads, hd]; reference: partial rotary on the first `rot` dims, interleaved pairs
     rot = int(hd * c["partial"])
     inv = 1.0 / (c["theta"] ** (np.arange(0, rot, 2, dtype=np.float64) / rot))
     ang = pos * inv

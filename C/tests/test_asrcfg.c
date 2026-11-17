@@ -28,7 +28,7 @@ static int same(const an_config_t *a, const an_config_t *b) {
   return ok;
 }
 
-// File as transformers writes it for tiny model
+// File as published for smallest model
 // A config.json as published for smallest model (keys parser does not read,
 // like names of model class, are skipped)
 static const char *TINY =
