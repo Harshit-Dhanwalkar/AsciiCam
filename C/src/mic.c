@@ -20,8 +20,10 @@ static void mic_fail(char *err, size_t errn, const char *what,
   for (const char *s = what; *s && k + 1 < errn; s++) {
     err[k++] = *s;
   }
-  for (const char *s = path; path && *s && k + 1 < errn; s++) {
-    err[k++] = *s;
+  if (path) {
+    for (const char *s = path; *s && k + 1 < errn; s++) {
+      err[k++] = *s;
+    }
   }
 
   err[k] = 0;
@@ -194,7 +196,7 @@ int mic_open(mic_t *m, const char *dev, char *err, size_t errn) {
   memset(m, 0, sizeof *m);
   m->fd = -1;
 
-  char path[128];
+  char path[128] = {0};
   if (mic_device_path(dev, path, sizeof path) != 0) {
     mic_fail(err, errn, "not a sound device (use default, hw:C,D or a path): ",
              dev ? dev : "");
@@ -262,7 +264,7 @@ long mic_read(mic_t *m, int16_t *out, size_t n) {
   ssize_t r = read(m->fd, m->raw, bytes);
   if (r < 0) {
     if (errno == MIC_EPIPE) {
-      // overrun: card stopped, so prepare and start it again
+      // Overrun: card stopped, so prepare and start it again
       if (ioctl(m->fd, MIC_IOC_PREPARE, 0) < 0 ||
           ioctl(m->fd, MIC_IOC_START, 0) < 0) {
         return -1;
