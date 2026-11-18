@@ -137,11 +137,11 @@ static int nn_has_avx2(void) {
     unsigned ecx1;
     unsigned edx1;
     __cpuid_count(1, 0, eax1, ebx1, ecx1, edx1);
-    int osxsave = (ecx1 >> 27) & 1;
+    int osxsave = (int)((ecx1 >> 27u) & 1u);
     if (osxsave) {
       unsigned xcr0_lo, xcr0_hi;
       __asm__ volatile("xgetbv" : "=a"(xcr0_lo), "=d"(xcr0_hi) : "c"(0));
-      int os_avx = (xcr0_lo & 0x6) == 0x6; // XMM and YMM state both saved
+      int os_avx = (int)(xcr0_lo & 0x6u) == 0x6; // XMM and YMM state both saved
 
       if (os_avx) {
         unsigned eax7;
@@ -149,7 +149,7 @@ static int nn_has_avx2(void) {
         unsigned ecx7;
         unsigned edx7;
         __cpuid_count(7, 0, eax7, ebx7, ecx7, edx7);
-        cached = (ebx7 >> 5) & 1;
+        cached = (int)((ebx7 >> 5u) & 1u);
       }
     }
   }
