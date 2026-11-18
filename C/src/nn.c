@@ -30,12 +30,47 @@ float nn_dot(const float *a, const float *b, size_t n) {
   return r;
 }
 
+// Four output units share each load of the input row, so the input is read once
+// per four dot products instead of once per product
 void nn_linear(float *y, const float *x, size_t n, const float *w,
                const float *b, size_t in, size_t out) {
   for (size_t r = 0; r < n; r++) {
     const float *xr = x + r * in;
     float *yr = y + r * out;
-    for (size_t o = 0; o < out; o++) {
+    size_t o = 0;
+    for (; o + 4 <= out; o += 4) {
+      const float *w0 = w + o * in;
+      const float *w1 = w0 + in;
+      const float *w2 = w1 + in;
+      const float *w3 = w2 + in;
+      v4 s0 = {0, 0, 0, 0}, s1 = s0, s2 = s0, s3 = s0;
+      size_t i = 0;
+      for (; i + 4 <= in; i += 4) {
+        v4 xv = *(const v4 *)(xr + i);
+        s0 += xv * *(const v4 *)(w0 + i);
+        s1 += xv * *(const v4 *)(w1 + i);
+        s2 += xv * *(const v4 *)(w2 + i);
+        s3 += xv * *(const v4 *)(w3 + i);
+      }
+
+      float a0 = s0[0] + s0[1] + s0[2] + s0[3];
+      float a1 = s1[0] + s1[1] + s1[2] + s1[3];
+      float a2 = s2[0] + s2[1] + s2[2] + s2[3];
+      float a3 = s3[0] + s3[1] + s3[2] + s3[3];
+      for (; i < in; i++) {
+        a0 += xr[i] * w0[i];
+        a1 += xr[i] * w1[i];
+        a2 += xr[i] * w2[i];
+        a3 += xr[i] * w3[i];
+      }
+
+      yr[o] = a0 + (b ? b[o] : 0.0f);
+      yr[o + 1] = a1 + (b ? b[o + 1] : 0.0f);
+      yr[o + 2] = a2 + (b ? b[o + 2] : 0.0f);
+      yr[o + 3] = a3 + (b ? b[o + 3] : 0.0f);
+    }
+
+    for (; o < out; o++) {
       yr[o] = nn_dot(xr, w + o * in, in) + (b ? b[o] : 0.0f);
     }
   }
