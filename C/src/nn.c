@@ -6,6 +6,10 @@
 
 #include "nl_math.h"
 
+#if defined(__x86_64__) || defined(__i386__)
+#include <cpuid.h>
+#endif
+
 typedef float v4 __attribute__((vector_size(16), aligned(4)));
 
 float nn_dot(const float *a, const float *b, size_t n) {
@@ -30,10 +34,10 @@ float nn_dot(const float *a, const float *b, size_t n) {
   return r;
 }
 
-// Four output units share each load of the input row, so the input is read once
-// per four dot products instead of once per product
-void nn_linear(float *y, const float *x, size_t n, const float *w,
-               const float *b, size_t in, size_t out) {
+// NOTE: 4 output units share each load of the input row, so the input is read
+// once per four dot products instead of once per product
+static void nn_linear_sse(float *y, const float *x, size_t n, const float *w,
+                          const float *b, size_t in, size_t out) {
   for (size_t r = 0; r < n; r++) {
     const float *xr = x + r * in;
     float *yr = y + r * out;
@@ -74,6 +78,90 @@ void nn_linear(float *y, const float *x, size_t n, const float *w,
       yr[o] = nn_dot(xr, w + o * in, in) + (b ? b[o] : 0.0f);
     }
   }
+}
+
+// NOTE: 8-wide AVX2 twin of nn_linear_sse: 2 output units per pass, each doing
+// one 8-float fused multiply-add per 8 inputs instead of four 4-float
+// multiplies and an add Only called once nn_has_avx2() has approved
+#if defined(__x86_64__) || defined(__i386__)
+typedef float v8 __attribute__((vector_size(32), aligned(4)));
+
+__attribute__((target("avx2,fma"))) static void
+nn_linear_avx2(float *y, const float *x, size_t n, const float *w,
+               const float *b, size_t in, size_t out) {
+  for (size_t r = 0; r < n; r++) {
+    const float *xr = x + r * in;
+    float *yr = y + r * out;
+    size_t o = 0;
+    for (; o + 2 <= out; o += 2) {
+      const float *w0 = w + o * in;
+      const float *w1 = w0 + in;
+      v8 s0 = {0}, s1 = {0};
+      size_t i = 0;
+      for (; i + 8 <= in; i += 8) {
+        v8 xv = *(const v8 *)(xr + i);
+        s0 += xv * *(const v8 *)(w0 + i);
+        s1 += xv * *(const v8 *)(w1 + i);
+      }
+
+      float a0 = s0[0] + s0[1] + s0[2] + s0[3] + s0[4] + s0[5] + s0[6] + s0[7];
+      float a1 = s1[0] + s1[1] + s1[2] + s1[3] + s1[4] + s1[5] + s1[6] + s1[7];
+      for (; i < in; i++) {
+        a0 += xr[i] * w0[i];
+        a1 += xr[i] * w1[i];
+      }
+
+      yr[o] = a0 + (b ? b[o] : 0.0f);
+      yr[o + 1] = a1 + (b ? b[o + 1] : 0.0f);
+    }
+
+    for (; o < out; o++) {
+      yr[o] = nn_dot(xr, w + o * in, in) + (b ? b[o] : 0.0f);
+    }
+  }
+}
+
+// cpuid leaf 7, ebx bit 5 is AVX2; OS support (XGETBV) has to be checked too,
+// since a CPU can support AVX2 while the kernel has not enabled the extended
+// state that holds its registers
+static int nn_has_avx2(void) {
+  static int cached = -1;
+  if (cached >= 0) {
+    return cached;
+  }
+
+  cached = 0;
+  unsigned eax, ebx, ecx, edx;
+  if (__get_cpuid_max(0, 0) >= 7) {
+    __cpuid_count(1, 0, eax, ebx, ecx, edx);
+    int osxsave = (ecx >> 27) & 1;
+    if (osxsave) {
+      unsigned xcr0_lo, xcr0_hi;
+      __asm__ volatile("xgetbv" : "=a"(xcr0_lo), "=d"(xcr0_hi) : "c"(0));
+      int os_avx = (xcr0_lo & 0x6) == 0x6; // XMM and YMM state both saved
+
+      if (os_avx) {
+        __cpuid_count(7, 0, eax, ebx, ecx, edx);
+        cached = (ebx >> 5) & 1;
+      }
+    }
+  }
+
+  return cached;
+}
+#endif
+
+void nn_linear(float *y, const float *x, size_t n, const float *w,
+               const float *b, size_t in, size_t out) {
+#if defined(__x86_64__) || defined(__i386__)
+  if (nn_has_avx2()) {
+    nn_linear_avx2(y, x, n, w, b, in, out);
+
+    return;
+  }
+#endif
+
+  nn_linear_sse(y, x, n, w, b, in, out);
 }
 
 void nn_layernorm(float *y, const float *x, size_t n, size_t dim, float eps,
