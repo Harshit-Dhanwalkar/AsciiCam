@@ -121,9 +121,9 @@ nn_linear_avx2(float *y, const float *x, size_t n, const float *w,
   }
 }
 
-// cpuid leaf 7, ebx bit 5 is AVX2; OS support (XGETBV) has to be checked too,
-// since a CPU can support AVX2 while the kernel has not enabled the extended
-// state that holds its registers
+// NOTE: cpuid leaf 7, ebx bit 5 is AVX2; OS support (XGETBV) has to be checked
+// too, since a CPU can support AVX2 while kernel has not enabled extended state
+// that holds its registers
 static int nn_has_avx2(void) {
   static int cached = -1;
   if (cached >= 0) {
@@ -131,18 +131,25 @@ static int nn_has_avx2(void) {
   }
 
   cached = 0;
-  unsigned eax, ebx, ecx, edx;
   if (__get_cpuid_max(0, 0) >= 7) {
-    __cpuid_count(1, 0, eax, ebx, ecx, edx);
-    int osxsave = (ecx >> 27) & 1;
+    unsigned eax1;
+    unsigned ebx1;
+    unsigned ecx1;
+    unsigned edx1;
+    __cpuid_count(1, 0, eax1, ebx1, ecx1, edx1);
+    int osxsave = (ecx1 >> 27) & 1;
     if (osxsave) {
       unsigned xcr0_lo, xcr0_hi;
       __asm__ volatile("xgetbv" : "=a"(xcr0_lo), "=d"(xcr0_hi) : "c"(0));
       int os_avx = (xcr0_lo & 0x6) == 0x6; // XMM and YMM state both saved
 
       if (os_avx) {
-        __cpuid_count(7, 0, eax, ebx, ecx, edx);
-        cached = (ebx >> 5) & 1;
+        unsigned eax7;
+        unsigned ebx7;
+        unsigned ecx7;
+        unsigned edx7;
+        __cpuid_count(7, 0, eax7, ebx7, ecx7, edx7);
+        cached = (ebx7 >> 5) & 1;
       }
     }
   }
