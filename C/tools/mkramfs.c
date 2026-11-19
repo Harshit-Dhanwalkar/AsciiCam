@@ -43,7 +43,15 @@ static uint8_t *slurp(const char *path, size_t *len) {
   }
 
   size_t cap = 4096, n = 0;
-  uint8_t *buf = malloc(cap);
+  uint8_t *grown = realloc(buf, cap);
+  if (!grown) {
+    free(buf);
+    buf = NULL;
+
+    break;
+  }
+
+  buf = grown;
   while (buf) {
     size_t r = fread(buf + n, 1, cap - n, f);
     n += r;
@@ -97,7 +105,7 @@ int main(int argc, char **argv) {
 
   for (size_t i = 0; i < n; i++) {
     char *arg = argv[i + 2];
-    char *eq = strchr(arg, '=');
+    const char *eq = strchr(arg, '=');
     if (!eq || eq == arg || !eq[1]) {
       return die("argument is not NAME=FILE", arg);
     }
