@@ -368,6 +368,7 @@ test: all
 	$(CC) -O2 $(TEST_FLAGS) tests/test_netenc.c $(SRCDIR)/netenc.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/netenc_O2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_copy_file.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/copy_file
 	$(CC) -O2 $(TEST_FLAGS) tests/test_plugin_catalog.c $(SRCDIR)/plugin_catalog.c $(SRCDIR)/plugin_picker.c $(SRCDIR)/plugins.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/catalog
+	$(CC) -O2 $(TEST_FLAGS) tests/test_plugin_embedded.c $(SRCDIR)/plugin_catalog.c $(SRCDIR)/plugin_picker.c $(SRCDIR)/plugins.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/plugin_embedded
 	$(CC) -O0 $(TEST_FLAGS) tests/test_nl_gc.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/gc_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_gc.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/gc_O2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_thread.c $(TEST_LIBS) -o $(TESTDIR)/thread
@@ -394,6 +395,7 @@ test: all
 	$(TESTDIR)/reinit
 	$(TESTDIR)/app_paths
 	$(TESTDIR)/catalog
+	$(TESTDIR)/plugin_embedded $(BUILDDIR)/invert.so
 	$(TESTDIR)/demo
 	$(TESTDIR)/image_O0
 	$(TESTDIR)/image_O2
