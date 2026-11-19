@@ -14,6 +14,7 @@
 #include "netenc.h"
 #include "netview.h"
 #include "plugin_catalog.h"
+#include "plugin_embedded.h"
 #include "plugin_picker.h"
 #include "plugins.h"
 #include "recorder.h"
@@ -180,7 +181,7 @@ static int my_atoi(const char *s) {
 
 // Usage
 static void print_usage(const char *prog) {
-  fprintf(
+ fprintf(
       stderr,
       "Usage: %s [options]\n"
       "\n"
@@ -240,7 +241,7 @@ static void print_usage(const char *prog) {
       "  -W <width>    ASCII output columns     (default: %d)                \n"
       "  -H <height>   ASCII output rows        (default: %d)                \n"
       "  -s <chars>    custom charset string    (default: \"%s\")            \n"
-      "  -p <path>     filter plugin .so path   (repeatable)                 \n"
+      "  -p <path>     filter plugin .so path or ramfs:<name> (repeatable)   \n"
       "  -L <dir>      plugin source dir for live picker (default: %s)       \n"
       "  -m <mode>     render mode: braille|blocks|ascii|halfblock|dots      \n"
       "  -k <dir>      charset directory (hot-reloadable .txt ramps)         \n"
@@ -452,7 +453,7 @@ static void load_config_file(const char *path, char **device, int *ascii_w,
       }
 
       if (*eq != '=') {
-        fprintf(stderr, "[config] malformed line (missing '='): %s\n", l);
+       fprintf(stderr, "[config] malformed line (missing '='): %s\n", l);
       } else {
         *eq = '\0';
         char *key = l;
@@ -526,11 +527,11 @@ static void load_config_file(const char *path, char **device, int *ascii_w,
             plugin_paths[*plugin_path_count] = cfg_plugins[*plugin_path_count];
             (*plugin_path_count)++;
           } else {
-            fprintf(stderr, "[config] max %d plugins, ignoring extra: %s\n",
+           fprintf(stderr, "[config] max %d plugins, ignoring extra: %s\n",
                     MAX_PLUGINS, val);
           }
         } else {
-          fprintf(stderr, "[config] unknown key '%s', ignoring\n", key);
+         fprintf(stderr, "[config] unknown key '%s', ignoring\n", key);
         }
       }
     }
@@ -1130,7 +1131,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (i + 1 >= argc || nl_strlen(argv[i + 1]) > 500) {
-      fprintf(stderr, "--image needs a picture file or a folder of them\n");
+     fprintf(stderr, "--image needs a picture file or a folder of them\n");
 
       return 2;
     }
@@ -1154,7 +1155,7 @@ int main(int argc, char *argv[]) {
 
     long v = i + 1 < argc ? parse_count(argv[i + 1], 86400) : -1;
     if (v < 0) {
-      fprintf(stderr, "--slide needs a number of seconds (0 = keys only)\n");
+     fprintf(stderr, "--slide needs a number of seconds (0 = keys only)\n");
 
       return 2;
     }
@@ -1180,7 +1181,7 @@ int main(int argc, char *argv[]) {
 
     long v = i + 1 < argc ? parse_count(argv[i + 1], 1000000) : -1;
     if (v < 0) {
-      fprintf(stderr, "--net needs a number of kbit/s (0 = lossless)\n");
+     fprintf(stderr, "--net needs a number of kbit/s (0 = lossless)\n");
 
       return 2;
     }
@@ -1204,7 +1205,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (i + 1 >= argc) {
-      fprintf(stderr, "--curve needs points like \"0,0 64,40 255,255\", a "
+     fprintf(stderr, "--curve needs points like \"0,0 64,40 255,255\", a "
                       "preset name or @file\n");
 
       return 2;
@@ -1227,7 +1228,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (i + 1 >= argc) {
-      fprintf(stderr, "--debug-input needs a file name\n");
+     fprintf(stderr, "--debug-input needs a file name\n");
 
       return 2;
     }
@@ -1237,7 +1238,7 @@ int main(int argc, char *argv[]) {
              (int)((unsigned)O_WRONLY | (unsigned)O_CREAT | (unsigned)O_TRUNC),
              0600);
     if (input_log_fd < 0) {
-      fprintf(stderr, "--debug-input: cannot write %s\n", argv[i + 1]);
+     fprintf(stderr, "--debug-input: cannot write %s\n", argv[i + 1]);
 
       return 2;
     }
@@ -1263,7 +1264,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (i + 1 >= argc) {
-      fprintf(stderr, "%s needs a value\n", argv[i]);
+     fprintf(stderr, "%s needs a value\n", argv[i]);
 
       return 2;
     }
@@ -1288,7 +1289,7 @@ int main(int argc, char *argv[]) {
 
       if (a < VCAM_CELL_W || b < VCAM_CELL_H || a > 4096 || b > 4096 ||
           a % 2 != 0 || *z) {
-        fprintf(stderr, "--vcam-size needs WxH, W even, e.g. 1280x720\n");
+       fprintf(stderr, "--vcam-size needs WxH, W even, e.g. 1280x720\n");
 
         return 2;
       }
@@ -1317,7 +1318,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (i + 1 >= argc) {
-      fprintf(stderr, "%s needs an address: 7000 or host:7000\n", argv[i]);
+     fprintf(stderr, "%s needs an address: 7000 or host:7000\n", argv[i]);
 
       return 2;
     }
@@ -1369,7 +1370,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (i + 1 >= argc) {
-      fprintf(stderr, "%s needs a value\n", argv[i]);
+     fprintf(stderr, "%s needs a value\n", argv[i]);
 
       return 2;
     }
@@ -1419,7 +1420,7 @@ int main(int argc, char *argv[]) {
 
     int need = is_list ? 0 : is_enroll ? 2 : 1;
     if (i + need >= argc) {
-      fprintf(stderr, "%s needs %s\n", argv[i],
+     fprintf(stderr, "%s needs %s\n", argv[i],
               is_enroll ? "a word and an audio file" : "a value");
 
       return 2;
@@ -1464,14 +1465,14 @@ int main(int argc, char *argv[]) {
   }
 
   if ((room_addr || call_addr) && (serve_addr || watch_addr)) {
-    fprintf(stderr, "--room and --call do not go together with --serve and "
+   fprintf(stderr, "--room and --call do not go together with --serve and "
                     "--watch\n");
 
     return 2;
   }
 
   if (room_addr && call_addr) {
-    fprintf(stderr, "--room and --call are two programs: run one of each\n");
+   fprintf(stderr, "--room and --call are two programs: run one of each\n");
 
     return 2;
   }
@@ -1489,14 +1490,14 @@ int main(int argc, char *argv[]) {
     uint32_t sip = 0;
     int sport = 0;
     if (nv_parse_addr(serve_addr, &sip, &sport) != 0 || sport == 0) {
-      fprintf(stderr, "--serve needs a port (7000) or an IPv4 address and "
+     fprintf(stderr, "--serve needs a port (7000) or an IPv4 address and "
                       "port (127.0.0.1:7000, *:7000)\n");
 
       return 2;
     }
 
     if (nv_listen(&serve, sip, sport) != 0) {
-      fprintf(stderr, "--serve: cannot listen on %s (in use?)\n", serve_addr);
+     fprintf(stderr, "--serve: cannot listen on %s (in use?)\n", serve_addr);
 
       return 2;
     }
@@ -1505,7 +1506,7 @@ int main(int argc, char *argv[]) {
     netenc_init(&serve_delta_enc, 0, 0);
     netenc_init(&serve_key_enc, 0, 0);
     if (sip != 0x7f000001u) {
-      fprintf(stderr,
+     fprintf(stderr,
               "--serve: listening beyond this machine without a password: "
               "anyone who can reach port %d sees the picture\n",
               sport);
@@ -1514,13 +1515,13 @@ int main(int argc, char *argv[]) {
 
   if (vcam_path) {
     if (vcam_init(&vcam, vcam_w, vcam_h) < 0) {
-      fprintf(stderr, "--vcam: cannot set up a %dx%d canvas\n", vcam_w, vcam_h);
+     fprintf(stderr, "--vcam: cannot set up a %dx%d canvas\n", vcam_w, vcam_h);
 
       return 2;
     }
 
     if (vcam_open(&vcam, vcam_path) < 0) {
-      fprintf(stderr, "--vcam: cannot open %s\n", vcam_path);
+     fprintf(stderr, "--vcam: cannot open %s\n", vcam_path);
       vcam_close(&vcam);
 
       return 2;
@@ -1547,7 +1548,7 @@ int main(int argc, char *argv[]) {
 
     int width = takes_value ? 2 : 1;
     if (takes_value && i + 1 >= argc) {
-      fprintf(stderr, "%s needs a value\n", argv[i]);
+     fprintf(stderr, "%s needs a value\n", argv[i]);
 
       return 2;
     }
@@ -1559,7 +1560,7 @@ int main(int argc, char *argv[]) {
     } else {
       play_speed = parse_speed(argv[i + 1]);
       if (play_speed < 0.0) {
-        fprintf(stderr, "--speed needs a number from 0.0625 to 16\n");
+       fprintf(stderr, "--speed needs a number from 0.0625 to 16\n");
 
         return 2;
       }
@@ -1589,7 +1590,7 @@ int main(int argc, char *argv[]) {
   if (play_path) {
     int probe = open(play_path, O_RDONLY, 0);
     if (probe < 0) {
-      fprintf(stderr, "cannot read %s\n", play_path);
+     fprintf(stderr, "cannot read %s\n", play_path);
 
       return 1;
     }
@@ -1605,7 +1606,7 @@ int main(int argc, char *argv[]) {
     query_term_size(&tw, &th);
 
     if (rw > 0 && ((tw > 0 && tw < rw) || (th > 0 && th < rh))) {
-      fprintf(stderr,
+     fprintf(stderr,
               "note: recorded at %dx%d, this terminal is %dx%d: the picture "
               "will be cut at the edge; enlarge the window first\n",
               rw, rh, tw, th);
@@ -1623,7 +1624,7 @@ int main(int argc, char *argv[]) {
     (void)write(STDOUT_FILENO, WRAP_ON, sizeof(WRAP_ON) - 1);
     (void)write(STDOUT_FILENO, SCREEN_LEAVE, sizeof(SCREEN_LEAVE) - 1);
     if (rc < 0) {
-      fprintf(stderr, "cannot read %s\n", play_path);
+     fprintf(stderr, "cannot read %s\n", play_path);
 
       return 1;
     }
@@ -1633,7 +1634,7 @@ int main(int argc, char *argv[]) {
 
   if (watch_addr) {
     if (serve_on) {
-      fprintf(stderr, "--watch and --serve do not go together\n");
+     fprintf(stderr, "--watch and --serve do not go together\n");
       nv_close(&serve);
 
       return 2;
@@ -1641,7 +1642,7 @@ int main(int argc, char *argv[]) {
 
     int sock = nv_connect(watch_addr);
     if (sock < 0) {
-      fprintf(stderr,
+     fprintf(stderr,
               "--watch: cannot connect to %s (is --serve running there? over "
               "ssh: ssh -L 7000:localhost:7000 host)\n",
               watch_addr);
@@ -1735,7 +1736,7 @@ int main(int argc, char *argv[]) {
     (void)write(STDOUT_FILENO, WRAP_ON, sizeof(WRAP_ON) - 1);
     (void)write(STDOUT_FILENO, SCREEN_LEAVE, sizeof(SCREEN_LEAVE) - 1);
     if (closed) {
-      fprintf(stderr, "--watch: %s closed the connection\n", watch_addr);
+     fprintf(stderr, "--watch: %s closed the connection\n", watch_addr);
     }
 
     return closed ? 1 : 0;
@@ -2030,6 +2031,15 @@ int main(int argc, char *argv[]) {
     catalog_add_prebuilt(&catalog, paths.prebuilt_dir[i]);
   }
 
+  // plugins linked into this binary: last resort after sources, cached builds
+  // and prebuilt directories
+  {
+    nl_ramfs_t builtin;
+    if (plugin_archive(&builtin) == 0) {
+      catalog_add_archive(&catalog, &builtin);
+    }
+  }
+
   picker_t picker;
   nl_memset(&picker, 0, sizeof(picker));
 
@@ -2041,7 +2051,7 @@ int main(int argc, char *argv[]) {
   capsrc_init(&caps_src);
   capview_init(&caps_view);
   int caps_show = 0;
-  char *caps_pic = NULL; // picture + caption bars for vcam / viewers
+  char *caps_pic = NULL; // Picture + Caption bars for vcam / viewers
   size_t caps_pic_cap = 0;
   char caps_path[256];
   caps_path[0] = '\0';
@@ -2119,7 +2129,7 @@ int main(int argc, char *argv[]) {
   if (webcam_init(&cam, device, cap_w, cap_h) < 0) {
     nl_perror("webcam_init");
     if (!demo_is_device(device)) {
-      fprintf(stderr,
+     fprintf(stderr,
               "no usable camera at %s. To try AsciiCam without one: "
               "%s --demo\n",
               device, argv[0]);
@@ -2128,7 +2138,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  fprintf(stderr,
+ fprintf(stderr,
           "Device: %s | capture %dx%d | ASCII %dx%d | %d fps | %d "
           "plugin(s) | mode: %s%s%s%s | gamma: %d\n",
           device, cam.width, cam.height, ascii_w, ascii_h, fps, plugin_count,
@@ -2209,7 +2219,7 @@ int main(int argc, char *argv[]) {
       nl_free(gray);
       gray = NULL;
     } else {
-      fprintf(stderr, "capture thread unavailable, capturing inline\n");
+     fprintf(stderr, "capture thread unavailable, capturing inline\n");
     }
   }
 #else
@@ -3018,7 +3028,7 @@ int main(int argc, char *argv[]) {
       capture_frame_t *cf = NULL;
       int got = capture_pipe_acquire(&cap_pipe, 100, &cf);
       if (got < 0) {
-        fprintf(stderr, "capture thread failed\n");
+       fprintf(stderr, "capture thread failed\n");
 
         break;
       }
@@ -3138,7 +3148,7 @@ int main(int argc, char *argv[]) {
     int len = grayscale_to_ascii(frame, rgb, cam.width, cam.height, subpixel_w,
                                  subpixel_h, out_buf, out_size, &opts);
     if (len > (int)out_size) {
-      fprintf(stderr, "WARNING: len=%d > out_size=%zu\n", len, out_size);
+     fprintf(stderr, "WARNING: len=%d > out_size=%zu\n", len, out_size);
     }
 
     if (len > 0) {
@@ -3156,7 +3166,7 @@ int main(int argc, char *argv[]) {
           net_buf_cap = net_buf ? need : 0;
           if (!net_buf && !net_warned) {
             net_warned = 1;
-            fprintf(stderr, "--net: out of memory, sending full frames\n");
+           fprintf(stderr, "--net: out of memory, sending full frames\n");
           }
         }
 
@@ -3408,10 +3418,10 @@ int main(int argc, char *argv[]) {
   mouse_disable();
   term_restore();
 
-  fprintf(stderr, "Stopped.\n");
+ fprintf(stderr, "Stopped.\n");
 
   if (vcam_on) {
-    fprintf(stderr, "Virtual camera: %u frames sent to %s\n",
+   fprintf(stderr, "Virtual camera: %u frames sent to %s\n",
             (unsigned)vcam.frames, vcam_path);
     vcam_close(&vcam);
   }
@@ -3420,7 +3430,7 @@ int main(int argc, char *argv[]) {
     double secs = 0;
     int frames = rec_stop(&rec, rec_mono_ns(), &secs);
     nl_snprintf(saved_cast, sizeof(saved_cast), "%s", rec.path);
-    fprintf(stderr, "Recording ended: %d frames, %d s\n", frames, (int)secs);
+   fprintf(stderr, "Recording ended: %d frames, %d s\n", frames, (int)secs);
   }
 
   if (serve_on) {
@@ -3432,17 +3442,16 @@ int main(int argc, char *argv[]) {
   }
 
   if (saved_cast[0]) {
-    fprintf(stderr, "Recording saved: %s\n", saved_cast);
+   fprintf(stderr, "Recording saved: %s\n", saved_cast);
   }
 
   if (saved_shot[0]) {
-    fprintf(stderr, "Screenshot saved: %s\n", saved_shot);
+   fprintf(stderr, "Screenshot saved: %s\n", saved_shot);
   }
 
   // Restore main screen, reset attributes, and explicitly show cursor
   // \033[?1049l = erase screen, \033[0m = cursor home, \033[?25h = show
   // cursor
-  // static const char CLEANUP[] = SYNC_END "\033[?1049l\033[0m\033[?25h";
   static const char CLEANUP[] = "\033[?1049l\033[0m\033[?25h";
   (void)write(STDOUT_FILENO, CLEANUP, sizeof(CLEANUP) - 1);
 

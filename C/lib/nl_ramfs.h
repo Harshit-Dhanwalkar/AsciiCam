@@ -298,9 +298,10 @@ extern const uint8_t nl_ramfs_blob_end[] __attribute__((weak));
 // Archive linked in by src/ramfs_blob.S
 // Return -1 if none was linked or it is damaged
 static inline int nl_ramfs_builtin(nl_ramfs_t *fs) {
-  const uint8_t *start = nl_ramfs_blob_start;
-  const uint8_t *end = nl_ramfs_blob_end;
-  if (!start || !end || end < start) {
+  const uintptr_t start_addr = (uintptr_t)nl_ramfs_blob_start;
+  const uintptr_t end_addr = (uintptr_t)nl_ramfs_blob_end;
+
+  if (start_addr == 0 || end_addr == 0 || end_addr < start_addr) {
     fs->base = (const uint8_t *)0;
     fs->size = 0;
     fs->count = 0;
@@ -308,7 +309,8 @@ static inline int nl_ramfs_builtin(nl_ramfs_t *fs) {
     return -1;
   }
 
-  return nl_ramfs_init(fs, start, (size_t)(end - start));
+  return nl_ramfs_init(fs, (const void *)start_addr,
+                       (size_t)(end_addr - start_addr));
 }
 #else
 static inline int nl_ramfs_builtin(nl_ramfs_t *fs) {

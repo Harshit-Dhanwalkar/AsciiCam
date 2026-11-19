@@ -35,6 +35,7 @@
 #include "nl_hash.h"
 #include "plugin_build.h"
 #include "plugin_catalog.h"
+#include "plugin_embedded.h"
 
 _Static_assert(CATALOG_HASH_LEN == NL_SHA256_HEX_LEN,
                "plugin_catalog.h and nl_hash.h must agree on hash length");
@@ -987,6 +988,45 @@ int catalog_add_prebuilt(plugin_catalog_t *c, const char *dir) {
     nl_snprintf(e->log_path, sizeof(e->log_path), "%s/%s.log", c->cache_dir,
                 stem);
     e->state = PC_READY; // src_path stays empty: nothing to build from
+  }
+
+  return c->count;
+}
+
+int catalog_add_archive(plugin_catalog_t *c, const nl_ramfs_t *fs) {
+  for (uint32_t i = 0; i < fs->count; i++) {
+    const char *entry = NULL;
+    char stem[CATALOG_NAME_LEN];
+    if (nl_ramfs_entry(fs, i, &entry, NULL, NULL) < 0 ||
+        !plugin_embedded_stem(entry, stem, sizeof(stem))) {
+      continue;
+    }
+
+    char ref[CATALOG_PATH_LEN];
+    nl_snprintf(ref, sizeof(ref), "%s%s", PLUGIN_EMBEDDED_PREFIX, stem);
+
+    int at = catalog_find(c, stem);
+    if (at >= 0) {
+      catalog_entry_t *e = &c->e[at];
+      if (e->state == PC_AVAILABLE) {
+        cat_copy(e->so_path, sizeof(e->so_path), ref);
+        e->state = PC_READY;
+      }
+
+      continue;
+    }
+
+    if (c->count >= CATALOG_MAX || !path_fits(c->cache_dir, stem, 6)) {
+      continue;
+    }
+
+    catalog_entry_t *e = &c->e[c->count++];
+    nl_memset(e, 0, sizeof(*e));
+    cat_copy(e->name, sizeof(e->name), stem);
+    cat_copy(e->so_path, sizeof(e->so_path), ref);
+    nl_snprintf(e->log_path, sizeof(e->log_path), "%s/%s.log", c->cache_dir,
+                stem);
+    e->state = PC_READY; // No source: nothing to build from
   }
 
   return c->count;

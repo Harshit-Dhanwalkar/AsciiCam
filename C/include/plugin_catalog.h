@@ -16,6 +16,7 @@
  * Built file is .so, .dylib or .dll depending on platform
  */
 
+#include "nl_ramfs.h"
 #include "nl_types.h"
 
 #define CATALOG_MAX 64
@@ -95,6 +96,16 @@ int catalog_scan(plugin_catalog_t *c);
 // Call after catalog_scan; safe to repeat
 // Returns number of entries
 int catalog_add_prebuilt(plugin_catalog_t *c, const char *dir);
+
+// Add plugins linked into binary: archive entries "plugins/<name>.so" become
+// PC_READY entries whose so_path is "ramfs:<name>"
+// Last resort, so a cached build or a library from a prebuilt directory is
+// kept: an entry that has a source but no usable build is pointed at built-in
+// copy, one with a build keeps it, and a name catalog has never seen is added
+// with no source
+// Call after catalog_scan and catalog_add_prebuilt; safe to repeat
+// Returns number of entries
+int catalog_add_archive(plugin_catalog_t *c, const nl_ramfs_t *fs);
 
 // Index of entry called name, or -1
 int catalog_find(const plugin_catalog_t *c, const char *name);

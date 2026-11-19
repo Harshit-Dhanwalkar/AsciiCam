@@ -5,6 +5,7 @@
 #include "nl_defer.h"
 #include "nl_dlfcn.h"
 #include "nl_inotify.h"
+#include "plugin_embedded.h"
 
 // Windows opens files in text mode by default, which would mangle a DLL copied
 // byte by byte (CRLF translation, ^Z treated as EOF)
@@ -13,6 +14,55 @@
 #endif
 
 int plugin_log_stderr = 1;
+
+static const nl_ramfs_t *g_archive_override;
+
+void plugin_set_archive(const nl_ramfs_t *fs) { g_archive_override = fs; }
+
+int plugin_archive(nl_ramfs_t *out) {
+  if (g_archive_override) {
+    *out = *g_archive_override;
+
+    return out->base ? 0 : -1;
+  }
+
+  return nl_ramfs_builtin(out);
+}
+
+// "ramfs:<name>": bytes come from archive, there is no file to copy
+static void *open_embedded(const char *name, const char **err) {
+  char key[PLUGIN_EMBEDDED_DIR_LEN + 64 + PLUGIN_EMBEDDED_EXT_LEN + 1];
+  if (!plugin_embedded_name_ok(name, 64)) {
+    *err = "bad built-in plugin name";
+
+    return NULL;
+  }
+
+  nl_ramfs_t fs;
+  if (plugin_archive(&fs) < 0) {
+    *err = "no built-in plugins in this build";
+
+    return NULL;
+  }
+
+  nl_snprintf(key, sizeof(key), "%s%s%s", PLUGIN_EMBEDDED_DIR, name,
+              PLUGIN_EMBEDDED_EXT);
+
+  const void *img = NULL;
+  size_t len = 0;
+  if (nl_ramfs_find(&fs, key, &img, &len) < 0) {
+    *err = "not among the built-in plugins";
+
+    return NULL;
+  }
+
+  void *h = nl_dlopen_mem(img, len, RTLD_NOW | RTLD_LOCAL);
+  if (!h) {
+    *err = dlerror();
+  }
+
+  return h;
+}
 
 static int copy_file(const char *src, const char *dst) {
   NL_AUTOCLOSE int fd_src = open(src, O_RDONLY | O_BINARY);
@@ -115,12 +165,20 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
     pl->tmp_path[0] = '\0';
   }
 
-  make_private_copy(pl, path);
-  const char *load_path = pl->tmp_path[0] ? pl->tmp_path : path;
+  const char *derr = NULL;
+  if (plugin_is_embedded(path)) {
+    pl->dl_handle = open_embedded(path + PLUGIN_EMBEDDED_PREFIX_LEN, &derr);
+  } else {
+    make_private_copy(pl, path);
+    const char *load_path = pl->tmp_path[0] ? pl->tmp_path : path;
 
-  pl->dl_handle = dlopen(load_path, RTLD_NOW | RTLD_LOCAL);
+    pl->dl_handle = dlopen(load_path, RTLD_NOW | RTLD_LOCAL);
+    if (!pl->dl_handle) {
+      derr = dlerror();
+    }
+  }
+
   if (!pl->dl_handle) {
-    const char *derr = dlerror();
     if (plugin_log_stderr) {
       fprintf(stderr, "[plugin] dlopen: %s\n", derr);
     }
@@ -187,6 +245,14 @@ int plugin_load(plugin_loader_t *pl, const char *path) {
 
 void plugin_watch_init(plugin_loader_t *pl, const char *path) {
   nl_strncpy_safe(pl->path, path, sizeof(pl->path) - 1);
+
+  // Built-in plugin: nothing on disk to watch
+  if (plugin_is_embedded(path)) {
+    pl->inotify_fd = -1;
+    pl->inotify_wd = -1;
+
+    return;
+  }
 
   char dir_copy[256];
   nl_strncpy_safe(dir_copy, path, sizeof(dir_copy) - 1);
