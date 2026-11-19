@@ -179,6 +179,26 @@ endif
 PLUGIN_SRCS    := $(wildcard $(FILTERDIR)/*.c)
 PLUGIN_TARGETS := $(patsubst $(FILTERDIR)/%.c, $(BUILDDIR)/%.$(SO_EXT), $(PLUGIN_SRCS))
 
+# Plugins linked into binary (Linux): packed into one archive and included with .incbin,
+# so a lone binary still has every plugin (lib/nl_ramfs.h, src/ramfs_blob.S)
+# They are plugins/<name>.so inside, ramfs:<name> in use
+ifeq ($(PLATFORM),linux)
+.DEFAULT_GOAL := all # Rules below come before `all`; keep `make` meaning all
+RAMFS_TOOL := $(BUILDDIR)/mkramfs
+RAMFS_BIN  := $(BUILDDIR)/ramfs.bin
+RAMFS_OBJ  := $(OBJDIR)/ramfs_blob.o
+OBJECTS    += $(RAMFS_OBJ)
+
+$(RAMFS_TOOL): tools/mkramfs.c $(LIBDIR)/nl_ramfs.h | $(BUILDDIR)
+	$(CC) -O2 $< -o $@
+
+$(RAMFS_BIN): $(RAMFS_TOOL) $(PLUGIN_TARGETS)
+	$(RAMFS_TOOL) $@ $(foreach p,$(PLUGIN_TARGETS),plugins/$(notdir $(p))=$(p))
+
+$(RAMFS_OBJ): $(SRCDIR)/ramfs_blob.S $(RAMFS_BIN) | $(OBJDIR)
+	$(CC) -DNL_RAMFS_FILE='"$(RAMFS_BIN)"' -c $< -o $@
+endif
+
 .PHONY: all run plugins clean sanitize sanitize-run info
 
 all: $(TARGET) plugins
@@ -252,6 +272,7 @@ ASAN_SRCS := $(CORE_SRCS) $(PLAT_SRC) $(LIBSRCS)
 
 ASAN_OBJECTS := $(patsubst $(SRCDIR)/%.c, $(ASAN_OBJDIR)/%.o,     $(filter $(SRCDIR)/%.c, $(ASAN_SRCS)))
 ASAN_OBJECTS += $(patsubst $(LIBDIR)/%.c, $(ASAN_OBJDIR)/lib_%.o, $(filter $(LIBDIR)/%.c, $(ASAN_SRCS)))
+ASAN_OBJECTS += $(RAMFS_OBJ) # Data only, nothing to instrument
 
 $(ASAN_OBJDIR):
 	mkdir -p $(ASAN_OBJDIR)
