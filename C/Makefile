@@ -313,6 +313,7 @@ test: all
 	$(CC) $(TEST_FLAGS) tests/test_nl_slice.c $(TEST_LIBS) -o $(TESTDIR)/slice
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_slice.c $(TEST_LIBS) -o $(TESTDIR)/slice_O2
 	$(CC) $(TEST_FLAGS) tests/test_nl_dlfcn.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/dlfcn
+	$(CC) -O2 $(TEST_FLAGS) tests/test_dlopen_mem.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/dlopen_mem
 	$(CC) $(TEST_FLAGS) tests/fuzz_nolibc.c $(LIBDIR)/nl_getopt.c $(TEST_LIBS) -o $(TESTDIR)/fuzz
 	$(CC) -O2 $(TEST_FLAGS) tests/fuzz_elf.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/fuzz_elf
 	$(CC) $(TEST_FLAGS) tests/test_mouse.c $(SRCDIR)/mouse.c $(TEST_LIBS) -o $(TESTDIR)/mouse
@@ -386,6 +387,7 @@ test: all
 	$(TESTDIR)/ramfs_O2
 	$(TESTDIR)/copy_file
 	$(TESTDIR)/dlfcn build
+	$(TESTDIR)/dlopen_mem $(BUILDDIR)/invert.so
 	for seed in 1 2 3; do $(TESTDIR)/fuzz 100000 $$seed || exit 1; done
 	for so in edge_detect invert threshold; do $(TESTDIR)/fuzz_elf $(BUILDDIR)/$$so.so 2000 1 $(TESTDIR)/fuzz_elf.tmp || exit 1; done
 	$(TESTDIR)/mouse
