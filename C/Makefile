@@ -308,6 +308,8 @@ test: all
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_defer.c $(TEST_LIBS) -o $(TESTDIR)/defer_O2
 	$(CC) $(TEST_FLAGS) tests/test_nl_hash.c $(TEST_LIBS) -o $(TESTDIR)/hash
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_hash.c $(TEST_LIBS) -o $(TESTDIR)/hash_O2
+	$(CC) -O0 $(TEST_FLAGS) tests/test_nl_ramfs.c $(TEST_LIBS) -o $(TESTDIR)/ramfs_O0
+	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_ramfs.c $(TEST_LIBS) -o $(TESTDIR)/ramfs_O2
 	$(CC) $(TEST_FLAGS) tests/test_nl_slice.c $(TEST_LIBS) -o $(TESTDIR)/slice
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_slice.c $(TEST_LIBS) -o $(TESTDIR)/slice_O2
 	$(CC) $(TEST_FLAGS) tests/test_nl_dlfcn.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/dlfcn
@@ -380,6 +382,8 @@ test: all
 	$(TESTDIR)/defer_O2
 	$(TESTDIR)/hash
 	$(TESTDIR)/hash_O2
+	$(TESTDIR)/ramfs_O0
+	$(TESTDIR)/ramfs_O2
 	$(TESTDIR)/copy_file
 	$(TESTDIR)/dlfcn build
 	for seed in 1 2 3; do $(TESTDIR)/fuzz 100000 $$seed || exit 1; done

@@ -361,6 +361,8 @@ static int run_tests(void) {
       {"defer_O2", "-O2", "", "tests/test_nl_defer.c", {NULL}},
       {"hash", "-O0", "", "tests/test_nl_hash.c", {NULL}},
       {"hash_O2", "-O2", "", "tests/test_nl_hash.c", {NULL}},
+      {"ramfs_O0", "-O0", "", "tests/test_nl_ramfs.c", {NULL}},
+      {"ramfs_O2", "-O2", "", "tests/test_nl_ramfs.c", {NULL}},
       {"fuzz_elf",
        "-O2",
        "",
