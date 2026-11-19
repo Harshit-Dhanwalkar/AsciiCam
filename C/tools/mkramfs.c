@@ -43,36 +43,45 @@ static uint8_t *slurp(const char *path, size_t *len) {
   }
 
   size_t cap = 4096, n = 0;
-  uint8_t *grown = realloc(buf, cap);
-  if (!grown) {
-    free(buf);
-    buf = NULL;
-
-    break;
+  uint8_t *buf = malloc(cap);
+  if (!buf) {
+    fclose(f);
+    return NULL;
   }
-
-  buf = grown;
   while (buf) {
+    if (n == cap) {
+      if (cap >= MAX_FILE) {
+        if (fgetc(f) != EOF) {
+          free(buf);
+          buf = NULL;
+        }
+
+        break;
+      }
+
+      size_t next_cap = cap > MAX_FILE / 2 ? MAX_FILE : cap * 2;
+      uint8_t *grown = realloc(buf, next_cap);
+      if (!grown) {
+        free(buf);
+        buf = NULL;
+
+        break;
+      }
+
+      buf = grown;
+      cap = next_cap;
+    }
+
     size_t r = fread(buf + n, 1, cap - n, f);
     n += r;
-    if (n < cap) {
-      break; // EOF or error
-    }
-
-    if (cap >= MAX_FILE) {
-      free(buf);
-      buf = NULL;
-
+    if (r == 0 || n < cap) {
       break;
     }
-
-    cap *= 2;
-    buf = realloc(buf, cap);
   }
 
   int bad = ferror(f);
   fclose(f);
-  if (bad) {
+  if (bad || !buf) {
     free(buf);
 
     return NULL;

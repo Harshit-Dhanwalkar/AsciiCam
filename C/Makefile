@@ -183,7 +183,7 @@ PLUGIN_TARGETS := $(patsubst $(FILTERDIR)/%.c, $(BUILDDIR)/%.$(SO_EXT), $(PLUGIN
 # so a lone binary still has every plugin (lib/nl_ramfs.h, src/ramfs_blob.S)
 # They are plugins/<name>.so inside, ramfs:<name> in use
 ifeq ($(PLATFORM),linux)
-.DEFAULT_GOAL := all # rules below come before `all`; keep `make` meaning all
+.DEFAULT_GOAL := all # Rules below come before `all`; keep `make` meaning all
 RAMFS_TOOL := $(BUILDDIR)/mkramfs
 RAMFS_BIN  := $(BUILDDIR)/ramfs.bin
 RAMFS_OBJ  := $(OBJDIR)/ramfs_blob.o
