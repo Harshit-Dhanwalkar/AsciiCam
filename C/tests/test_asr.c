@@ -220,32 +220,36 @@ static int words_repeat(const char *text, int n) {
 
 static void test_trim(void) {
   int out[64];
+
+  // With short_max == ASR_REPEAT_MAX, a 1-2 id block is capped same as a longer
+  // one - this is pre-asr-repeat-guard-fix behaviour, kept so a "still looping"
+  // caller gets old tight cutting
   int in1[] = {1, 2, 3, 3, 3, 3};
   int want1[] = {1, 2, 3, 3};
-  int n = asr_trim_repeats(in1, 6, out);
+  int n = asr_trim_repeats(in1, 6, out, ASR_REPEAT_MAX);
   CHECK(same_ids(out, n, want1, 4), "run of 1 cut to 2: %d ids", n);
 
   int in2[] = {4, 1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3};
   int want2[] = {4, 1, 2, 3, 1, 2, 3};
-  n = asr_trim_repeats(in2, 13, out);
+  n = asr_trim_repeats(in2, 13, out, ASR_REPEAT_MAX);
   CHECK(same_ids(out, n, want2, 7), "block of 3 repeated: cut to 2 copies");
 
   int in3[] = {5, 6, 5, 6, 7};
-  n = asr_trim_repeats(in3, 5, out);
+  n = asr_trim_repeats(in3, 5, out, ASR_REPEAT_MAX);
   CHECK(same_ids(out, n, in3, 5), "two copies are kept as they are");
 
   int in4[] = {9, 9, 9};
-  n = asr_trim_repeats(in4, 3, out);
-  CHECK(same_ids(out, n, in4, 2), "three in a row: the third goes");
+  n = asr_trim_repeats(in4, 3, out, ASR_REPEAT_MAX);
+  CHECK(same_ids(out, n, in4, 2), "three in a row, tight cap: the third goes");
 
   int in5[] = {1, 2, 1, 2, 1, 2, 1, 2, 1};
-  n = asr_trim_repeats(in5, 9, out);
+  n = asr_trim_repeats(in5, 9, out, ASR_REPEAT_MAX);
   CHECK(n == 5, "alternating loop cut to two copies: %d", n);
-  CHECK(asr_trim_repeats(in5, 0, out) == 0, "empty");
+  CHECK(asr_trim_repeats(in5, 0, out, ASR_REPEAT_MAX) == 0, "empty");
 
   // Nothing repeats: unchanged
   int in6[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
-  n = asr_trim_repeats(in6, 10, out);
+  n = asr_trim_repeats(in6, 10, out, ASR_REPEAT_MAX);
   CHECK(same_ids(out, n, in6, 10), "no repeats: unchanged");
 
   // A loop longer than longest block is kept (ASR_REPEAT_LEN is 8)
@@ -254,8 +258,58 @@ static void test_trim(void) {
     in7[i] = i % 9 + 20;
   }
 
-  n = asr_trim_repeats(in7, 18, out);
+  n = asr_trim_repeats(in7, 18, out, ASR_REPEAT_MAX);
   CHECK(n == 18, "period 9 is not looked at: %d", n);
+
+  // With looser short_max a single call uses when nothing says model is stuck
+  // (ASR_SHORT_REPEAT_MAX), a 1-2 id block gets more leeway, like "hi, hi, hi"
+  // really said three times, while a longer block - a whole phrase looping -
+  // still gets tight cap regardless
+  int in8[] = {9, 9, 9};
+  n = asr_trim_repeats(in8, 3, out, ASR_SHORT_REPEAT_MAX);
+  CHECK(same_ids(out, n, in8, 3),
+        "three in a row, short_max 4: all three kept: %d", n);
+
+  int in9[] = {9, 9, 9, 9, 9};
+  int want9[] = {9, 9, 9, 9};
+  n = asr_trim_repeats(in9, 5, out, ASR_SHORT_REPEAT_MAX);
+  CHECK(same_ids(out, n, want9, 4),
+        "five in a row, short_max 4: the fifth goes: %d", n);
+
+  int in10[] = {4, 1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3};
+  n = asr_trim_repeats(in10, 13, out, ASR_SHORT_REPEAT_MAX);
+  CHECK(same_ids(out, n, want2, 7),
+        "a 3-id block still uses the tight cap with short_max 4");
+}
+
+static void test_still_looping(void) {
+  // prev ends in 2 copies of "9" (p 1), cur just appends more of same
+  int prev1[] = {1, 2, 9, 9};
+  int cur1[] = {1, 2, 9, 9, 9};
+  CHECK(asr_still_looping(prev1, 4, cur1, 5),
+        "more copies of the already-repeating tail: looping");
+
+  // Same tail, but what got added is something else: not looping
+  int cur2[] = {1, 2, 9, 9, 3};
+  CHECK(!asr_still_looping(prev1, 4, cur2, 5),
+        "new content broke the repeat: not looping");
+
+  // Nothing was repeating yet in prev: can't call it a loop from one id
+  int prev2[] = {1, 2, 9};
+  int cur3[] = {1, 2, 9, 9};
+  CHECK(!asr_still_looping(prev2, 3, cur3, 4),
+        "prev's tail was not yet repeating: not looping");
+
+  // A 2-id block ("5,6") repeating in prev, cur adds one more copy of it
+  int prev3[] = {1, 5, 6, 5, 6};
+  int cur4[] = {1, 5, 6, 5, 6, 5, 6};
+  CHECK(asr_still_looping(prev3, 5, cur4, 7),
+        "more copies of a repeating 2-id block: looping");
+
+  // cur is not an extension of prev at all
+  int cur5[] = {7, 8};
+  CHECK(!asr_still_looping(prev1, 4, cur5, 2), "shorter cur: not looping");
+  CHECK(!asr_still_looping(prev1, 0, cur1, 5), "no history yet: not looping");
 }
 
 static void test_cutting(void) {
@@ -388,6 +442,7 @@ int main(void) {
   CHECK(an_load_st(&model, &st, &cfg, err, sizeof(err)) == 0, "load: %s", err);
   make_tokenizer();
   test_trim();
+  test_still_looping();
   test_cutting();
   test_tap();
   test_open();

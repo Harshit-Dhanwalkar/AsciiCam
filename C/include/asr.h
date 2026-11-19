@@ -29,16 +29,25 @@
 #define ASR_MIN_LOUD 8      // loud blocks an utterance needs (160 ms)
 #define ASR_MAX_MS 30000    // longest utterance, then it is cut
 #define ASR_TEXT 512
-#define ASR_REPEAT_MAX 2 // copies of a short block allowed in a row
-#define ASR_REPEAT_LEN 8 // longest block looked at for repeats
+#define ASR_REPEAT_MAX 2 // copies of a block over 2 ids long allowed in a row
+#define ASR_SHORT_REPEAT_MAX 4 // copies of a 1-2 id block, unless still looping
+#define ASR_REPEAT_LEN 8       // longest block looked at for repeats
 
-// Copy n token ids to out, keeping at most ASR_REPEAT_MAX copies in a row of
-// any block of 1..ASR_REPEAT_LEN ids
-// Small models loop on quiet or noisy audio ("the the the the ..."); loop is
-// cut, rest is kept
+// Copy n token ids to out, keeping at most short_max copies in a row of a block
+// 1-2 ids long (a word, syllable or short phrase - "hi, hi, hi" is often really
+// said 3+ times) and at most ASR_REPEAT_MAX copies of a longer block
+// (3..ASR_REPEAT_LEN ids - a model stuck looping a phrase, "the story of the
+// story of ..."; real speech essentially never repeats one that verbatim)
 // Out must hold n ids
-// Returns the number kept
-int asr_trim_repeats(const int *in, int n, int *out);
+// Returns number kept
+int asr_trim_repeats(const int *in, int n, int *out, int short_max);
+
+// True if cur is exactly prev (previous call's pre-trim ids, same utterance)
+// with only more copies of prev's already-repeating 1-2 id trailing block
+// appended and nothing else new - model is stuck looping it, not just repeating
+// it normally
+// Exposed for tests; read_text() is its only other caller
+int asr_still_looping(const int *prev, int pn, const int *cur, int cn);
 
 typedef void (*asr_text_fn)(void *user, int final, const char *text);
 
@@ -53,7 +62,7 @@ typedef struct {
   asr_text_fn text;
   void *text_user;
 
-  // gate
+  // Gate
   int16_t blk[ASR_BLOCK];
   int nblk;
   int16_t pre[ASR_PREROLL][ASR_BLOCK];
@@ -71,6 +80,12 @@ typedef struct {
   long last_frames, last_blocks; // Last utterance: encoder frames, blocks
   int utterances;                // Statistics
   int partials;
+
+  // What last read_text() call saw before trimming, to tell a model stuck
+  // looping (every id added since is same block repeating, no new content
+  // at all) from a burst of repeated speech
+  int prev_shown[256];
+  int prev_shown_n;
 
   int debug; // 1: print raw and repeat-trimmed ids to stderr (--asr-debug)
 } asr_t;

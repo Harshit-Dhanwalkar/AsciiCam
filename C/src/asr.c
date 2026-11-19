@@ -152,12 +152,14 @@ static void say(asr_t *a, int final, const char *text) {
 }
 
 // Text of utterance so far
-int asr_trim_repeats(const int *in, int n, int *out) {
+int asr_trim_repeats(const int *in, int n, int *out, int short_max) {
   int w = 0;
   int i = 0;
   while (i < n) {
     int cut = 0;
     for (int p = 1; p <= ASR_REPEAT_LEN && !cut; p++) {
+      int max = p <= 2 ? short_max : ASR_REPEAT_MAX;
+
       // Copies of block of length p that starts at i
       int copies = 1;
       while (i + (copies + 1) * p <= n) {
@@ -173,8 +175,8 @@ int asr_trim_repeats(const int *in, int n, int *out) {
         copies++;
       }
 
-      if (copies > ASR_REPEAT_MAX) {
-        for (int c = 0; c < ASR_REPEAT_MAX * p; c++) {
+      if (copies > max) {
+        for (int c = 0; c < max * p; c++) {
           out[w++] = in[i + c];
         }
 
@@ -191,6 +193,44 @@ int asr_trim_repeats(const int *in, int n, int *out) {
   return w;
 }
 
+// prev (last call's pre-trim ids, same utterance) already ended in 2+ copies of
+// a 1-2 id block and every id since is just that same block continuing with
+// nothing new mixed in: model has been stuck on it for a whole ASR_PARTIAL_MS
+// without saying anything else, which real speech essentially never does - a
+// burst of repeated words still moves on to other words inside one partial
+// window
+int asr_still_looping(const int *prev, int pn, const int *cur, int cn) {
+  if (cn <= pn) {
+    return 0;
+  }
+
+  for (int p = 1; p <= 2; p++) {
+    if (pn < 2 * p) {
+      continue;
+    }
+
+    int same = 1;
+    for (int k = 0; k < p && same; k++) {
+      same = prev[pn - 1 - k] == prev[pn - 1 - p - k];
+    }
+
+    if (!same) {
+      continue;
+    }
+
+    int ok = 1;
+    for (int i = pn; i < cn && ok; i++) {
+      ok = cur[i] == prev[pn - p + (i - pn) % p];
+    }
+
+    if (ok) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
 static void read_text(asr_t *a, char *out, size_t size) {
   int toks[256];
   int kept[256];
@@ -201,7 +241,7 @@ static void read_text(asr_t *a, char *out, size_t size) {
 
   // Only ids that print count as repeats: a control token between two words
   // must not hide a loop of them
-  int shown[256];
+  int shown[256] = {0};
   int m = 0;
   for (int i = 0; i < n; i++) {
     if (tokdec_is_text(a->tok, toks[i])) {
@@ -218,16 +258,24 @@ static void read_text(asr_t *a, char *out, size_t size) {
     fprintf(stderr, "\n");
   }
 
-  n = asr_trim_repeats(shown, m, kept);
+  int short_max = asr_still_looping(a->prev_shown, a->prev_shown_n, shown, m)
+                      ? ASR_REPEAT_MAX
+                      : ASR_SHORT_REPEAT_MAX;
+  n = asr_trim_repeats(shown, m, kept, short_max);
 
   if (a->debug) {
-    fprintf(stderr, "[asr-debug] trimmed %d -> %d:", m, n);
+    fprintf(stderr, "[asr-debug] trimmed %d -> %d (short_max %d):", m, n,
+            short_max);
     for (int i = 0; i < n; i++) {
       fprintf(stderr, " %d", kept[i]);
     }
 
     fprintf(stderr, "\n");
   }
+
+  // shown[] holds at most n ids and n is capped at 256 by an_decode
+  nl_memcpy(a->prev_shown, shown, (size_t)m * sizeof(shown[0]));
+  a->prev_shown_n = m;
 
   tokdec_text(a->tok, kept, n, out, size);
 }
@@ -263,6 +311,7 @@ static void finish(asr_t *a) {
   a->last[0] = 0;
   a->pre_n = 0;
   a->pre_i = 0;
+  a->prev_shown_n = 0;
 }
 
 void asr_flush(asr_t *a) {
