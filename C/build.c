@@ -137,6 +137,64 @@ static const char *obj_of(const char *src) {
   return o;
 }
 
+static int build_plugins(void);
+
+#if LINUX
+// Plugins linked into binary: pack build/*.so into build/ramfs.bin and assemble
+// src/ramfs_blob.S around it (lib/nl_ramfs.h). Returns object to link, or NULL
+// on failure
+static const char *build_ramfs(void) {
+  if (!build_plugins()) {
+    return NULL;
+  }
+
+  const char *tool = BUILD "/mkramfs";
+  const char *tool_deps[] = {"tools/mkramfs.c", "lib/nl_ramfs.h"};
+  if (nb_needs_rebuild(tool, tool_deps, 2)) {
+    // Build machine's compiler and libc, not the app's freestanding flags
+    nb_cmd c = {0};
+    nb_cmd_add(&c, cc, "-O2", "tools/mkramfs.c", "-o", tool);
+    if (!nb_run(&c)) {
+      return NULL;
+    }
+  }
+
+  const char *bin = BUILD "/ramfs.bin";
+  const char *bin_deps[COUNT(plugin_name) + 1];
+  bin_deps[0] = tool;
+  for (size_t i = 0; i < COUNT(plugin_name); i++) {
+    bin_deps[i + 1] = nb_fmt(BUILD "/%s." SO_EXT, plugin_name[i]);
+  }
+
+  if (nb_needs_rebuild(bin, bin_deps, COUNT(plugin_name) + 1)) {
+    nb_cmd c = {0};
+    nb_cmd_add(&c, tool, bin);
+    for (size_t i = 0; i < COUNT(plugin_name); i++) {
+      nb_push(&c, nb_fmt("plugins/%s." SO_EXT "=%s", plugin_name[i],
+                         bin_deps[i + 1]));
+    }
+
+    if (!nb_run(&c)) {
+      return NULL;
+    }
+  }
+
+  // Assembler reads archive itself, so it is a dependency by hand
+  const char *obj = OBJ "/ramfs_blob.o";
+  const char *obj_deps[] = {"src/ramfs_blob.S", bin};
+  if (nb_needs_rebuild(obj, obj_deps, 2)) {
+    nb_cmd c = {0};
+    nb_cmd_add(&c, cc, nb_fmt("-DNL_RAMFS_FILE=\"%s\"", bin), "-c",
+               "src/ramfs_blob.S", "-o", obj);
+    if (!nb_run(&c)) {
+      return NULL;
+    }
+  }
+
+  return obj;
+}
+#endif
+
 static int build_all(void) {
   nb_mkdir(OBJ);
   nb_procs ps;
@@ -206,6 +264,15 @@ static int build_all(void) {
   if (!nb_procs_wait(&ps)) {
     return 0;
   }
+
+#if LINUX
+  const char *blob = build_ramfs();
+  if (!blob) {
+    return 0;
+  }
+
+  nb_push(&link, blob);
+#endif
 
   const char *target = BUILD "/asciicam";
   if (nb_needs_rebuild(target, (const char **)link.v + 1, link.n - 1)) {
