@@ -22,7 +22,7 @@ static int fails, total;
     total++;                                                                   \
     if (!(c)) {                                                                \
       fails++;                                                                 \
-      nl_fprintf(stderr, "FAIL [%d] %s\n", __LINE__, msg);                     \
+      fprintf(stderr, "FAIL [%d] %s\n", __LINE__, msg);                     \
     }                                                                          \
   } while (0)
 
@@ -303,7 +303,7 @@ int main(int argc, char **argv) {
   const char *so = argc > 1 ? argv[1] : "build/invert.so";
   so_len = read_file(so, so_img, MAX_SO);
   if (so_len <= 64) {
-    nl_fprintf(stderr, "error: cannot read '%s' - run `make plugins` first\n",
+    fprintf(stderr, "error: cannot read '%s' - run `make plugins` first\n",
                so);
 
     return 1;
@@ -314,7 +314,7 @@ int main(int argc, char **argv) {
   catalog(envp);
   loading();
 
-  nl_fprintf(stderr, "%d/%d checks passed\n", total - fails, total);
+  fprintf(stderr, "%d/%d checks passed\n", total - fails, total);
 
   return fails ? 1 : 0;
 }
