@@ -22,13 +22,14 @@
 
 #ifdef __LINUX_NOLIBC__
 
-/* RTLD_* flags (accepted but not acted on by the loader) */
+// RTLD_* flags (accepted but not acted on by loader)
 #define RTLD_LAZY 1
 #define RTLD_NOW 2
 #define RTLD_LOCAL 0
 #define RTLD_GLOBAL 0x100
 
 void *nl_dlopen(const char *path, int flags);
+void *nl_dlopen_mem(const void *image, size_t len, int flags);
 void *nl_dlsym(void *handle, const char *name);
 int nl_dlclose(void *handle);
 const char *nl_dlerror(void);
@@ -41,6 +42,7 @@ const char *nl_dlerror(void);
 
 #elif defined(PLATFORM_WINDOWS)
 
+#include <stddef.h>
 #include <windows.h>
 
 #ifndef RTLD_LAZY
@@ -62,6 +64,12 @@ static inline void *nl_dlopen(const char *p, int f) {
   return (void *)LoadLibraryA(p);
 }
 
+static inline void *nl_dlopen_mem(const void *i, size_t n, int f) {
+  (void)i, (void)n, (void)f;
+
+  return (void *)0;
+}
+
 static inline void *nl_dlsym(void *h, const char *n) {
   return (void *)GetProcAddress((HMODULE)h, n);
 }
@@ -74,7 +82,7 @@ static inline const char *nl_dlerror(void) {
   return "LoadLibrary/GetProcAddress failed";
 }
 
-/* Macro redirects */
+// Macro redirects
 #define dlopen(path, flags) nl_dlopen(path, flags)
 #define dlsym(handle, name) nl_dlsym(handle, name)
 #define dlclose(handle) nl_dlclose(handle)
@@ -83,8 +91,15 @@ static inline const char *nl_dlerror(void) {
 #else /* POSIX: macOS, system-libc Linux */
 
 #include <dlfcn.h>
+#include <stddef.h>
 
 static inline void *nl_dlopen(const char *p, int f) { return dlopen(p, f); }
+
+static inline void *nl_dlopen_mem(const void *i, size_t n, int f) {
+  (void)i, (void)n, (void)f;
+
+  return (void *)0;
+}
 
 static inline void *nl_dlsym(void *h, const char *n) { return dlsym(h, n); }
 

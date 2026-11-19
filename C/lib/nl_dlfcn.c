@@ -248,16 +248,8 @@ static int _nl_apply_rela(const nl_map_t *m, const Elf64_Rela *relas,
 //    RELA / JMPREL and sysv .hash nchain for symbol count
 // 7. Apply RELA relocations from .rela.dyn and .rela.plt
 // 8. Return an nl_so_t handle
-void *nl_dlopen(const char *path, int flags) {
-  (void)flags;
-  _nl_dlerr[0] = '\0';
-
-  // 1. Open, size
-  int fd = (int)__sc3(SYS_open, (long)path, (long)O_RDONLY, 0);
-  if (fd < 0) {
-    return _nl_fail("nl_dlopen: cannot open file", -1, (nl_map_t *)0);
-  }
-
+static void *_nl_dlopen_fd(int fd) {
+  // 1. Size
   long fsz_l = __sc3(SYS_lseek, (long)fd, 0, 2 /* SEEK_END */);
   if (fsz_l < 0) {
     return _nl_fail("nl_dlopen: cannot determine file size", fd, (nl_map_t *)0);
@@ -641,6 +633,86 @@ void *nl_dlopen(const char *path, int flags) {
   so->strsz = (size_t)strsz;
 
   return (void *)so;
+}
+
+void *nl_dlopen(const char *path, int flags) {
+  (void)flags;
+  _nl_dlerr[0] = '\0';
+
+  int fd = (int)__sc3(SYS_open, (long)path, (long)O_RDONLY, 0);
+  if (fd < 0) {
+    return _nl_fail("nl_dlopen: cannot open file", -1, (nl_map_t *)0);
+  }
+
+  return _nl_dlopen_fd(fd);
+}
+
+#ifndef SYS_memfd_create
+#if defined(__x86_64__)
+#define SYS_memfd_create 319
+#elif defined(__aarch64__)
+#define SYS_memfd_create 279
+#endif
+#endif
+
+#define NL_MFD_CLOEXEC 0x0001U
+#define NL_MFD_EXEC                                                            \
+  0x0010U // kernel 6.3+: sysctl vm.memfd_noexec may forbid
+          // PROT_EXEC on a memfd made without it
+#define NL_EINVAL 22
+#define NL_EINTR 4
+
+/* nl_dlopen_mem
+ *
+ * Same as nl_dlopen, for a shared object that is already in memory (linked
+ * into the binary, see lib/nl_ramfs.h). Image is copied into an anonymous
+ * memfd and goes through exactly the checks and mapping of nl_dlopen, so
+ * there is one loader to harden and fuzz, not two. Image is not needed
+ * afterwards and nothing keeps a descriptor open
+ *
+ * Fails with a message (and no side effects) if memfd_create is unavailable:
+ * very old kernel, or a sandbox that blocks it. Callers keep disk path as
+ * fallback */
+void *nl_dlopen_mem(const void *image, size_t len, int flags) {
+  (void)flags;
+  _nl_dlerr[0] = '\0';
+
+  if (!image || len == 0) {
+    return _nl_fail("nl_dlopen_mem: empty image", -1, (nl_map_t *)0);
+  }
+
+#ifdef SYS_memfd_create
+  long fd = __sc3(SYS_memfd_create, (long)"nl_plugin",
+                  (long)(NL_MFD_CLOEXEC | NL_MFD_EXEC), 0);
+  if (fd == -NL_EINVAL) { // kernel older than 6.3 rejects unknown flag
+    fd = __sc3(SYS_memfd_create, (long)"nl_plugin", (long)NL_MFD_CLOEXEC, 0);
+  }
+
+  if (fd < 0) {
+    return _nl_fail("nl_dlopen_mem: memfd_create failed", -1, (nl_map_t *)0);
+  }
+
+  size_t off = 0;
+  while (off < len) {
+    long w = __sc3(SYS_write, fd, (long)((const char *)image + off),
+                   (long)(len - off));
+    if (w == -NL_EINTR) {
+      continue;
+    }
+
+    if (w <= 0) {
+      return _nl_fail("nl_dlopen_mem: cannot fill memfd", (int)fd,
+                      (nl_map_t *)0);
+    }
+
+    off += (size_t)w;
+  }
+
+  return _nl_dlopen_fd((int)fd);
+#else
+  return _nl_fail("nl_dlopen_mem: not supported on this architecture", -1,
+                  (nl_map_t *)0);
+#endif
 }
 
 /* nl_dlsym */
