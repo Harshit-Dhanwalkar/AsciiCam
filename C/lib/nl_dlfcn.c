@@ -17,8 +17,8 @@ typedef struct {
 
   Elf64_Sym *dynsym;
   char *dynstr;
-  size_t sym_count; // validated: dynsym[0..sym_count) lies inside mapping
-  size_t strsz;     // validated: dynstr[0..strsz) lies inside mapping
+  size_t sym_count; // Validated: dynsym[0..sym_count) lies inside mapping
+  size_t strsz;     // Validated: dynstr[0..strsz) lies inside mapping
 } nl_so_t;
 
 // Limits: a plugin is a few KiB; anything near these is hostile or corrupt
@@ -50,12 +50,10 @@ const char *nl_dlerror(void) {
   return e;
 }
 
-/* Symbol table available to loaded plugins
- *
- * External symbols that plugin .so files may reference through PLT
- *
- * Cast to void * is valid on POSIX (dlsym returns function pointers
- * in void *); GCC/Clang both handle it correctly on x86-64 */
+// Symbol table available to loaded plugins
+// External symbols that plugin .so files may reference through PLT
+// Cast to void * is valid on POSIX (dlsym returns function pointers
+// in void *); GCC/Clang both handle it correctly on x86-64
 static const struct {
   const char *name;
   void *addr;
@@ -97,9 +95,9 @@ typedef struct {
   } seg[NL_MAX_PHNUM];
 } nl_map_t;
 
-/* Pointer to [vaddr, vaddr+len) in loaded image, or NULL unless whole range
- * lies inside ONE loaded segment (writable if `write`). Pages between segments
- * are PROT_NONE, so "inside reservation" is not enough */
+// Pointer to [vaddr, vaddr+len) in loaded image, or NULL unless whole range
+// lies inside ONE loaded segment (writable if `write`)
+// Pages between segments are PROT_NONE, so "inside reservation" is not enough
 static void *_nl_at(const nl_map_t *m, unsigned long vaddr, unsigned long len,
                     int write) {
   for (int i = 0; i < m->nseg; i++) {
@@ -140,19 +138,19 @@ static void *_nl_fail(const char *msg, int fd, const nl_map_t *m) {
   return (void *)0;
 }
 
-/* Apply a table of Elf64_Rela relocations. Everything file controls is checked
- * first: table is inside image, each target is 8 writable bytes inside a
- * writable segment, each symbol index and name is inside tables
- * Returns 0, or -1 with reason in error buffer
- *
- *   S = symbol value (0 for R_X86_64_RELATIVE which has no associated sym)
- *   A = r_addend
- *   B = load_bias  (how far load base was shifted from p_vaddr==0)
- *
- * R_X86_64_RELATIVE  *target = B + A
- * R_X86_64_GLOB_DAT  *target = S
- * R_X86_64_JUMP_SLOT *target = S
- * R_X86_64_64        *target = S + A */
+// Apply a table of Elf64_Rela relocations. Everything file controls is checked
+// first: table is inside image, each target is 8 writable bytes inside a
+// writable segment, each symbol index and name is inside tables
+// Returns 0, or -1 with reason in error buffer
+//
+//   S = symbol value (0 for R_X86_64_RELATIVE which has no associated sym)
+//   A = r_addend
+//   B = load_bias  (how far load base was shifted from p_vaddr==0)
+//
+// R_X86_64_RELATIVE  *target = B + A
+// R_X86_64_GLOB_DAT  *target = S
+// R_X86_64_JUMP_SLOT *target = S
+// R_X86_64_64        *target = S + A
 static int _nl_apply_rela(const nl_map_t *m, const Elf64_Rela *relas,
                           size_t count, const Elf64_Sym *dynsym,
                           size_t sym_count, const char *dynstr, size_t strsz) {
@@ -177,7 +175,7 @@ static int _nl_apply_rela(const nl_map_t *m, const Elf64_Rela *relas,
 
       const Elf64_Sym *sym = &dynsym[sym_idx];
       if (sym->st_shndx != SHN_UNDEF) {
-        S = (uint64_t)((long)sym->st_value + m->bias); // defined in this .so
+        S = (uint64_t)((long)sym->st_value + m->bias); // Defined in this .so
       } else {
         const char *name = _nl_str(dynstr, strsz, sym->st_name);
         if (!name) {
@@ -199,56 +197,62 @@ static int _nl_apply_rela(const nl_map_t *m, const Elf64_Rela *relas,
     }
 
     switch (type) {
-    case R_X86_64_NONE:
+    case R_X86_64_NONE: {
       break;
-    case R_X86_64_RELATIVE:
+    }
+    case R_X86_64_RELATIVE: {
       *tgt = (uint64_t)(m->bias + r->r_addend);
 
       break;
+    }
     case R_X86_64_GLOB_DAT:
-    case R_X86_64_JUMP_SLOT:
+    case R_X86_64_JUMP_SLOT: {
       *tgt = S;
 
       break;
-    case R_X86_64_64:
+    }
+    case R_X86_64_64: {
       *tgt = S + (uint64_t)r->r_addend;
 
       break;
-    default:
+    }
+    default: {
       _nl_set_err("nl_dlopen: unsupported relocation type");
 
       return -1;
+    }
     }
   }
 
   return 0;
 }
 
-// public APIs
-/* nl_dlopen */
-/*
- * Load a shared object (.so) file into memory
- *
- * File is untrusted: every offset, size and address in it is checked
- * before use, and a failure at any point unmaps whatever was mapped
- *
- * 1. pread ELF header; validate magic / class / type / machine / sizes
- * 2. pread all program headers (inside file)
- * 3. Validate PT_LOADs and compute [load_min, load_max
- * 4. mmap(PROT_NONE) to reserve a contiguous address range of that size
- *    load_bias = reservation_base − load_min
- * 5. For each PT_LOAD segment:
- *    a. mmap(MAP_FIXED, fd, aligned file offset) file content
- *    b. zero the tail of the last file page, mmap anonymous pages for the rest
- * 6. Locate PT_DYNAMIC; walk DT_* entries (bounded) to find SYMTAB / STRTAB /
- *    RELA / JMPREL and sysv .hash nchain for symbol count
- * 7. Apply RELA relocations from .rela.dyn and .rela.plt
- * 8. Return an nl_so_t handle */
+// Public APIs
+
+// nl_dlopen
+//
+// Load a shared object (.so) file into memory
+//
+// File is untrusted: every offset, size and address in it is checked
+// before use, and a failure at any point unmaps whatever was mapped
+//
+// 1. pread ELF header; validate magic / class / type / machine / sizes
+// 2. pread all program headers (inside file)
+// 3. Validate PT_LOADs and compute [load_min, load_max
+// 4. mmap(PROT_NONE) to reserve a contiguous address range of that size
+//    load_bias = reservation_base − load_min
+// 5. For each PT_LOAD segment:
+//    a. mmap(MAP_FIXED, fd, aligned file offset) file content
+//    b. zero the tail of the last file page, mmap anonymous pages for the rest
+// 6. Locate PT_DYNAMIC; walk DT_* entries (bounded) to find SYMTAB / STRTAB /
+//    RELA / JMPREL and sysv .hash nchain for symbol count
+// 7. Apply RELA relocations from .rela.dyn and .rela.plt
+// 8. Return an nl_so_t handle
 void *nl_dlopen(const char *path, int flags) {
   (void)flags;
   _nl_dlerr[0] = '\0';
 
-  // 1. open, size
+  // 1. Open, size
   int fd = (int)__sc3(SYS_open, (long)path, (long)O_RDONLY, 0);
   if (fd < 0) {
     return _nl_fail("nl_dlopen: cannot open file", -1, (nl_map_t *)0);
@@ -261,17 +265,17 @@ void *nl_dlopen(const char *path, int flags) {
 
   unsigned long fsize = (unsigned long)fsz_l;
 
-  // 2. read ELF header
-  Elf64_Ehdr ehdr = {0}; // filled by a raw pread syscall
+  // 2. Read ELF header
+  Elf64_Ehdr ehdr = {0}; // Filled by a raw pread syscall
   if (_nl_pread(fd, &ehdr, sizeof(ehdr), 0) != (long)sizeof(ehdr)) {
     return _nl_fail("nl_dlopen: short ELF header read", fd, (nl_map_t *)0);
   }
 
-  // 3. validate
+  // 3. Validate
   if (ehdr.e_ident[EI_MAG0] != 0x7f || ehdr.e_ident[EI_MAG1] != 'E' ||
       ehdr.e_ident[EI_MAG2] != 'L' || ehdr.e_ident[EI_MAG3] != 'F' ||
       ehdr.e_ident[EI_CLASS] != 2 || // ELFCLASS64
-      ehdr.e_ident[EI_DATA] != 1 ||  // little endian
+      ehdr.e_ident[EI_DATA] != 1 ||  // Little endian
       ehdr.e_type != ET_DYN || ehdr.e_machine != EM_X86_64) {
 
     return _nl_fail("nl_dlopen: not a valid x86-64 shared object", fd,
@@ -284,7 +288,7 @@ void *nl_dlopen(const char *path, int flags) {
                     (nl_map_t *)0);
   }
 
-  // 4. read program headers
+  // 4. Read program headers
   int phnum = (int)ehdr.e_phnum;
   Elf64_Phdr phdrs[NL_MAX_PHNUM];
   unsigned long phsz = (unsigned long)phnum * sizeof(Elf64_Phdr);
@@ -294,7 +298,7 @@ void *nl_dlopen(const char *path, int flags) {
                     (nl_map_t *)0);
   }
 
-  // 5. validate PT_LOADs, compute load range
+  // 5. Validate PT_LOADs, compute load range
   unsigned long load_min = (unsigned long)-1UL, load_max = 0;
   for (int i = 0; i < phnum; i++) {
     const Elf64_Phdr *p = &phdrs[i];
@@ -322,11 +326,11 @@ void *nl_dlopen(const char *path, int flags) {
     }
 
     unsigned long va = (unsigned long)p->p_vaddr;
-    unsigned long end = va + (unsigned long)p->p_memsz; // no wrap: bounded
+    unsigned long end = va + (unsigned long)p->p_memsz; // No wrap: bounded
 
-    // Segments are mapped page by page with MAP_FIXED: two sharing a page
-    // would replace each other's mapping (and its permissions), so the
-    // writable-segment checks later would describe memory that is not there
+    // Segments are mapped page by page with MAP_FIXED: two sharing a page would
+    // replace each other's mapping (and its permissions), so writable-segment
+    // checks later would describe memory that is not there
     for (int j = 0; j < i; j++) {
       const Elf64_Phdr *q = &phdrs[j];
       if (q->p_type != PT_LOAD || q->p_memsz == 0) {
@@ -363,7 +367,7 @@ void *nl_dlopen(const char *path, int flags) {
   nl_map_t m = {0};
   m.total = load_max - load_min;
 
-  // 6. reserve address space
+  // 6. Reserve address space
   long mret = __sc6(SYS_mmap, 0, (long)m.total, PROT_NONE,
                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (mret < 0 && mret > -4096) {
@@ -374,7 +378,7 @@ void *nl_dlopen(const char *path, int flags) {
   m.base = (char *)mret;
   m.bias = (long)m.base - (long)load_min;
 
-  // 7. map each PT_LOAD segment
+  // 7. Map each PT_LOAD segment
   for (int i = 0; i < phnum; i++) {
     Elf64_Phdr *p = &phdrs[i];
     if (p->p_type != PT_LOAD || p->p_memsz == 0) {
@@ -414,9 +418,9 @@ void *nl_dlopen(const char *path, int flags) {
       }
     }
 
-    // Zero-fill (.bss): the rest of the last file page still holds file
-    // bytes (the next section, not zeros), so clear it by hand, then give
-    // the pages beyond it anonymous zero memory
+    // Zero-fill (.bss): rest of last file page still holds file bytes (next
+    // section, not zeros), so clear it by hand, then give pages beyond it
+    // anonymous zero memory
     if (p->p_memsz > p->p_filesz) {
       unsigned long file_end = (unsigned long)m.bias + p->p_vaddr + p->p_filesz;
       unsigned long page_end = NL_ALIGN_UP(file_end, NL_PAGE_SIZE);
@@ -447,7 +451,7 @@ void *nl_dlopen(const char *path, int flags) {
   __sc1(SYS_close, fd); // fd no longer needed; MAP_PRIVATE copies stay
   fd = -1;
 
-  // 8. locate PT_DYNAMIC (must lie in a loaded segment; walk is bounded)
+  // 8. Locate PT_DYNAMIC (must lie in a loaded segment; walk is bounded)
   const Elf64_Dyn *dyn = (const Elf64_Dyn *)0;
   size_t ndyn = 0;
   for (int i = 0; i < phnum; i++) {
@@ -464,7 +468,7 @@ void *nl_dlopen(const char *path, int flags) {
     return _nl_fail("nl_dlopen: no usable PT_DYNAMIC segment", fd, &m);
   }
 
-  // 9. parse dynamic section
+  // 9. Parse dynamic section
   unsigned long symtab = 0;
   unsigned long strtab = 0;
   unsigned long rela = 0;
@@ -487,61 +491,73 @@ void *nl_dlopen(const char *path, int flags) {
     }
 
     switch (d->d_tag) {
-    case DT_SYMTAB:
+    case DT_SYMTAB: {
       symtab = d->d_un.d_ptr;
       have_symtab = 1;
 
       break;
-    case DT_STRTAB:
+    }
+    case DT_STRTAB: {
       strtab = d->d_un.d_ptr;
       have_strtab = 1;
 
       break;
-    case DT_STRSZ:
+    }
+    case DT_STRSZ: {
       strsz = d->d_un.d_val;
 
       break;
-    case DT_RELA:
+    }
+    case DT_RELA: {
       rela = d->d_un.d_ptr;
 
       break;
-    case DT_RELASZ:
+    }
+    case DT_RELASZ: {
       relasz = d->d_un.d_val;
 
       break;
-    case DT_JMPREL:
+    }
+    case DT_JMPREL: {
       jmprel = d->d_un.d_ptr;
 
       break;
-    case DT_PLTRELSZ:
+    }
+    case DT_PLTRELSZ: {
       pltrelsz = d->d_un.d_val;
 
       break;
-    case DT_HASH:
+    }
+    case DT_HASH: {
       hash = d->d_un.d_ptr;
       have_hash = 1;
 
       break;
-    case DT_SYMENT:
+    }
+    case DT_SYMENT: {
       if (d->d_un.d_val != sizeof(Elf64_Sym)) {
         return _nl_fail("nl_dlopen: unexpected DT_SYMENT", fd, &m);
       }
 
       break;
-    case DT_RELAENT:
+    }
+    case DT_RELAENT: {
       if (d->d_un.d_val != sizeof(Elf64_Rela)) {
         return _nl_fail("nl_dlopen: unexpected DT_RELAENT", fd, &m);
       }
 
       break;
-    case DT_PLTREL:
+    }
+    case DT_PLTREL: {
       if (d->d_un.d_val != DT_RELA) {
         return _nl_fail("nl_dlopen: only RELA relocations supported", fd, &m);
       }
 
       break;
-    default:
+    }
+    default: {
       break;
+    }
     }
   }
 
@@ -559,8 +575,8 @@ void *nl_dlopen(const char *path, int flags) {
                     fd, &m);
   }
 
-  // sysv .hash header: [0]=nbuckets [1]=nchain (= symbol count); the whole
-  // hash table and the symbol table must lie inside the image
+  // sysv .hash header: [0]=nbuckets [1]=nchain (= symbol count); whole hash
+  // table and symbol table must lie inside image
   const uint32_t *syshash = (const uint32_t *)_nl_at(&m, hash, 8, 0);
   if (!syshash) {
     return _nl_fail("nl_dlopen: DT_HASH outside image", fd, &m);
@@ -585,7 +601,7 @@ void *nl_dlopen(const char *path, int flags) {
                     &m);
   }
 
-  // 10. apply relocations
+  // 10. Apply relocations
   if (relasz > 0) {
     const Elf64_Rela *tab = (const Elf64_Rela *)_nl_at(&m, rela, relasz, 0);
     if (!tab) {
@@ -610,7 +626,7 @@ void *nl_dlopen(const char *path, int flags) {
     }
   }
 
-  // 11. build handle
+  // 11. Build handle
   nl_so_t *so = (nl_so_t *)nl_malloc(sizeof(nl_so_t));
   if (!so) {
     return _nl_fail("nl_dlopen: out of memory for handle", fd, &m);
@@ -627,7 +643,7 @@ void *nl_dlopen(const char *path, int flags) {
   return (void *)so;
 }
 
-// nl_dlsym
+/* nl_dlsym */
 void *nl_dlsym(void *handle, const char *name) {
   nl_so_t *so = (nl_so_t *)handle;
   if (!so || !so->dynsym || !so->dynstr || !name) {
@@ -655,7 +671,7 @@ void *nl_dlsym(void *handle, const char *name) {
   return (void *)0;
 }
 
-// nl_dlclose
+/* nl_dlclose */
 int nl_dlclose(void *handle) {
   nl_so_t *so = (nl_so_t *)handle;
   if (!so) {
