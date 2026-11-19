@@ -275,7 +275,7 @@ effects (`thermal`, `sepia`, `chromatic`) are tone-curve approximations. In
 colour mode (`-C`) they also repaint the picture itself: a heat palette, a
 brown sepia tint, red and blue channels sliding apart.
 
-**Colour hook for your own plugins:** export, next to `plugin_get()`,
+**Colour hook for plugins:** export, next to `plugin_get()`,
 
 ```c
 void plugin_rgb_process(uint8_t *rgb, int w, int h, void *ctx);
@@ -312,8 +312,7 @@ Which files depends on what you want the user to be able to do:
 | + SDK (`make install-sdk`) | also compile new plugins from `.c` while running | `make` + `gcc`        |
 
 Lookup is relative to the running binary, not the current directory, so the same
-build works from a checkout, from an unpacked release and from an installed
-prefix:
+build works from a checkout, from an unpacked release and from an installed prefix:
 
 ```text
 checkout    build/asciicam             sources filters/, cache .cache/plugins
@@ -327,15 +326,14 @@ make install-sdk PREFIX=/usr/local    # ... plus headers, plugin sources (and Ma
 ```
 
 Prebuilt libraries are preferred; a plugin is only compiled when the picker is
-asked to load one that has no prebuilt library, an SDK is present and `make`
-and a compiler are found. Runtime builds go to `.cache/plugins` in a checkout,
-otherwise to `$XDG_CACHE_HOME/asciicam/plugins` (`~/.cache/asciicam/plugins`),
-so a read-only install prefix is fine. A plugin built from other headers is
-refused with a message instead of crashing: put `PLUGIN_ABI_EXPORT;` next to
-`plugin_get()` in your plugin so it carries the interface version
-(`PLUGIN_ABI` in `include/plugins.h`; plugins without it still load).
-`-L` / `plugin_dir`, `plugin_cache` and `-k` / `charset_dir` override the
-automatic locations.
+asked to load one that has no prebuilt library, an SDK is present and `make` and a
+compiler are found. Runtime builds go to `.cache/plugins` in a checkout, otherwise
+to `$XDG_CACHE_HOME/asciicam/plugins` (`~/.cache/asciicam/plugins`), so a read-only
+install prefix is fine. A plugin built from other headers is refused with a
+message instead of crashing: put `PLUGIN_ABI_EXPORT;` next to `plugin_get()` inplugin
+so it carries the interface version (`PLUGIN_ABI` in `include/plugins.h`; plugins
+without it still load).
+`-L` / `plugin_dir`, `plugin_cache` and `-k` / `charset_dir` override the automatic locations.
 
 ### Plugin cache validation
 
@@ -363,24 +361,23 @@ Consequences:
 | Two AsciiCam instances building the same plugin | safe — temp names carry a PID         |
 
 No manual pruning of `~/.cache` is ever needed; the cache is self-invalidating.
-Note that the compiler's own identity (`$CC`, its version) is **not** part of
-the hash, so switching `gcc` → `clang` without couching source or headers reuses
-the old `.so`; that is the one case where deleting the `.stamp` by hand is the fix.
+Note that the compiler's own identity (`$CC`, its version) is **not** part of the hash
+, so switching `gcc` → `clang` without couching source or headers reuses the old
+`.so`; that is the one case where deleting the `.stamp` by hand is the fix.
 
 ## Memory: `nl_gc` (Linux)
 
-`lib/nl_gc.h` is an opt-in conservative mark-and-sweep collector on top of the
-nolibc arena. `nl_gc_alloc()` / `nl_gc_alloc_atomic()` (pointer-free data such as
-pixels) return zeroed blocks that are freed once nothing reachable points at
-them, so early-return paths cannot leak or double free. `nl_malloc`/`nl_free`
-behave as before and are never collected, but `nl_free` now checks its argument:
-double frees, interior pointers and wild pointers are ignored and counted
-(`nl_gc_stats`) instead of corrupting the heap. A collection also runs when any
-allocation would fail. Only the first thread to allocate owns the collector;
-blocks from other threads are never collected. Off Linux `nl_gc_alloc` is a
-zeroed `calloc` and `nl_gc_release` is `free`, so release what you allocate and
-the code is leak-free everywhere. Currently used for the per-frame temporaries
-in `ascii.c`.
+`lib/nl_gc.h` is an opt-in conservative mark-and-sweep collector on top of the nolibc
+arena. `nl_gc_alloc()` / `nl_gc_alloc_atomic()` (pointer-free data such as pixels)
+return zeroed blocks that are freed once nothing reachable points at them, so
+early-return paths cannot leak or double free. `nl_malloc`/`nl_free` behave as
+before and are never collected, but `nl_free` now checks its argument: double frees,
+interior pointers and wild pointers are ignored and counted (`nl_gc_stats`) instead
+of corrupting the heap. A collection also runs when any allocation would fail. Only
+the first thread to allocate owns the collector; blocks from other threads are never
+collected. Off Linux `nl_gc_alloc` is a zeroed `calloc` and `nl_gc_release` is `free`,
+so release what you allocate and the code is leak-free everywhere. Currently used for
+the per-frame temporaries in `ascii.c`.
 
 ## Mouse
 
@@ -415,15 +412,14 @@ release the button. The status panel stays at the bottom of the terminal.
 
 ## Tone curve
 
-A curve maps the brightness of every cell to a new brightness, like Curves in
-a photo editor. It runs after brightness, contrast and gamma and before a
-brightness is turned into a character, so it works in every render mode, with
-colour, `--net`, `--vcam` and recordings. Use it to lift a dim room
-(`asinh`, `sqrt`), harden a flat picture (`s-curve`), or get a poster look
-(`threshold`, `solarize`, `invert`).
+A curve maps the brightness of every cell to a new brightness, like Curves in a
+photo editor. It runs after brightness, contrast and gamma and before a brightness
+is turned into a character, so it works in every render mode, with colour, `--net`,
+`--vcam` and recordings. Use it to lift a dim room (`asinh`, `sqrt`), harden a
+flat picture (`s-curve`), or get a poster look (`threshold`, `solarize`, `invert`).
 
-Press `k` (or click the **CURVE** tab on the right edge of the screen) to open
-the editor in the side panel:
+Press `k` (or click the **CURVE** tab on the right edge of the screen) to open the editor
+in the side panel:
 
 ```
  F │ ┌─ Tone curve ───────────────────┐
@@ -453,10 +449,9 @@ the editor in the side panel:
 | `w`                       | save `curve.txt` into the captures folder                                         |
 | `Tab`, `b`                | switch to the Files tab; `Esc`, `k`, `q` close the panel                          |
 
-The two tabs on the edge of the screen, one for Files (the captures browser)
-and one for Curve, stay visible when the panel is retracted: click one to open
-it, click the open one to retract it. A terminal cannot rotate text, so the
-names are stacked letter by letter.
+The two tabs on the edge of the screen, one for Files (the captures browser) and one for
+Curve, stay visible when the panel is retracted: click one to open it, click the open one
+to retract it. A terminal cannot rotate text, so the names are stacked letter by letter.
 
 Set a curve from the command line, or in `.asciicamrc` as `curve = ...`:
 
@@ -466,9 +461,8 @@ asciicam --curve asinh                         # a preset name
 asciicam --curve @curve.txt                    # points saved with w
 ```
 
-The first point must be at x = 0 and the last at x = 255. The curve is a
-monotone cubic spline: a curve that rises through its points never overshoots
-or dips between them.
+The first point must be at x = 0 and the last at x = 255. The curve is a monotone cubic
+spline: a curve that rises through its points never overshoots or dips between them.
 
 ## Screenshots and recording
 
@@ -479,10 +473,10 @@ No ffmpeg or any other library: the encoders are in `src/recorder.c`.
 | `s` | screenshot: `asciicam-<UTC time>.png` (the camera picture after plugins, colour or grey) and `.ansi` (the ASCII frame; `cat` it in a terminal to see it again) |
 | `t` | start / stop recording to `asciicam-<UTC time>.cast`                                                                                                           |
 
-While recording, a blinking red `●` (or `(o)` without colour) with an elapsed
-clock shows at the right end of the panel. A message at the bottom of the frame
-says when a recording or screenshot started and ended and where the file is; the
-full paths are printed again when the program exits.
+While recording, a blinking red `●` (or `(o)` without colour) with an elapsed clock shows
+at the right end of the panel. A message at the bottom of the frame says when a
+recording or screenshot started and ended and where the file is; the full paths are
+printed again when the program exits.
 
 ## Playing a recording: `--play`
 
@@ -490,47 +484,46 @@ full paths are printed again when the program exits.
 asciicam --play asciicam-20261103T101500Z.cast [--speed 2] [--loop]
 ```
 
-Replays a `.cast` with its original timing. No camera and no other program is
-needed, so it works anywhere the binary does, including over ssh
-(`ssh host asciicam --play file.cast`), where only the saved bytes cross the
-wire. Keys: `q` quits, space pauses, `+` / `-` halve or double the speed.
-If your terminal is smaller than the one it was recorded in, a note says so
-before it starts (enlarge the window first, otherwise lines are cut at the edge).
+Replays a `.cast` with its original timing. No camera and no other program is needed,
+so it works anywhere the binary does, including over ssh
+(`ssh host asciicam --play file.cast`), where only the saved bytes cross the wire.
+Keys: `q` quits, space pauses, `+` / `-` halve or double the speed.
+If your terminal is smaller than the one it was recorded in, a note says so before
+it starts (enlarge the window first, otherwise lines are cut at the edge).
 
 ## Virtual camera: `--vcam`
 
-Use the ASCII picture as your webcam in Meet, Teams, Zoom, OBS or any other
-program that lists cameras. AsciiCam draws the frame it already prints into a
-pixel canvas (built-in 8x16 font, braille and block characters drawn as
-shapes) and writes it to a [v4l2loopback](https://github.com/umlaeute/v4l2loopback)
-device:
+Use the ASCII picture as your webcam in Meet, Teams, Zoom, OBS or any other program
+that lists cameras. AsciiCam draws the frame it already prints into a pixel canvas
+(built-in 8x16 font, braille and block characters drawn as shapes) and writes it to
+a [v4l2loopback](https://github.com/umlaeute/v4l2loopback) device:
 
 ```
 sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="AsciiCam" exclusive_caps=1
 asciicam --demo -C -W 160 -H 45 --vcam /dev/video10
 ```
 
-Pick "AsciiCam" as the camera in the call. `exclusive_caps=1` is what makes
-browsers list it, and the camera shows up once AsciiCam is running.
+Pick "AsciiCam" as the camera in the call. `exclusive_caps=1` is what makes browsers
+list it, and the camera shows up once AsciiCam is running.
 
-- The picture is centred on a 1280x720 canvas; `--vcam-size 1920x1080` changes
-  it (width must be even). At 8x16 pixels per character, `-W 160 -H 45` fills
-  1280x720. A larger frame is cut at the top left.
-- Colour (`-C`), `-2`, braille, half blocks and the other render modes all
-  work. Panel, toasts and the corner handles are not part of the camera
-  picture, only the frame itself.
-- Any other path is accepted too: if it is not a video device, raw YUYV
-  frames are written to it, so you can try it without v4l2loopback:
+- The picture is centred on a 1280x720 canvas; `--vcam-size 1920x1080` changes it
+  (width must be even). At 8x16 pixels per character, `-W 160 -H 45` fills 1280x720.
+  A larger frame is cut at the top left.
+- Colour (`-C`), `-2`, braille, half blocks and the other render modes all work. Panel,
+  toasts and the corner handles are not part of the camera picture, only the frame
+  itself.
+- Any other path is accepted too: if it is not a video device, raw YUYV frames are
+  written to it, so you can try it without v4l2loopback:
   `asciicam --demo -C --vcam /tmp/cam.yuv` or
   `ffplay -f rawvideo -pixel_format yuyv422 -video_size 1280x720 /tmp/cam.yuv`
   from a FIFO.
-- A custom charset with characters the font does not have (`-s`) shows them as
-  hollow boxes in the camera picture only.
+- A custom charset with characters the font does not have (`-s`) shows them as hollow
+  boxes in the camera picture only.
 
 ## Slow links and ssh
 
-`--net <kbps>` sends only what changed since the last frame, so the picture is
-usable over ssh on bad wifi:
+`--net <kbps>` sends only what changed since the last frame, so the picture is usable
+over ssh on bad wifi:
 
 ```sh
 asciicam --net 300 -m halfblock -C     # about 300 kbit/s
@@ -538,9 +531,8 @@ asciicam --net 0                       # lossless changes only
 ```
 
 Without `--net` every frame repaints every cell with its own colour escape:
-roughly 3.7 KB per 80x40 frame in plain ASCII, 38 KB in 256 colours, 60 KB in
-truecolor and 124 KB in half-blocks (measured, at 20 fps that is 0.6 to 20
-Mbit/s). With it:
+roughly 3.7 KB per 80x40 frame in plain ASCII, 38 KB in 256 colours, 60 KB in truecolor
+and 124 KB in half-blocks (measured, at 20 fps that is 0.6 to 20 Mbit/s). With it:
 
 | Mode (80x40, demo source) | off    | `--net 0` | `--net 1000` | `--net 300` | `--net 100` |
 | ------------------------- | ------ | --------- | ------------ | ----------- | ----------- |
@@ -549,20 +541,19 @@ Mbit/s). With it:
 | ASCII truecolor           | 61 KB  | 61 KB     | 6.7 KB       | 2.3 KB      | 1.1 KB      |
 | Half-block truecolor      | 124 KB | 117 KB    | 6.3 KB       | 2.2 KB      | 1.1 KB      |
 
-The demo changes every cell each frame, which is the worst case; a camera
-looking at a mostly still room does much better. `<kbps>` is a target for the
-picture: the panel and overlays come on top. The most visible changes are sent
-first and the rest wait for later frames, so under a tight budget the picture
-builds up and settles instead of the link falling behind. The screen is also
-fully repainted every ten seconds, and whenever it is cleared or an overlay
-goes away. `python3 tests/measure_bandwidth.py build/asciicam` reproduces
-the table. (Recordings and screenshots always hold the full frame.)
+The demo changes every cell each frame, which is the worst case; a camera looking at
+a mostly still room does much better. `<kbps>` is a target for the picture: the panel
+and overlays come on top. The most visible changes are sent first and the rest wait
+for later frames, so under a tight budget the picture builds up and settles instead
+of the link falling behind. The screen is also fully repainted every ten seconds and
+whenever it is cleared or an overlay goes away.
+`python3 tests/measure_bandwidth.py build/asciicam` reproduces the table.
+(Recordings and screenshots always hold the full frame.)
 
 ### Watching from another machine: `--serve` and `--watch`
 
-With the camera on one machine and you on another, you do not have to run the
-whole program over ssh: let the camera machine serve the picture and watch it
-from anywhere.
+With the camera on one machine and you on another, you do not have to run the whole
+program over ssh: let the camera machine serve the picture and watch it from anywhere.
 
 ```sh
 asciicam --serve 7000                      # on the camera machine
@@ -570,29 +561,26 @@ ssh -L 7000:localhost:7000 camera-host     # on yours
 asciicam --watch localhost:7000            # (or plain: nc localhost 7000)
 ```
 
-`--serve [host:]port` sends the rendered picture (not the panel) to up to 8
-viewers over TCP, wrapped in synchronized-update escapes so it does not tear.
-A viewer that joins, or that missed a frame, first gets the whole picture; after
-that only the cells that changed (the `--net` encoder, lossless), so a quiet
-scene costs next to nothing over ssh. Everybody also gets a whole picture every
-ten seconds, so a stray character cannot stay. It listens on **loopback** unless
-given an address (`--serve 0.0.0.0:7000` or `*:7000`, which prints a warning):
-there is **no password and no encryption**, so over a network use `ssh -L`, which
-gives both. Addresses are numeric IPv4 or `localhost`: no name lookup. `--watch`
-needs no camera and no plugins, shows what arrives, and quits on `q` or when the
-server goes away, unless you add `--retry`: it then keeps the last picture, says
-"reconnecting" and tries again every two seconds, so restarting `--serve` does
-not need a new `--watch`. Make the viewing terminal at least as large as the serving
-one, as with `--play`. A viewer that cannot keep up misses frames instead of
-holding the camera back (and gets a whole picture when it catches up), and a frame
-is never cut in the middle. `--net` shapes what goes to the local terminal and is
-separate: `--serve` always does its own diffing. Code: `src/netview.c`.
+`--serve [host:]port` sends the rendered picture (not the panel) to up to 8 viewers over
+TCP, wrapped in synchronized-update escapes so it does not tear. A viewer that joins or
+that missed a frame, first gets the whole picture; after that only the cells that
+changed (the `--net` encoder, lossless), so a quiet scene costs next to nothing over ssh.
+Everybody also gets a whole picture every ten seconds, so a stray character cannot stay.
+It listens on **loopback** unless given an address (`--serve 0.0.0.0:7000` or `*:7000`, which
+prints a warning): there is **no password and no encryption**, so over a network use `ssh -L`,
+which gives both. Addresses are numeric IPv4 or `localhost`: no name lookup. `--watch` needs
+no camera and no plugins, shows what arrives, and quits on `q` or when the server goes
+away, unless you add `--retry`: it then keeps the last picture, says "reconnecting" and
+tries again every two seconds, so restarting `--serve` does not need a new `--watch`. Make
+the viewing terminal at least as large as the serving one, as with `--play`. A viewer that
+cannot keep up misses frames instead of holding the camera back (and gets a whole picture
+when it catches up), and a frame is never cut in the middle. `--net` shapes what goes to the
+local terminal and is separate: `--serve` always does its own diffing. Code: `src/netview.c`.
 
 ### Video calls: `--room` and `--call`
 
-Chat and pictures (no sound) for up to 8 people, in the terminal, over plain
-TCP, so it works through ssh and Docker. One machine runs the room, everybody
-runs a client:
+Chat and pictures (no sound) for up to 8 people, in the terminal, over plain TCP, so it
+works through ssh and Docker. One machine runs the room, everybody runs a client:
 
 ```sh
 asciicam --room 7100                                   # the relay
@@ -600,24 +588,22 @@ asciicam --call 7100 --name Alice -C                   # you (add -d, -W, -H as 
 asciicam --call 7100 --name Bob --demo                 # someone without a camera
 ```
 
-Captions are lines of text from a speech recogniser. asciicam does not listen
-to the microphone itself: any recogniser can write its text into a file or fifo,
-one caption per line, and asciicam shows the lines (and in a call sends them).
-A line that starts with `~` is a guess the recogniser may still change (dim, gone
-after 3 s); any other line is final (bold, gone after 6 s). Blank lines are
-ignored and lines are cut at 200 characters.
+Captions are lines of text from a speech recogniser. asciicam does not listen to the
+microphone itself: any recogniser can write its text into a file or fifo, one caption per
+line, and asciicam shows the lines (and in a call sends them). A line that starts with `~`
+is a guess the recogniser may still change (dim, gone after 3 s); any other line is final
+(bold, gone after 6 s). Blank lines are ignored and lines are cut at 200 characters.
 
 #### Live captions: `--captions`
 
-`--call ... --captions <file-or-fifo>` puts what you say under everybody's
-pictures. asciicam does not listen to the microphone itself: any speech
-recogniser can write its text into a fifo, one caption per line, and asciicam
-sends each line to the room. A line that starts with `~` is a guess the
-recogniser may still change (shown dim, gone after 3 s); any other line is
-final (shown bold, gone after 6 s). Blank lines are ignored, lines are cut at
-200 characters, and the room allows 12 captions a second per person. Ctrl-T
-hides or shows the two caption rows (they appear on their own when somebody
-else sends captions).
+`--call ... --captions <file-or-fifo>` puts what you say under everybody's pictures.
+asciicam does not listen to the microphone itself: any speech recogniser can write
+its text into a fifo, one caption per line, and asciicam sends each line to the
+room. A line that starts with `~` is a guess the recogniser may still change (shown
+dim, gone after 3 s); any other line is final (shown bold, gone after 6 s). Blank
+lines are ignored, lines are cut at 200 characters, and the room allows 12 captions
+a second per person. Ctrl-T hides or shows the two caption rows (they appear on
+their own when somebody else sends captions).
 
 ```
 asciicam --captions /tmp/captions                           # captions over your own picture
@@ -626,8 +612,8 @@ your-recogniser > /tmp/captions                             # prints "~partial" 
 ```
 
 Outside a call two bars over the bottom of the picture show the last two lines.
-The key `y` turns them on and off while running, and when there is no source
-yet it makes a fifo (`$XDG_RUNTIME_DIR/asciicam-captions`, else `~/.asciicam-captions`),
+The key `y` turns them on and off while running, and when there is no source yet
+it makes a fifo (`$XDG_RUNTIME_DIR/asciicam-captions`, else `~/.asciicam-captions`),
 says where it is, and reads it. While hidden, lines are read and dropped.
 `captions=<path>` in `.asciicamrc` works like the option.
 
@@ -642,8 +628,8 @@ drops a client that sends captions, so run `--room` from the same version.
 #### Speech recognition: `--listen`
 
 asciicam can also do the listening, with no libraries and no model file. It is a
-small **speaker-dependent** recogniser: it knows the words and phrases you teach
-it, in your voice (think "mute", "next slide", "good morning"), not free dictation,
+small **speaker-dependent** recogniser: it knows the words and phrases you teach it,
+in your voice (think "mute", "next slide", "good morning"), not free dictation,
 which needs a neural model far bigger than this program. Pipeline: 16 kHz audio,
 25 ms frames every 10 ms, mel filterbank and cepstra (MFCC), a voice activity
 detector with an adaptive noise floor, then dynamic time warping against your
@@ -666,14 +652,14 @@ asciicam --call 7100 --name Alice --listen /tmp/mic
 
 Phrases are enrolled as one utterance: say them without a pause over 0.3 s. Templates
 are in `$XDG_CONFIG_HOME/asciicam/voice.tpl` (or `~/.config/asciicam/voice.tpl`;
-`--voice <file>` picks another). Enrol with the same microphone you listen with and
-use 16 kHz capture (`arecord -r 16000`): a different rate is converted with a crude
-filter, and a 8 kHz recording lacks the high frequencies the templates have. Words
-it does not know, and other people's voices, are not output. A final shows about
-0.3 s after you stop speaking; `--listen` without `--call` prints to stdout, so it
-also feeds `--captions`. Tests: `tests/test_speech.c` (synthesised vowel-like words,
-spoken slower, faster and at another pitch, plus noise, clicks and silence) and
-the speech part of `tests/e2e_capture.py`. Code: `src/speech.c`, `src/voice_cli.c`.
+`--voice <file>` picks another). Enrol with the same microphone you listen with and use
+16 kHz capture (`arecord -r 16000`): a different rate is converted with a crude filter,
+and a 8 kHz recording lacks the high frequencies the templates have. Words it does
+not know, and other people's voices, are not output. A final shows about 0.3 s after
+you stop speaking; `--listen` without `--call` prints to stdout, so it also feeds `--captions`.
+Tests: `tests/test_speech.c` (synthesised vowel-like words, spoken slower, faster and at
+another pitch, plus noise, clicks and silence) and the speech part of `tests/e2e_capture.py`.
+Code: `src/speech.c`, `src/voice_cli.c`.
 
 Like `--serve`, the relay has **no password and no encryption** and listens on
 loopback unless given an address. Put it behind ssh, which gives both. For a room
@@ -688,11 +674,10 @@ asciicam --call localhost:7100 --name Alice -C
 ```
 
 Without Docker, `ssh -L 7100:localhost:7100 host` to a machine running
-`asciicam --room 7100` works the same. The Docker recipe was not run in the
-environment this was written in (no Docker daemon): the program and the relay
-are tested, the container files are not. Code: `src/room.c` (relay),
-`src/call.c` (client), `src/call_ui.c` (terminal and camera),
-`src/cellcodec.c` (picture wire format), `src/callproto.c` (messages).
+`asciicam --room 7100` works the same. The Docker recipe was not run in the environment
+this was written in (no Docker daemon): the program and the relay are tested, the
+container files are not. Code: `src/room.c` (relay), `src/call.c` (client), `src/call_ui.c`
+(terminal and camera), `src/cellcodec.c` (picture wire format), `src/callproto.c` (messages).
 
 #### Full sentences: `--listen --model`
 
@@ -701,87 +686,91 @@ its `tokenizer.json` (default: beside the weights). The `config.json` beside
 the weights says how big the network is, so other sizes load too; without it
 the smallest one is assumed:
 
-    arecord -q -t wav -f S16_LE -r 16000 -c 1 | asciicam --listen - --model model.safetensors
+```sh
+arecord -q -t wav -f S16_LE -r 16000 -c 1 | asciicam --listen - --model model.safetensors
+```
 
-The engine is pure C like the rest: the weights are a file you point at,
-nothing is linked and `nm -u` stays 0. It reads safetensors itself (every
-length and range is checked, the file is treated as untrusted), runs the
-causal convolutions and sliding-window encoder as the audio arrives, and a
-decoder with a key/value cache. A loudness gate cuts the audio into
-utterances; while someone talks the text so far is re-read every second
-(`~` partial lines, or live captions in a call) and a pause finishes the
-sentence. A shape the engine cannot hold, or a file whose tensors do not fit
-the config, is refused with the key or tensor that is wrong. Speed on real
-weights has not been measured yet.
+The engine is pure C like the rest: the weights are a file you point at, nothing
+is linked and `nm -u` stays 0. It reads safetensors itself (every length and
+range is checked, the file is treated as untrusted), runs the causal convolutions
+and sliding-window encoder as the audio arrives, and a decoder with a key/value
+cache. A loudness gate cuts the audio into utterances; while someone talks the
+text so far is re-read every second (`~` partial lines, or live captions in a call)
+and a pause finishes the sentence. A shape the engine cannot hold, or a file whose
+tensors do not fit the config, is refused with the key or tensor that is wrong.
+Speed on real weights has not been measured yet.
 
-All the maths it needs (`exp`, `log`, `sin`, `cos`, `erf`, `asinh`, `tanh`,
-`sqrt`, `fmod`, `floor`, `ceil`) is in one header, `lib/nl_math.h`, static
-inline, so there is no libm and nothing to link.
+All the maths it needs (`exp`, `log`, `sin`, `cos`, `erf`, `asinh`, `tanh`, `sqrt`,
+`fmod`, `floor`, `ceil`) is in one header, `lib/nl_math.h`, static inline, so there
+is no libm and nothing to link.
 
-Code: `src/asr.c` (utterances, partial and final lines), `src/asrnet.c` (the
-network), `src/asrcfg.c` (`config.json`), `src/nn.c` (layers),
-`src/safetensors.c`, `src/tokdec.c` (`tokenizer.json`). Tests: `test_asrnet`
-checks the network against a numpy transcription of the published model code on a
-small random model (`tests/gen_asrnet_vectors.py`), `test_asrcfg`, `test_tokdec`,
-`test_asr` (when lines come out, whatever the chunking of the audio) and
-`test_math` (`lib/nl_math.h` against values from Python, bit for bit for
-`fmod`, `floor`, `ceil`). `tests/ref_asrnet.py` prints the reference
-implementation's transcript of a wav, to compare with asciicam's.
+Code: `src/asr.c` (utterances, partial and final lines), `src/asrnet.c` (the network),
+`src/asrcfg.c` (`config.json`), `src/nn.c` (layers), `src/safetensors.c`, `src/tokdec.c`
+(`tokenizer.json`). Tests: `test_asrnet` checks the network against a numpy transcription
+of the published model code on a small random model (`tests/gen_asrnet_vectors.py`),
+`test_asrcfg`, `test_tokdec`, `test_asr` (when lines come out, whatever the chunking
+of the audio) and `test_math` (`lib/nl_math.h` against values from Python, bit for bit
+for `fmod`, `floor`, `ceil`). `tests/ref_asrnet.py` prints the reference implementation's
+transcript of a wav, to compare with asciicam's.
 
-##### What the model is, and where it came from
+```sh
+arecord -d 8 -f S16_LE -r 16000 -c 1 test.wav
+python tests/ref_asrnet.py moonshine-ai/moonshine-streaming-tiny test.wav
+./build/asciicam --listen test.wav --model models/model.safetensors
+```
+
+##### Information about model used
 
 The model is not part of this repository and no copy of it is shipped.
 
-- Network: Moonshine v2 streaming, English, 34 M parameters (Kudlur, King, Wang,
-  Warden, _Moonshine v2: Ergodic Streaming Encoder ASR_, arXiv 2602.12241),
-  by Useful Sensors, MIT licensed.
-- Weights, vocabulary and shape: `model.safetensors`, `tokenizer.json` and
-  `config.json` from
+- Network: Moonshine v2 streaming, English, 34 M parameters (Kudlur, King, Wang, Warden,
+  _Moonshine v2: Ergodic Streaming Encoder ASR_, arXiv 2602.12241), by Useful Sensors,
+  MIT licensed.
+- Weights, vocabulary and shape: `model.safetensors`, `tokenizer.json` and `config.json` from
   [UsefulSensors/moonshine-streaming-tiny](https://huggingface.co/UsefulSensors/moonshine-streaming-tiny)
-  on Hugging Face. Put the three files in one folder and give `--model` the
-  path of the `.safetensors` file.
-- The C code was written from the published modelling code in the
-  `transformers` library (`modeling_moonshine_streaming.py`), operation by
-  operation. It is a reimplementation: none of their libraries is linked.
-- safetensors is the weights file format of Hugging Face; the reader is
-  `src/safetensors.c`.
+  on Hugging Face. Put the three files in one folder and give `--model` the path of the
+  `.safetensors` file.
+- The C code was written from the published modelling code in the `transformers` library
+  (`modeling_moonshine_streaming.py`), operation by operation. It is a reimplementation:
+  none of their libraries is linked.
+- safetensors is the weights file format of Hugging Face; the reader is `src/safetensors.c`.
 
 ### Loader hardening
 
 `nl_dlopen` reads a file from disk and then writes to addresses computed from it,
 so it treats the file as untrusted: program headers, segment sizes, `PT_DYNAMIC`,
-symbol/string/hash tables and every relocation target are bounds-checked before
-use, overlapping or writable+executable segments and unresolved non-weak symbols
-are refused, and a failed load unmaps everything. `tests/fuzz_elf.c` (part of
-`make test` and `./nb test`) feeds it crafted and randomly damaged copies of the
-real plugins, each in a forked child with a canary mapping next to the reservation
-and fails on any crash, hang or write outside the mapping.
+symbol/string/hash tables and every relocation target are bounds-checked before use,
+overlapping or writable+executable segments and unresolved non-weak symbols are refused
+and a failed load unmaps everything. `tests/fuzz_elf.c` (part of `make test` and `./nb test`)
+feeds it crafted and randomly damaged copies of the real plugins, each in a forked
+child with a canary mapping next to the reservation and fails on any crash, hang or
+write outside the mapping.
 
 ## Building without make
 
-C/build.c`+`C/nb.h`are a small build system written in C. Bootstrap once,
-then it rebuilds itself whenever`build.c`or`nb.h` change:
+`C/build.c` + `C/nb.h` are a small build system written in C. Bootstrap once, then it
+rebuilds itself whenever`build.c`or`nb.h` change:
 
 ```sh
 cd C
 cc -o nb build.c
-./nb -j8              # binary + plugins, only what changed
-./nb test             # every unit test, fuzzers included
-./nb e2e              # main loop against a software camera, driven through a pty
+./nb -j8                  # binary + plugins, only what changed
+./nb test                 # every unit test, fuzzers included
+./nb e2e                  # main loop against a software camera, driven through a pty
 ./nb install-sdk PREFIX=/usr DESTDIR=...   # also headers + plugin sources
-./nb clean            # ./nb info prints the flags in use
+./nb clean                # ./nb info prints the flags in use
 ```
 
-Nothing here and nothing installed app does, needs `make`: the picker builds a
-plugin by running the C compiler itself (`$CC`, default `cc`), with the flags
-from `include/plugin_build.h` - the same file `nb` takes them from, so a plugin
-compiled on demand is what a normal build produces. An installed SDK is just
-`include/`, `lib/` and `filters/`.
+Nothing here and nothing installed app does, needs `make`: the picker builds a plugin
+by running the C compiler itself (`$CC`, default `cc`), with the flags from
+`include/plugin_build.h` - the same file `nb` takes them from, so a plugin compiled
+on demand is what a normal build produces. An installed SDK is just `include/`, `lib/`
+and `filters/`.
 
-Linux and macOS(Objective-C camera backend, frameworks) are tested.
-Makefile remains for Windows (`nb.h` has no Windows backend yet, Windows app still
-runs `make` for on-demand plugin builds) and for `make sanitize`. If you change
-plugin flags, change `plugin_build.h` and plugin rule in the Makefile to match.
+Linux and macOS(Objective-C camera backend, frameworks) are tested. Makefile remains for
+Windows (`nb.h` has no Windows backend yet, Windows app still runs `make` for on-demand
+plugin builds) and for `make sanitize`. If you change plugin flags, change `plugin_build.h`
+and plugin rule in the Makefile to match.
 
 ## Try it without installing
 
@@ -832,16 +821,16 @@ The image is `FROM scratch`: one static binary plus the prebuilt plugins
   - [ ] macOS hardware controls via `AVCaptureDevice` exposure/white-balance APIs (capture works, controls stubbed)
 - [x] Runtime plugin catalog: search, build and load plugins while running (`/`)
 - [x] Speech recognition without libraries
-  * [x] Speaker-dependent words and phrases (`--listen`, `--voice-enroll`)
-  * [x] Live captions in the picture, `--vcam`, `--serve` and calls
-  * [x] Full sentences with a neural network in pure C (`--listen --model`)
-    + [x] safetensors reader, `config.json`, `tokenizer.json`, streaming encoder, decoder with key/value cache
-    + [x] Network checked against a numpy transcription of the reference on a small random model
-  * [ ] Run it on the real weights: transcript against `tests/ref_asrnet.py`, then measure speed (real-time factor)
-  * [ ] Faster: SIMD matrix products, 8-bit weights
-  * [ ] Models other than the smallest English one (`config.json` is read, none tried on real weights)
-  * [ ] Native microphone capture (today: `arecord` or any recorder into a pipe or file)
-  * [ ] Subtitle export (`.srt`) from the final lines, audio visualiser
+  - [x] Speaker-dependent words and phrases (`--listen`, `--voice-enroll`)
+  - [x] Live captions in the picture, `--vcam`, `--serve` and calls
+  - [x] Full sentences with a neural network in pure C (`--listen --model`)
+    - [x] safetensors reader, `config.json`, `tokenizer.json`, streaming encoder, decoder with key/value cache
+    - [x] Network checked against a numpy transcription of the reference on a small random model
+  - [ ] Run it on the real weights: transcript against `tests/ref_asrnet.py`, then measure speed (real-time factor)
+  - [ ] Faster: SIMD matrix products, 8-bit weights
+  - [ ] Models other than the smallest English one (`config.json` is read, none tried on real weights)
+  - [ ] Native microphone capture (today: `arecord` or any recorder into a pipe or file)
+  - [ ] Subtitle export (`.srt`) from the final lines, audio visualiser
 - [x] All maths in one header, `lib/nl_math.h` (no libm), with `nl_fmod`
 
 ## Fixes

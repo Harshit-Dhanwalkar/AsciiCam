@@ -224,6 +224,7 @@ static void print_usage(const char *prog) {
       "  --model <w>   with --listen: full sentences from a model            \n"
       "                (weights w; vocabulary --tokenizer <j>, default       \n"
       "                tokenizer.json beside w)                              \n"
+      "  --asr-debug   with --model: dump raw/trimmed decoder ids to stderr  \n"
       "  --speed <x>   playback speed for --play (default 1, e.g. 0.5, 2)    \n"
       "  --loop        repeat --play until quit                              \n"
       "  --curve <s>   tone curve: points \"0,0 64,40 255,255\", a preset    \n"
@@ -1404,6 +1405,13 @@ int main(int argc, char *argv[]) {
     int is_list = nl_strcmp(argv[i], "--voice-list") == 0;
     int is_model = nl_strcmp(argv[i], "--model") == 0;
     int is_tok = nl_strcmp(argv[i], "--tokenizer") == 0;
+    int is_debug = nl_strcmp(argv[i], "--asr-debug") == 0;
+    if (is_debug) {
+      voice.asr_debug = 1;
+
+      continue;
+    }
+
     if (!is_listen && !is_mic && !is_voice && !is_enroll && !is_forget &&
         !is_list && !is_model && !is_tok) {
       continue;

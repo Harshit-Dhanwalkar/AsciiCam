@@ -209,7 +209,26 @@ static void read_text(asr_t *a, char *out, size_t size) {
     }
   }
 
+  if (a->debug) {
+    fprintf(stderr, "[asr-debug] decoded %d raw, %d shown:", n, m);
+    for (int i = 0; i < n; i++) {
+      fprintf(stderr, " %d", toks[i]);
+    }
+
+    fprintf(stderr, "\n");
+  }
+
   n = asr_trim_repeats(shown, m, kept);
+
+  if (a->debug) {
+    fprintf(stderr, "[asr-debug] trimmed %d -> %d:", m, n);
+    for (int i = 0; i < n; i++) {
+      fprintf(stderr, " %d", kept[i]);
+    }
+
+    fprintf(stderr, "\n");
+  }
+
   tokdec_text(a->tok, kept, n, out, size);
 }
 

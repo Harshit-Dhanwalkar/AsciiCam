@@ -57,19 +57,22 @@ typedef struct {
   int16_t blk[ASR_BLOCK];
   int nblk;
   int16_t pre[ASR_PREROLL][ASR_BLOCK];
-  int pre_n, pre_i;
-  float floor; // noise level, mean absolute sample
-  int run_on;  // consecutive loud blocks
+  int pre_n;
+  int pre_i;
+  float floor; // Noise level, mean absolute sample
+  int run_on;  // Consecutive loud blocks
   int speaking;
-  int quiet;       // quiet blocks since last loud one
-  int loud;        // loud blocks this utterance
-  long blocks;     // blocks of this utterance
-  long since_part; // blocks since last partial
+  int quiet;       // Quiet blocks since last loud one
+  int loud;        // Loud blocks this utterance
+  long blocks;     // Blocks of this utterance
+  long since_part; // Blocks since last partial
   char last[ASR_TEXT];
 
-  long last_frames, last_blocks; // last utterance: encoder frames, blocks
-  int utterances;                // statistics
+  long last_frames, last_blocks; // Last utterance: encoder frames, blocks
+  int utterances;                // Statistics
   int partials;
+
+  int debug; // 1: print raw and repeat-trimmed ids to stderr (--asr-debug)
 } asr_t;
 
 void asr_init(asr_t *a);

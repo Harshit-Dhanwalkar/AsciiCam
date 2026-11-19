@@ -144,6 +144,8 @@ int voice_prepare(sp_t *sp, asr_t *a, const voice_opts_t *o, const char *xdg,
       return -1;
     }
 
+    a->debug = o->asr_debug;
+
     asr_attach(a, sp);
 
     return 0;

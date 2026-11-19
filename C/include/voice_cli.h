@@ -16,6 +16,12 @@
  *                           (weights file w, vocabulary --tokenizer <j>,
  *                           default tokenizer.json beside w) instead of words
  *                           have been taught to it
+ *  --asr-debug              with --model: print decoder ids (raw and after
+ *                           repeat guard) to stderr, for comparing against a
+ *                           reference transcript token by token (weights file
+ *                           w, vocabulary --tokenizer <j>, default
+ *                           trokenizer.json beside w) instead of words have
+ *                           been taught to it
  */
 
 #include "asr.h"
@@ -30,7 +36,9 @@ typedef struct voice_opts_s {
   const char *enroll_word;
   const char *enroll_src;
   const char *forget;
+
   int list;
+  int asr_debug; // --asr-debug: dump raw/trimmed decoder ids to stderr
 } voice_opts_t;
 
 // Return 1 if enroll, list or forget were asked for: they run and exit
