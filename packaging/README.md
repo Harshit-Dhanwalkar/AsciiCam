@@ -12,18 +12,10 @@ The binary is static x86-64 Linux with no libc, so one build runs on any distrib
 | Arch (AUR)                  | `packaging/arch/PKGBUILD`                             | not run                                                             |
 | Docker                      | `Dockerfile`                                          | existing                                                            |
 
-## Releasing
-
-    git tag v0.1.0 && git push --tags
-
-The `release` workflow tests, builds `asciicam-<ver>-linux-x86_64.tar.gz`,
-`asciicam_<ver>-1_amd64.deb` and `SHA256SUMS`, and attaches them to a release.
-Then update the sha256 in the Homebrew formula and the PKGBUILD.
-
 ## Users
 
     curl -fsSL https://raw.githubusercontent.com/Harshit-Dhanwalkar/AsciiCam/main/scripts/install.sh | sh
-    sudo apt install ./asciicam_0.1.0-1_amd64.deb
+    sudo apt install ./asciicam_0.3.0-1_amd64.deb
     nix run github:Harshit-Dhanwalkar/AsciiCam            # needs allowUnfree, see licence note
     brew install Harshit-Dhanwalkar/asciicam/asciicam     # tap repo: homebrew-asciicam
     yay -S asciicam                                       # after the AUR package is submitted

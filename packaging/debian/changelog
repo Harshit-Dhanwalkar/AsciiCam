@@ -1,10 +1,20 @@
-asciicam (0.2.0-1) unstable; urgency=medium
+asciicam (0.3.0-1) unstable; urgency=medium
 
   * New upstream release.
-  * Add speaker-dependent speech recognition: --listen reads audio from a
-    file, fifo or stdin and prints recognised words and phrases as lines,
-    or as live captions during a --call.
-  * Add --voice-enroll, --voice-list, --voice-forget and --voice to teach
-    and manage the words it knows.
+  * Add a neural speech-to-text engine (asrnet): --model <weights>
+    with --listen now transcribes full sentences from a real neural
+    model instead of matching enrolled word templates (weights are a
+    plain safetensors file; vocabulary from tokenizer.json beside it).
+  * Add --mic <device>: capture audio straight from an ALSA microphone
+    for --listen, instead of only a file, fifo or stdin.
+  * Add --asr-debug: with --model, print the decoder's raw and
+    repeat-trimmed token ids to stderr, for diagnosing transcription
+    issues.
+  * Fix a repeated short word or phrase (e.g. "hi, hi, hi.") being
+    over-trimmed to two repeats; genuinely repeated short speech is now
+    kept, while the decoder getting stuck in a loop is still cut.
+  * Performance: the neural network's matrix-multiply picks an AVX2
+    implementation at runtime on CPUs that support it, falling back to
+    the portable SSE path elsewhere.
 
- -- Harshit Dhanwalkar <harshitpd1729@gmail.com>  Mon, 16 Nov 2026 14:30:00 +0530
+ -- Harshit Dhanwalkar <harshitpd1729@gmail.com>  Thu, 19 Nov 2026 13:27:00 +0530

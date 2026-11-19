@@ -12,7 +12,7 @@
       packages = forAll (pkgs: rec {
         asciicam = pkgs.stdenv.mkDerivation {
           pname = "asciicam";
-          version = "0.1.0";
+          version = "0.3.0";
           src = ./.;
           sourceRoot = "source/C";
 
