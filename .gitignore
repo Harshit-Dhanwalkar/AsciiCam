@@ -71,3 +71,12 @@ C/nb
 # Release/Packaging
 dist/
 apt/
+
+# Python env
+venv/
+
+# Models
+C/models/config.json
+C/models/model.safetensors
+C/models/tensors.txt
+C/models/tokenizer.json

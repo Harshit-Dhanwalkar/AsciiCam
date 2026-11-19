@@ -15,6 +15,7 @@
 
 #include "../lib/nolibc.h"
 #include "platform.h"
+#include "nl_math.h"
 #include "speech.h"
 
 int memcmp(const void *a, const void *b, size_t n);
@@ -82,8 +83,7 @@ static int render(int16_t *out, int max, const seg_t *seg, int nseg,
             0.7 / (1.0 + ((f - seg[s].f2) / (0.12 * seg[s].f2 + 60)) *
                              ((f - seg[s].f2) / (0.12 * seg[s].f2 + 60)));
         double ph = f * t;
-        // ph = fmod(ph, 1.0); // TODO: Implement fmod in math.h
-        ph -= (double)(long)ph;
+        ph = nl_fmod(ph, 1.0);
         v += (a1 + a2) * sintab[(int)(ph * 8192) & 8191];
       }
 

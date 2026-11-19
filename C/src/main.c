@@ -221,6 +221,10 @@ static void print_usage(const char *prog) {
       "                (\"-\" = stdin); say it a few times, pause 0.3 s apart\n"
       "  --voice-list / --voice-forget <w>   show / remove what is enrolled  \n"
       "  --voice <f>   voice file (default ~/.config/asciicam/voice.tpl)     \n"
+      "  --model <w>   with --listen: full sentences from a model            \n"
+      "                (weights w; vocabulary --tokenizer <j>, default       \n"
+      "                tokenizer.json beside w)                              \n"
+      "  --asr-debug   with --model: dump raw/trimmed decoder ids to stderr  \n"
       "  --speed <x>   playback speed for --play (default 1, e.g. 0.5, 2)    \n"
       "  --loop        repeat --play until quit                              \n"
       "  --curve <s>   tone curve: points \"0,0 64,40 255,255\", a preset    \n"
@@ -1394,11 +1398,22 @@ int main(int argc, char *argv[]) {
   voice_opts_t voice = {0};
   for (int i = 1; i < argc; i++) {
     int is_listen = nl_strcmp(argv[i], "--listen") == 0;
+    int is_mic = nl_strcmp(argv[i], "--mic") == 0;
     int is_voice = nl_strcmp(argv[i], "--voice") == 0;
     int is_enroll = nl_strcmp(argv[i], "--voice-enroll") == 0;
     int is_forget = nl_strcmp(argv[i], "--voice-forget") == 0;
     int is_list = nl_strcmp(argv[i], "--voice-list") == 0;
-    if (!is_listen && !is_voice && !is_enroll && !is_forget && !is_list) {
+    int is_model = nl_strcmp(argv[i], "--model") == 0;
+    int is_tok = nl_strcmp(argv[i], "--tokenizer") == 0;
+    int is_debug = nl_strcmp(argv[i], "--asr-debug") == 0;
+    if (is_debug) {
+      voice.asr_debug = 1;
+
+      continue;
+    }
+
+    if (!is_listen && !is_mic && !is_voice && !is_enroll && !is_forget &&
+        !is_list && !is_model && !is_tok) {
       continue;
     }
 
@@ -1412,6 +1427,12 @@ int main(int argc, char *argv[]) {
 
     if (is_listen) {
       voice.listen = argv[i + 1];
+    } else if (is_model) {
+      voice.model = argv[i + 1];
+    } else if (is_mic) {
+      voice.mic = argv[i + 1];
+    } else if (is_tok) {
+      voice.tokenizer = argv[i + 1];
     } else if (is_voice) {
       voice.voice = argv[i + 1];
     } else if (is_enroll) {
@@ -1437,7 +1458,7 @@ int main(int argc, char *argv[]) {
                          app_getenv(envp_base, "HOME"));
   }
 
-  if (voice.listen && !call_addr) {
+  if ((voice.listen || voice.mic) && !call_addr) {
     return voice_listen_main(&voice, app_getenv(envp_base, "XDG_CONFIG_HOME"),
                              app_getenv(envp_base, "HOME"));
   }

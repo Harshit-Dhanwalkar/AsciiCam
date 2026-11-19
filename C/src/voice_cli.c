@@ -6,6 +6,7 @@
 
 #include "nolibc.h"
 
+#include "mic.h"
 #include "voice_cli.h"
 
 static int voice_path(char *out, size_t size, const voice_opts_t *o,
@@ -125,7 +126,7 @@ int voice_command(const voice_opts_t *o, const char *xdg, const char *home) {
 
 static void out_line(void *user, int final, const char *text) {
   (void)user;
-  char line[SP_WORD + 4];
+  char line[ASR_TEXT + 4];
   int n = nl_snprintf(line, sizeof(line), "%s%s\n", final ? "" : "~", text);
   if (n > 0) {
     ssize_t w = write(1, line, (size_t)n);
@@ -133,29 +134,122 @@ static void out_line(void *user, int final, const char *text) {
   }
 }
 
-int voice_listen_main(const voice_opts_t *o, const char *xdg,
-                      const char *home) {
-  static sp_t sp;
-  static sp_src_t src;
-  sp_init(&sp);
-  if (voice_load(&sp, o, xdg, home) != 0) {
+int voice_prepare(sp_t *sp, asr_t *a, const voice_opts_t *o, const char *xdg,
+                  const char *home) {
+  if (o->model) {
+    char err[128];
+    if (asr_open(a, o->model, o->tokenizer, err, sizeof(err)) != 0) {
+      fprintf(stderr, "--model: %s: %s\n", o->model, err);
+
+      return -1;
+    }
+
+    a->debug = o->asr_debug;
+
+    asr_attach(a, sp);
+
+    return 0;
+  }
+
+  if (voice_load(sp, o, xdg, home) != 0) {
+    return -1;
+  }
+
+  if (sp->ntpl == 0) {
+    fprintf(stderr, "--listen: nothing enrolled yet, teach it some words with "
+                    "--voice-enroll <word> <audio file>, or use --model for "
+                    "full sentences\n");
+
+    return -1;
+  }
+
+  return 0;
+}
+
+void voice_set_text(sp_t *sp, asr_t *a, const voice_opts_t *o, sp_text_fn fn,
+                    void *user) {
+  if (o->model) {
+    asr_set_text(a, fn, user);
+  } else {
+    sp_set_text(sp, fn, user);
+  }
+}
+
+// --mic: set by Ctrl-C / SIGTERM so loop can flush last line and exit
+static volatile int voice_mic_stop;
+
+static void voice_mic_on_signal(int sig) {
+  (void)sig;
+  voice_mic_stop = 1;
+}
+
+// --mic: read sound card in 20 ms blocks until Ctrl-C or a read error
+static int voice_mic_loop(sp_t *sp, asr_t *asr, const voice_opts_t *o) {
+  static mic_t mic;
+  char err[128];
+  if (mic_open(&mic, o->mic, err, sizeof err) != 0) {
+    fprintf(stderr, "--mic: %s\n", err);
+    asr_close(asr);
+
     return 1;
   }
 
-  if (sp.ntpl == 0) {
-    fprintf(stderr, "--listen: nothing enrolled yet, teach it some words with "
-                    "--voice-enroll <word> <audio file>\n");
+  voice_set_text(sp, asr, o, out_line, NULL);
+  int16_t block[320];
+  int status = 0;
+  voice_mic_stop = 0;
+  signal(SIGINT, voice_mic_on_signal);
+  signal(SIGTERM, voice_mic_on_signal);
+  while (!voice_mic_stop) {
+    long n = mic_read(&mic, block, sizeof block / sizeof block[0]);
+    if (n < 0) {
+      // A signal interrupts blocking read: that is a normal stop
+      if (!voice_mic_stop) {
+        fprintf(stderr, "--mic: %s: read failed\n", o->mic);
+        status = 1;
+      }
+      break;
+    }
 
+    if (n > 0) {
+      sp_feed(sp, block, (size_t)n);
+    }
+  }
+
+  signal(SIGINT, (void (*)(int))0);
+  signal(SIGTERM, (void (*)(int))0);
+  sp_flush(sp);
+  mic_close(&mic);
+  sp_free(sp);
+  asr_close(asr);
+
+  return status;
+}
+
+int voice_listen_main(const voice_opts_t *o, const char *xdg,
+                      const char *home) {
+  static sp_t sp;
+  static asr_t asr;
+  static sp_src_t src;
+  sp_init(&sp);
+
+  asr_init(&asr);
+  if (voice_prepare(&sp, &asr, o, xdg, home) != 0) {
     return 1;
+  }
+
+  if (o->mic) {
+    return voice_mic_loop(&sp, &asr, o);
   }
 
   if (sp_src_open(&src, o->listen) != 0) {
     fprintf(stderr, "--listen: cannot open %s\n", o->listen);
+    asr_close(&asr);
 
     return 1;
   }
 
-  sp_set_text(&sp, out_line, NULL);
+  voice_set_text(&sp, &asr, o, out_line, NULL);
   while (!src.eof) {
     long n = sp_src_poll(&src, &sp);
     if (!src.st.ok) {
@@ -170,8 +264,10 @@ int voice_listen_main(const voice_opts_t *o, const char *xdg,
     }
   }
 
+  sp_flush(&sp);
   sp_src_close(&src);
   sp_free(&sp);
+  asr_close(&asr);
 
   return 0;
 }

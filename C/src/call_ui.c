@@ -2,6 +2,7 @@
  * src/call_ui.c - terminal, camera and clock side of a video call
  */
 
+#include "asr.h"
 #include "platform.h"
 
 #include "nolibc.h"
@@ -205,6 +206,7 @@ static const char *listen_xdg;
 static const char *listen_home;
 static int listening;
 static sp_t speech;
+static asr_t speech_asr;
 static sp_src_t speech_src;
 
 void call_ui_set_listen(const voice_opts_t *o, const char *xdg,
@@ -221,6 +223,7 @@ static void listen_close(void) {
   if (listening) {
     sp_src_close(&speech_src);
     sp_free(&speech);
+    asr_close(&speech_asr);
   }
 }
 
@@ -272,15 +275,9 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
 
   if (listening) {
     sp_init(&speech);
-    if (voice_load(&speech, &listen_opts, listen_xdg, listen_home) != 0) {
-      capsrc_close(&capsrc);
-
-      return 1;
-    }
-
-    if (speech.ntpl == 0) {
-      fprintf(stderr, "--listen: nothing enrolled yet, teach it some words "
-                      "with --voice-enroll <word> <audio file>\n");
+    asr_init(&speech_asr);
+    if (voice_prepare(&speech, &speech_asr, &listen_opts, listen_xdg,
+                      listen_home) != 0) {
       sp_free(&speech);
       capsrc_close(&capsrc);
 
@@ -290,6 +287,7 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
     if (sp_src_open(&speech_src, listen_opts.listen) != 0) {
       fprintf(stderr, "--listen: cannot open %s\n", listen_opts.listen);
       sp_free(&speech);
+      asr_close(&speech_asr);
       capsrc_close(&capsrc);
 
       return 1;
@@ -387,7 +385,7 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
   }
 
   if (listening) {
-    sp_set_text(&speech, cap_line, &sink);
+    voice_set_text(&speech, &speech_asr, &listen_opts, cap_line, &sink);
   }
 
   ui_write(UI_ENTER, sizeof(UI_ENTER) - 1);
@@ -524,9 +522,32 @@ int call_main(const char *addr, const char *name, const char *device, int cap_w,
     }
   }
 
-  nv_set_blocking(STDOUT_FILENO, 1);
   term_restore();
-  (void)write(STDOUT_FILENO, UI_LEAVE, sizeof(UI_LEAVE) - 1);
+  // Leave alternate screen, but never wait on a terminal nobody reads: a full
+  // tty buffer would hang exit
+  // tty stays non-blocking and sequence gets about half a second
+  {
+    const char *lp = UI_LEAVE;
+    size_t ln = sizeof(UI_LEAVE) - 1;
+    for (int tries = 0; ln > 0 && tries < 10; tries++) {
+      nl_fd_set ws;
+      nl_memset(&ws, 0, sizeof(ws));
+      fd_add(&ws, STDOUT_FILENO);
+      struct nl_timeval tv = {0, 50000};
+      if (nl_select(STDOUT_FILENO + 1, NULL, &ws, NULL, &tv) <= 0) {
+        continue;
+      }
+
+      ssize_t w = write(STDOUT_FILENO, lp, ln);
+      if (w > 0) {
+        lp += w;
+        ln -= (size_t)w;
+      }
+    }
+
+    nv_set_blocking(STDOUT_FILENO, 1);
+  }
+
   int rc = 0;
   if (call.full) {
     fprintf(stderr, "--call: the room is full\n");
