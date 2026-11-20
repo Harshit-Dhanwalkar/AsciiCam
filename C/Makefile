@@ -135,6 +135,7 @@ CORE_SRCS := $(SRCDIR)/app_paths.c \
              $(SRCDIR)/plugins.c \
              $(SRCDIR)/plugin_catalog.c \
              $(SRCDIR)/plugin_picker.c \
+             $(SRCDIR)/plugin_sandbox.c \
              $(SRCDIR)/thread_sharing.c \
              $(SRCDIR)/timing.c \
              $(SRCDIR)/capture_demo.c \
@@ -395,6 +396,8 @@ test: all
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_thread.c $(TEST_LIBS) -o $(TESTDIR)/thread
 	$(CC) -O0 $(TEST_FLAGS) tests/test_nl_seccomp.c $(TEST_LIBS) -o $(TESTDIR)/seccomp_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_seccomp.c $(TEST_LIBS) -o $(TESTDIR)/seccomp_O2
+	$(CC) -O0 $(TEST_FLAGS) tests/test_plugin_sandbox.c $(SRCDIR)/plugin_sandbox.c $(SRCDIR)/plugins.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/plugin_sandbox_O0
+	$(CC) -O2 $(TEST_FLAGS) tests/test_plugin_sandbox.c $(SRCDIR)/plugin_sandbox.c $(SRCDIR)/plugins.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/plugin_sandbox_O2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_capture_pipe.c $(SRCDIR)/thread_sharing.c $(TEST_LIBS) -o $(TESTDIR)/capture_pipe
 	$(CC) -DTESTING $(TEST_FLAGS) tests/security_tests.c $(FILTER_SRC) $(TEST_LIBS) -o $(TESTDIR)/security
 	$(TESTDIR)/alloc
@@ -469,6 +472,8 @@ test: all
 	$(TESTDIR)/thread
 	$(TESTDIR)/seccomp_O0
 	$(TESTDIR)/seccomp_O2
+	$(TESTDIR)/plugin_sandbox_O0
+	$(TESTDIR)/plugin_sandbox_O2
 	$(TESTDIR)/capture_pipe
 	$(TESTDIR)/security
 	@echo "All tests passed"

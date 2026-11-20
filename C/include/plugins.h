@@ -35,7 +35,14 @@ typedef struct {
   char status_msg[128];      // last load/swap message
   int inotify_fd;            // inotify instance fd
   int inotify_wd;            // watch descriptor
+  void *sandbox;             // plugin_sandbox.c state, NULL when not sandboxed
+  int disabled;              // switched off by sandbox; status_msg says why
 } plugin_loader_t;
+
+// plugin_sandbox.c registers its stop function here when it first starts a
+// sandbox, so plugin_load() and plugin_cleanup() can end one without this file
+// depending on it
+void plugin_set_sandbox_stop(void (*stop)(plugin_loader_t *));
 
 // 0 silences stderr diagnostics (TUI owns terminal), status_msg is always
 // filled in
@@ -45,5 +52,9 @@ int plugin_load(plugin_loader_t *pl, const char *path);
 void plugin_watch_init(plugin_loader_t *pl, const char *path);
 void plugin_check_reload(plugin_loader_t *pl);
 void plugin_cleanup(plugin_loader_t *pl);
+
+// Running plugins in a sandboxed child (plugin_run, --sandbox); needs
+// plugin_loader_t from above
+#include "plugin_sandbox.h"
 
 #endif
