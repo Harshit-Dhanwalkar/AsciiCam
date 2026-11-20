@@ -407,6 +407,25 @@ if REAL and os.access(REAL, os.X_OK):
         check(frames >= 8 and code == 0 and test(w),
               f"plugin {name} repaints colour pictures (warmth {w0 and round(w0)} -> {w and round(w)}, {frames} frames)")
 
+    # --sandbox: plugins run in a locked-down child, picture and colour hooks
+    # still work, and several plugins can be stacked
+    for name in ("glitch", "vhs", "ripple"):
+        so = os.path.join(plugin_dir, name + ".so")
+        frames, code, out, _ = run(["--demo", "-r", "20", "--sandbox", "-p", so], 1.2)
+        check(frames >= 8 and code == 0 and b"switched off" not in out,
+              f"--sandbox plugin {name}: loads and draws ({frames} frames, exit {code})")
+    for name, test in (("sepia", lambda w: w is not None and w0 is not None and w > w0 + 15),
+                       ("thermal", lambda w: w is not None and w0 is not None and abs(w - w0) > 15)):
+        so = os.path.join(plugin_dir, name + ".so")
+        frames, code, out, _ = run(["--demo", "-r", "20", "-C", "--sandbox", "-p", so], 1.5)
+        w = warmth(out)
+        check(frames >= 8 and code == 0 and test(w),
+              f"--sandbox plugin {name} repaints colour pictures (warmth {w0 and round(w0)} -> {w and round(w)})")
+    sos = [os.path.join(plugin_dir, n + ".so") for n in ("glitch", "vignette")]
+    frames, code, out, _ = run(["--demo", "-r", "20", "--sandbox", "-p", sos[0], "-p", sos[1]], 1.2)
+    check(frames >= 8 and code == 0,
+          f"--sandbox with two plugins stacked ({frames} frames, exit {code})")
+
     # Mirror + colour keeps drawing (colour planes are flipped with luma)
     frames, code, out, _ = run(["--demo", "-r", "20", "-C", "-f"], 1.2)
     check(frames >= 8 and code == 0 and b"\x1b[38;2;" in out,
