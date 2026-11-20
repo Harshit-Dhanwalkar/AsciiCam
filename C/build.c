@@ -546,6 +546,8 @@ static int run_tests(void) {
       {"gc_O0", "-O0", "", "tests/test_nl_gc.c lib/nl_gc.c", {NULL}},
       {"gc_O2", "-O2", "", "tests/test_nl_gc.c lib/nl_gc.c", {NULL}},
       {"thread", "-O2", "", "tests/test_nl_thread.c", {NULL}},
+      {"seccomp_O0", "-O0", "", "tests/test_nl_seccomp.c", {NULL}},
+      {"seccomp_O2", "-O2", "", "tests/test_nl_seccomp.c", {NULL}},
       {"capture_pipe",
        "-O2",
        "",
