@@ -134,7 +134,7 @@ void yuyv_to_gray_simd(const uint8_t *yuyv, uint8_t *gray, int width,
 
 #else
 
-// fallback
+// Fallback
 void yuyv_to_gray_simd(const uint8_t *yuyv, uint8_t *gray, int width,
                        int height) {
   int total = width * height;
@@ -142,6 +142,144 @@ void yuyv_to_gray_simd(const uint8_t *yuyv, uint8_t *gray, int width,
     gray[i] = yuyv[i * 2];
   }
 }
+#endif
+
+#if defined(ARCH_X86_64) && defined(__SSE4_1__)
+
+// YUV -> RGB for 8 pixels at once, bit for bit what scalar loops compute:
+// 298 * c + 409 * e, 298 * c - 100 * d - 208 * e and 298 * c + 516 * d (c = Y
+// - 16, d = U - 128, e = V - 128) are exact 32-bit sums of 16-bit products
+// (pmaddwd), then + 128, >> 8 and two saturating packs are clamp to 0..255
+// y8, u8, v8 hold 8 bytes each in their low half, chroma already repeated per
+// pixel
+// Writes 24 bytes
+static inline void yuv8_to_rgb24(__m128i y8, __m128i u8, __m128i v8,
+                                 uint8_t *out) {
+  const __m128i zero = _mm_setzero_si128();
+  const __m128i c = _mm_sub_epi16(_mm_cvtepu8_epi16(y8), _mm_set1_epi16(16));
+  const __m128i d = _mm_sub_epi16(_mm_cvtepu8_epi16(u8), _mm_set1_epi16(128));
+  const __m128i e = _mm_sub_epi16(_mm_cvtepu8_epi16(v8), _mm_set1_epi16(128));
+
+  // madd multiplies 16-bit lanes pairwise and adds each pair into 32 bits:
+  // interleave (c, e) / (c, d) so one madd is 298 * c + k * (e or d)
+  const __m128i k_r = _mm_set1_epi32((409 << 16) | 298);
+  const __m128i k_b = _mm_set1_epi32((516 << 16) | 298);
+  const __m128i k_g =
+      _mm_set1_epi32((int)((0xFFFFu & (unsigned)-100) << 16) | 298);
+  const __m128i k_ge = _mm_set1_epi32((int)(0xFFFFu & (unsigned)-208));
+  const __m128i round = _mm_set1_epi32(128);
+
+  const __m128i ce_lo = _mm_unpacklo_epi16(c, e);
+  const __m128i ce_hi = _mm_unpackhi_epi16(c, e);
+  const __m128i cd_lo = _mm_unpacklo_epi16(c, d);
+  const __m128i cd_hi = _mm_unpackhi_epi16(c, d);
+  const __m128i e0_lo = _mm_unpacklo_epi16(e, zero);
+  const __m128i e0_hi = _mm_unpackhi_epi16(e, zero);
+
+  __m128i r_lo =
+      _mm_srai_epi32(_mm_add_epi32(_mm_madd_epi16(ce_lo, k_r), round), 8);
+  __m128i r_hi =
+      _mm_srai_epi32(_mm_add_epi32(_mm_madd_epi16(ce_hi, k_r), round), 8);
+  __m128i b_lo =
+      _mm_srai_epi32(_mm_add_epi32(_mm_madd_epi16(cd_lo, k_b), round), 8);
+  __m128i b_hi =
+      _mm_srai_epi32(_mm_add_epi32(_mm_madd_epi16(cd_hi, k_b), round), 8);
+  __m128i g_lo =
+      _mm_srai_epi32(_mm_add_epi32(_mm_add_epi32(_mm_madd_epi16(cd_lo, k_g),
+                                                 _mm_madd_epi16(e0_lo, k_ge)),
+                                   round),
+                     8);
+  __m128i g_hi =
+      _mm_srai_epi32(_mm_add_epi32(_mm_add_epi32(_mm_madd_epi16(cd_hi, k_g),
+                                                 _mm_madd_epi16(e0_hi, k_ge)),
+                                   round),
+                     8);
+
+  __m128i r16 = _mm_packs_epi32(r_lo, r_hi);
+  __m128i g16 = _mm_packs_epi32(g_lo, g_hi);
+  __m128i b16 = _mm_packs_epi32(b_lo, b_hi);
+  __m128i r8 = _mm_packus_epi16(r16, r16);
+  __m128i g8 = _mm_packus_epi16(g16, g16);
+  __m128i b8 = _mm_packus_epi16(b16, b16);
+
+  // R0 G0 B0 R1 G1 B1 ... : 24 bytes from three 8-byte planes
+  const __m128i rg = _mm_unpacklo_epi8(r8, g8);
+  const __m128i rg_a =
+      _mm_setr_epi8(0, 1, -1, 2, 3, -1, 4, 5, -1, 6, 7, -1, 8, 9, -1, 10);
+  const __m128i b_a =
+      _mm_setr_epi8(-1, -1, 0, -1, -1, 1, -1, -1, 2, -1, -1, 3, -1, -1, 4, -1);
+  const __m128i rg_b = _mm_setr_epi8(11, -1, 12, 13, -1, 14, 15, -1, -1, -1, -1,
+                                     -1, -1, -1, -1, -1);
+  const __m128i b_b = _mm_setr_epi8(-1, 5, -1, -1, 6, -1, -1, 7, -1, -1, -1, -1,
+                                    -1, -1, -1, -1);
+  _mm_storeu_si128((__m128i *)out, _mm_or_si128(_mm_shuffle_epi8(rg, rg_a),
+                                                _mm_shuffle_epi8(b8, b_a)));
+  _mm_storel_epi64(
+      (__m128i *)(out + 16),
+      _mm_or_si128(_mm_shuffle_epi8(rg, rg_b), _mm_shuffle_epi8(b8, b_b)));
+}
+
+// First pairs of a row, 4 pairs (8 pixels) at a time
+// Returns pairs done; caller finishes rest
+// lrow may be NULL (Y from YUYV itself)
+static int yuyv_row_to_rgb_simd(const uint8_t *row, const uint8_t *lrow,
+                                uint8_t *out, int pairs) {
+  const __m128i y_pick =
+      _mm_setr_epi8(0, 2, 4, 6, 8, 10, 12, 14, -1, -1, -1, -1, -1, -1, -1, -1);
+  const __m128i u_pick =
+      _mm_setr_epi8(1, 1, 5, 5, 9, 9, 13, 13, -1, -1, -1, -1, -1, -1, -1, -1);
+  const __m128i v_pick =
+      _mm_setr_epi8(3, 3, 7, 7, 11, 11, 15, 15, -1, -1, -1, -1, -1, -1, -1, -1);
+  int i = 0;
+  for (; i + 4 <= pairs; i += 4) {
+    __m128i raw = _mm_loadu_si128((const __m128i *)(row + i * 4));
+    __m128i y8 = lrow ? _mm_loadl_epi64((const __m128i *)(lrow + i * 2))
+                      : _mm_shuffle_epi8(raw, y_pick);
+    yuv8_to_rgb24(y8, _mm_shuffle_epi8(raw, u_pick),
+                  _mm_shuffle_epi8(raw, v_pick), out + i * 6);
+  }
+
+  return i;
+}
+
+// Mirrored row (luma already flipped): pair k of output takes its chroma from
+// pair pairs-1-k of camera row
+// Even widths only: then output pixels 2k and 2k+1 share one camera pair
+// Returns pixels done (multiple of 8)
+static int yuyv_row_to_rgb_mirror_simd(const uint8_t *row, const uint8_t *lrow,
+                                       uint8_t *out, int pairs) {
+  const __m128i u_pick =
+      _mm_setr_epi8(13, 13, 9, 9, 5, 5, 1, 1, -1, -1, -1, -1, -1, -1, -1, -1);
+  const __m128i v_pick =
+      _mm_setr_epi8(15, 15, 11, 11, 7, 7, 3, 3, -1, -1, -1, -1, -1, -1, -1, -1);
+  int k = 0;
+  for (; k + 4 <= pairs; k += 4) {
+    // Output pairs k..k+3 <- camera pairs pairs-1-k .. pairs-4-k, in that order
+    __m128i raw = _mm_loadu_si128((const __m128i *)(row + (pairs - 4 - k) * 4));
+    __m128i y8 = _mm_loadl_epi64((const __m128i *)(lrow + k * 2));
+    yuv8_to_rgb24(y8, _mm_shuffle_epi8(raw, u_pick),
+                  _mm_shuffle_epi8(raw, v_pick), out + k * 6);
+  }
+
+  return k * 2;
+}
+
+#else
+
+static int yuyv_row_to_rgb_simd(const uint8_t *row, const uint8_t *lrow,
+                                uint8_t *out, int pairs) {
+  (void)row, (void)lrow, (void)out, (void)pairs;
+
+  return 0;
+}
+
+static int yuyv_row_to_rgb_mirror_simd(const uint8_t *row, const uint8_t *lrow,
+                                       uint8_t *out, int pairs) {
+  (void)row, (void)lrow, (void)out, (void)pairs;
+
+  return 0;
+}
+
 #endif
 
 void yuyv_to_rgb_ex(const uint8_t *yuyv, int stride, const uint8_t *luma,
@@ -156,7 +294,8 @@ void yuyv_to_rgb_ex(const uint8_t *yuyv, int stride, const uint8_t *luma,
     const uint8_t *lrow = luma ? luma + (size_t)y * (size_t)width : NULL;
     uint8_t *out = rgb + (size_t)y * (size_t)width * 3;
 
-    for (int i = 0; i < pairs; i++) {
+    int done = yuyv_row_to_rgb_simd(row, lrow, out, pairs);
+    for (int i = done; i < pairs; i++) {
       int y0 = lrow ? lrow[i * 2] : row[i * 4 + 0];
       int u = row[i * 4 + 1];
       int y1 = lrow ? lrow[i * 2 + 1] : row[i * 4 + 2];
@@ -182,14 +321,17 @@ void yuyv_to_rgb_mirror(const uint8_t *yuyv, int stride, const uint8_t *luma,
   }
 
   int pairs = width / 2;
-  int last = pairs * 2 - 1; // last column that has chroma
+  int last = pairs * 2 - 1; // Last column that has chroma
   for (int y = 0; y < height; y++) {
     const uint8_t *row = yuyv + (size_t)y * (size_t)stride;
     const uint8_t *lrow = luma + (size_t)y * (size_t)width;
     uint8_t *out = rgb + (size_t)y * (size_t)width * 3;
 
-    for (int x = 0; x < pairs * 2; x++) {
-      int sx = width - 1 - x; // camera column this pixel was flipped from
+    int first = width == pairs * 2
+                    ? yuyv_row_to_rgb_mirror_simd(row, lrow, out, pairs)
+                    : 0;
+    for (int x = first; x < pairs * 2; x++) {
+      int sx = width - 1 - x; // Camera column this pixel was flipped from
       if (sx > last) {
         sx = last;
       }
@@ -236,7 +378,7 @@ size_t ascii_out_size_for_mode(int dst_w, int dst_h, int color,
   case RENDER_DOTS: {
     int tw = braille_term_w;
     int th = braille_term_h;
-    size_t per_cell = color ? 22 : 3; // worst case: 3-byte glyph
+    size_t per_cell = color ? 22 : 3; // Worst case: 3-byte glyph
 
     return ASCII_ROW_END_MAX +
            (size_t)th * ((size_t)tw * per_cell + ASCII_ROW_END_MAX) + 1;
@@ -358,7 +500,7 @@ static void _name_from_path(const char *path, char *out, size_t out_sz) {
   nl_strncpy_safe(tmp, path, sizeof(tmp));
   const char *base = basename(tmp);
   nl_strncpy_safe(out, base, out_sz);
-  // strip extension
+  // Strip extension
   for (size_t i = 0; out[i]; i++) {
     if (out[i] == '.') {
       out[i] = '\0';

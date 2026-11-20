@@ -370,6 +370,8 @@ test: all
 	$(CC) -O0 $(TEST_FLAGS) tests/test_jpeg.c $(SRCDIR)/image.c $(SRCDIR)/jpeg.c $(TEST_LIBS) -o $(TESTDIR)/jpeg_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_image.c $(SRCDIR)/image.c $(SRCDIR)/jpeg.c $(TEST_LIBS) -o $(TESTDIR)/image_O2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_jpeg.c $(SRCDIR)/image.c $(SRCDIR)/jpeg.c $(TEST_LIBS) -o $(TESTDIR)/jpeg_O2
+	$(CC) -O0 $(TEST_FLAGS) tests/test_yuv_simd.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/yuv_simd_O0
+	$(CC) -O2 $(TEST_FLAGS) tests/test_yuv_simd.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/yuv_simd_O2
 	$(CC) -O0 $(TEST_FLAGS) tests/test_vcam.c $(SRCDIR)/vcam.c $(TEST_LIBS) -o $(TESTDIR)/vcam_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_vcam.c $(SRCDIR)/vcam.c $(TEST_LIBS) -o $(TESTDIR)/vcam_O2
 	$(CC) -O0 $(TEST_FLAGS) tests/test_recorder.c $(SRCDIR)/recorder.c $(TEST_LIBS) -o $(TESTDIR)/recorder_O0
@@ -427,6 +429,8 @@ test: all
 	$(TESTDIR)/image_O2
 	$(TESTDIR)/jpeg_O0
 	$(TESTDIR)/jpeg_O2
+	$(TESTDIR)/yuv_simd_O0
+	$(TESTDIR)/yuv_simd_O2
 	$(TESTDIR)/slides_O0
 	$(TESTDIR)/slides_O2
 	$(TESTDIR)/netview_O0
