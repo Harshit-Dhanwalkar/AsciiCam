@@ -291,7 +291,8 @@ static int start(plugin_loader_t *pl, size_t need) {
 // Wait for child to finish a request
 // Return 0 done, -1 child died, -2 too slow
 static int wait_done(sb_t *sb, int timeout_ms, int *status) {
-  struct timespec t0, now;
+  struct timespec t0 = {0};
+  struct timespec now = {0};
   clock_gettime(CLOCK_MONOTONIC, &t0);
 
   for (;;) {
