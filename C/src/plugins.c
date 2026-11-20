@@ -124,6 +124,19 @@ static const char *base_name(const char *p) {
   return b;
 }
 
+static void (*g_sandbox_stop)(plugin_loader_t *);
+
+void plugin_set_sandbox_stop(void (*stop)(plugin_loader_t *)) {
+  g_sandbox_stop = stop;
+}
+
+// Code a sandbox child runs is old library: end it before that goes
+static void sandbox_end(plugin_loader_t *pl) {
+  if (pl->sandbox && g_sandbox_stop) {
+    g_sandbox_stop(pl);
+  }
+}
+
 // Library is loaded from a private copy so that rebuilding it never changes
 // file mapped by running process and a fresh dlopen sees new code
 // Preferred spot is next to library (where hot-reload watch is); a shipped
@@ -151,6 +164,9 @@ static void make_private_copy(plugin_loader_t *pl, const char *path) {
 }
 
 int plugin_load(plugin_loader_t *pl, const char *path) {
+  sandbox_end(pl);
+  pl->disabled = 0;
+
   // Close old handle
   if (pl->dl_handle) {
     dlclose(pl->dl_handle);
@@ -321,6 +337,8 @@ void plugin_check_reload(plugin_loader_t *pl) {
 }
 
 void plugin_cleanup(plugin_loader_t *pl) {
+  sandbox_end(pl);
+
   if (pl->dl_handle) {
     dlclose(pl->dl_handle);
     pl->dl_handle = NULL;
