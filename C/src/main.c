@@ -245,6 +245,9 @@ static void print_usage(const char *prog) {
       "  -L <dir>      plugin source dir for live picker (default: %s)       \n"
       "  -m <mode>     render mode: braille|blocks|ascii|halfblock|dots      \n"
       "  -k <dir>      charset directory (hot-reloadable .txt ramps)         \n"
+      "  --sandbox     run plugins in a locked-down child process: a crash,  \n"
+      "                a hang or a forbidden system call switches only that  \n"
+      "                plugin off, never the program (Linux x86-64)          \n"
       "  --debug-input <file>  log raw input bytes and mouse events there    \n"
       "\n"
       "Image adjustments:\n"
@@ -1114,6 +1117,28 @@ int main(int argc, char *argv[]) {
 
       return 0;
     }
+  }
+
+  // --sandbox takes no value and has no short form: note it and drop it
+  for (int i = 1; i < argc;) {
+    if (nl_strcmp(argv[i], "--sandbox") != 0) {
+      i++;
+
+      continue;
+    }
+
+    if (!plugin_sandbox_supported()) {
+      fprintf(stderr, "--sandbox is not supported on this platform\n");
+
+      return 2;
+    }
+
+    plugin_sandbox_enabled = 1;
+    for (int k = i; k + 1 < argc; k++) {
+      argv[k] = argv[k + 1];
+    }
+
+    argc--;
   }
 
   // getopt only knows short options: --demo is -d demo
@@ -3087,9 +3112,9 @@ int main(int argc, char *argv[]) {
 
     // Run all plugins in order
     for (int i = 0; i < plugin_count; i++) {
-      if (plugins[i].plugin) {
-        plugins[i].plugin->process(frame, cam.width, cam.height,
-                                   &plugin_params[i]);
+      if (plugin_run(&plugins[i], 0, frame, cam.width, cam.height,
+                     &plugin_params[i]) < 0) {
+        TOAST("%s", plugins[i].status_msg);
       }
     }
 
@@ -3105,8 +3130,9 @@ int main(int argc, char *argv[]) {
 
       // Colour hooks of plugins (thermal palette, sepia tint, ...)
       for (int i = 0; i < plugin_count; i++) {
-        if (plugins[i].plugin && plugins[i].rgb_process) {
-          plugins[i].rgb_process(rgb, cam.width, cam.height, &plugin_params[i]);
+        if (plugin_run(&plugins[i], 1, rgb, cam.width, cam.height,
+                       &plugin_params[i]) < 0) {
+          TOAST("%s", plugins[i].status_msg);
         }
       }
     }

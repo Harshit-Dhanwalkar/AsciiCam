@@ -464,6 +464,23 @@ asciicam --curve @curve.txt                    # points saved with w
 The first point must be at x = 0 and the last at x = 255. The curve is a monotone cubic
 spline: a curve that rises through its points never overshoots or dips between them.
 
+### Sandboxing plugins
+
+A plugin is native code from outside the app. `--sandbox` runs every plugin in a
+forked child that has no file descriptors and a seccomp filter (`lib/nl_seccomp.h`)
+allowing only `futex`, `munmap`, `exit_group` and `mmap` without `PROT_EXEC`.
+Frames travel through shared memory; any other system call kills the child.
+
+```sh
+asciicam --sandbox -p build/glitch.so -p ramfs:vignette
+```
+
+A plugin that crashes, hangs for more than a second or makes a forbidden call is
+switched off with a toast, the program and other plugins carry on. Loading a
+library into the slot (picker, hot reload) switches it back on. Linux x86-64
+only: elsewhere `--sandbox` is refused, and a kernel without seccomp fails closed
+(the plugin is switched off, never run in-process). Off by default.
+
 ## Screenshots and recording
 
 No ffmpeg or any other library: the encoders are in `src/recorder.c`.
