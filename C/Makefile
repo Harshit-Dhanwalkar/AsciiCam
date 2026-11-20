@@ -393,6 +393,8 @@ test: all
 	$(CC) -O0 $(TEST_FLAGS) tests/test_nl_gc.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/gc_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_gc.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/gc_O2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_thread.c $(TEST_LIBS) -o $(TESTDIR)/thread
+	$(CC) -O0 $(TEST_FLAGS) tests/test_nl_seccomp.c $(TEST_LIBS) -o $(TESTDIR)/seccomp_O0
+	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_seccomp.c $(TEST_LIBS) -o $(TESTDIR)/seccomp_O2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_capture_pipe.c $(SRCDIR)/thread_sharing.c $(TEST_LIBS) -o $(TESTDIR)/capture_pipe
 	$(CC) -DTESTING $(TEST_FLAGS) tests/security_tests.c $(FILTER_SRC) $(TEST_LIBS) -o $(TESTDIR)/security
 	$(TESTDIR)/alloc
@@ -465,6 +467,8 @@ test: all
 	$(TESTDIR)/gc_O0
 	$(TESTDIR)/gc_O2
 	$(TESTDIR)/thread
+	$(TESTDIR)/seccomp_O0
+	$(TESTDIR)/seccomp_O2
 	$(TESTDIR)/capture_pipe
 	$(TESTDIR)/security
 	@echo "All tests passed"
