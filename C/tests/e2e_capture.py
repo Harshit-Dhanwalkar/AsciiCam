@@ -287,7 +287,9 @@ if REAL and os.access(REAL, os.X_OK):
     BIN_SAVE = BIN
     BIN = REAL
 
-    # --image: a picture file as camera
+    # --image and slideshow checks live in tests/e2e.c
+    # --serve checks below still need is kept here: write_png, IARGS and a
+    # picture to serve (all of it goes away with --serve)
     import struct as _st
     import zlib as _zl
 
@@ -311,112 +313,11 @@ if REAL and os.access(REAL, os.X_OK):
             f.write(b"\x89PNG\r\n\x1a\n" + ch(b"IHDR", _st.pack(">IIBBBBB", w, h, 8, 2, 0, 0, interlace))
                     + ch(b"IDAT", _zl.compress(raw)) + ch(b"IEND", b""))
 
-    def frame_rows(out):
-        chunk = out.split(SYNC_BEGIN)[-2] if out.count(SYNC_BEGIN) >= 2 else out
-        text = re.sub(rb"\x1b\[[0-9;?<]*[A-Za-z]", b"", chunk)
-        return [r for r in text.split(b"\n") if r.strip(b"\r")]
-
     idir = tempfile.mkdtemp(prefix="asciicam_img_")
     IARGS = ["-r", "20", "-m", "ascii", "-s", " .:-=+*#%@", "-W", "60", "-H", "40"]
-    white = os.path.join(idir, "white.png")
-    write_png(white, 64, 64, lambda x, y: (255, 255, 255))
-    frames, code, out, _ = run(["--image", white] + IARGS, 1.0)
-    check(frames >= 10 and code == 0 and b"@" in out, f"--image PNG: drawn ({frames} frames, exit {code})")
-    frames, code, out2, _ = run(["-d", "image:" + white] + IARGS, 1.0)
-    check(code == 0 and b"@" in out2, "-d image:<file> is the same thing")
-
-    pgm = os.path.join(idir, "black.pgm")
-    with open(pgm, "wb") as f:
-        f.write(b"P5\n8 8\n255\n" + bytes(64))
-    _, code, out, _ = run(["--image", pgm] + IARGS, 1.0)
-    check(code == 0 and b"@" not in out, "--image PGM, all black: no bright cells")
-
-    half = os.path.join(idir, "half.png")
-    write_png(half, 64, 64, lambda x, y: (255, 255, 255) if x >= 32 else (0, 0, 0))
-    _, code, out, _ = run(["--image", half] + IARGS, 1.0)
-    rows = [r for r in frame_rows(out) if b"@" in r]
-    firsts = [r.index(b"@") for r in rows]
-    check(rows and min(firsts) > 5 and all(r.count(b"@") > 3 for r in rows),
-          "left half black, right half white: bright cells only on the right")
-
-    wide = os.path.join(idir, "wide.png")
-    write_png(wide, 200, 20, lambda x, y: (255, 255, 255))
-    _, code, out, _ = run(["--image", wide] + IARGS, 1.0)
-    bright = [r for r in frame_rows(out) if b"@" in r]
-    allrows = frame_rows(out)
-    check(code == 0 and bright and len(bright) < len(allrows) - 4,
-          f"wide picture keeps its proportions: bars above and below ({len(bright)} of {len(allrows)} rows)")
-
-    # Curve and colour map work on a picture (point of it)
-    _, code, out, _ = run(["--image", half, "-C"] + IARGS[:-4], 1.0)
-    check(code == 0 and b"\x1b[38;2;" in out, "--image with -C: colour")
-
-    # Errors say what is wrong
-    for label, path, want in (("missing file", os.path.join(idir, "nope.png"), b"cannot open"),
-                              ("not a picture", __file__, b"not a PNG"),
-                              ):
-        _, code, out, _ = run(["--image", path] + IARGS, 0.5)
-        check(code != 0 and want in out, f"--image {label}: {want.decode()}")
-    jpg = os.path.join(idir, "x.jpg")
-    with open(jpg, "wb") as f:
-        f.write(b"\xff\xd8\xff\xe0" + bytes(100))
-    _, code, out, _ = run(["--image", jpg] + IARGS, 0.5)
-    check(code != 0 and b"JPEG" in out, "--image damaged JPEG: says so")
-    try:
-        from PIL import Image as _Im
-        jok = os.path.join(idir, "ok.jpg")
-        _Im.new("RGB", (64, 32), (200, 40, 40)).save(jok, quality=90)
-        _, code, out, _ = run(["--image", jok, "-C"] + IARGS[:-4], 1.0)
-        check(code == 0 and b"\x1b[38;2;" in out, "--image JPEG: shown in colour")
-    except ImportError:
-        pass
-    inter = os.path.join(idir, "adam7.png")
-    write_png(inter, 20, 20, lambda x, y: (220, 30, 30) if x < 10 else (30, 30, 220), interlace=1)
-    _, code, out, _ = run(["--image", inter, "-C"] + IARGS[:-4], 1.0)
-    cols = [tuple(map(int, m)) for m in re.findall(rb"\x1b\[38;2;(\d+);(\d+);(\d+)m", out)]
-    check(code == 0 and any(r > 150 and b < 100 for r, g, b in cols) and any(b > 150 and r < 100 for r, g, b in cols),
-          "--image Adam7 PNG: both halves arrive in the right colours")
-
-    # A folder is a slideshow: . and , step, a broken picture is skipped
     sdir = os.path.join(idir, "show")
     os.makedirs(sdir)
-    for nm, rgbv in (("a.png", (230, 30, 30)), ("b.png", (30, 230, 30)), ("c.png", (30, 30, 230))):
-        write_png(os.path.join(sdir, nm), 16, 16, lambda x, y, c=rgbv: c)
-    with open(os.path.join(sdir, "d.png"), "wb") as f:
-        f.write(b"not a picture")
-    with open(os.path.join(sdir, "notes.txt"), "w") as f:
-        f.write("x")
-
-    def dominant(seg):
-        cs = [tuple(map(int, m)) for m in re.findall(rb"\x1b\[38;2;(\d+);(\d+);(\d+)m", seg)]
-        if not cs:
-            return None
-        tot = [sum(c[i] for c in cs) for i in range(3)]
-        return "rgb"[tot.index(max(tot))]
-
-    out, marks = session(["--image", sdir, "--slide", "0", "-C"] + IARGS[:-4],
-                         [(b".", 0.7), (b".", 0.7), (b".", 0.7), (b",", 0.7)])
-    segs = [out[:marks[0]]] + [out[marks[i]:marks[i + 1]] for i in range(len(marks) - 1)]
-    seq = [dominant(x) for x in segs[:5]]
-    check(seq == ["r", "g", "b", "r", "b"],
-          f"slideshow: start, . . . (broken one skipped), , -> {seq}")
-    check(b"2/4" in segs[1] and b"b.png" in segs[1], "slideshow: a toast names the picture")
-    check(b"d.png" not in out, "slideshow: the broken picture is never announced")
-
-    _, code, out, _ = run(["--image", sdir, "--slide", "1", "-C"] + IARGS[:-4], 3.2)
-    seen = set()
-    for blk in out.split(SYNC_BEGIN)[1:]:
-        d = dominant(blk)
-        if d:
-            seen.add(d)
-    check(code == 0 and len(seen) >= 3, f"slideshow: moves on by itself, --slide 1 ({sorted(seen)})")
-
-    empty = os.path.join(idir, "empty")
-    os.makedirs(empty)
-    _, code, out, _ = run(["--image", empty] + IARGS, 0.5)
-    check(code != 0 and b"no pictures" in out, "slideshow: empty folder says so")
-    _, code, out, _ = run(["--image", sdir, "--slide", "x"] + IARGS, 0.5)
-    check(code == 2 and b"--slide needs" in out, "--slide with a bad number: usage error")
+    write_png(os.path.join(sdir, "a.png"), 16, 16, lambda x, y: (230, 30, 30))
 
     # --serve: a viewer on TCP gets a clear-screen, then whole frames
     def free_port():

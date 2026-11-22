@@ -24,6 +24,8 @@
 static const char *BIN; // Program with software camera
 static int failures;
 
+static void rm_rf(const char *path);
+
 static void check(int cond, const char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
@@ -1061,6 +1063,519 @@ static void real_play(void) {
   rmdir(dir);
 }
 
+/* --image: a picture file (or a folder of them) as camera */
+
+// Baseline JPEG, 64x32, solid (200, 40, 40), made with PIL at quality 90
+// Kept as bytes so check runs everywhere, not only where PIL is installed
+static const unsigned char JPEG_RED[] = {
+    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
+    0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43,
+    0x00, 0x03, 0x02, 0x02, 0x03, 0x02, 0x02, 0x03, 0x03, 0x03, 0x03, 0x04,
+    0x03, 0x03, 0x04, 0x05, 0x08, 0x05, 0x05, 0x04, 0x04, 0x05, 0x0a, 0x07,
+    0x07, 0x06, 0x08, 0x0c, 0x0a, 0x0c, 0x0c, 0x0b, 0x0a, 0x0b, 0x0b, 0x0d,
+    0x0e, 0x12, 0x10, 0x0d, 0x0e, 0x11, 0x0e, 0x0b, 0x0b, 0x10, 0x16, 0x10,
+    0x11, 0x13, 0x14, 0x15, 0x15, 0x15, 0x0c, 0x0f, 0x17, 0x18, 0x16, 0x14,
+    0x18, 0x12, 0x14, 0x15, 0x14, 0xff, 0xdb, 0x00, 0x43, 0x01, 0x03, 0x04,
+    0x04, 0x05, 0x04, 0x05, 0x09, 0x05, 0x05, 0x09, 0x14, 0x0d, 0x0b, 0x0d,
+    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
+    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
+    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
+    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
+    0x14, 0x14, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x20, 0x00, 0x40, 0x03,
+    0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01, 0xff, 0xc4, 0x00,
+    0x1f, 0x00, 0x00, 0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
+    0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0xff, 0xc4, 0x00, 0xb5, 0x10, 0x00,
+    0x02, 0x01, 0x03, 0x03, 0x02, 0x04, 0x03, 0x05, 0x05, 0x04, 0x04, 0x00,
+    0x00, 0x01, 0x7d, 0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21,
+    0x31, 0x41, 0x06, 0x13, 0x51, 0x61, 0x07, 0x22, 0x71, 0x14, 0x32, 0x81,
+    0x91, 0xa1, 0x08, 0x23, 0x42, 0xb1, 0xc1, 0x15, 0x52, 0xd1, 0xf0, 0x24,
+    0x33, 0x62, 0x72, 0x82, 0x09, 0x0a, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x25,
+    0x26, 0x27, 0x28, 0x29, 0x2a, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a,
+    0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x53, 0x54, 0x55, 0x56,
+    0x57, 0x58, 0x59, 0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a,
+    0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x83, 0x84, 0x85, 0x86,
+    0x87, 0x88, 0x89, 0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99,
+    0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xb2, 0xb3,
+    0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6,
+    0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9,
+    0xda, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xf1,
+    0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xff, 0xc4, 0x00,
+    0x1f, 0x01, 0x00, 0x03, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
+    0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0xff, 0xc4, 0x00, 0xb5, 0x11, 0x00,
+    0x02, 0x01, 0x02, 0x04, 0x04, 0x03, 0x04, 0x07, 0x05, 0x04, 0x04, 0x00,
+    0x01, 0x02, 0x77, 0x00, 0x01, 0x02, 0x03, 0x11, 0x04, 0x05, 0x21, 0x31,
+    0x06, 0x12, 0x41, 0x51, 0x07, 0x61, 0x71, 0x13, 0x22, 0x32, 0x81, 0x08,
+    0x14, 0x42, 0x91, 0xa1, 0xb1, 0xc1, 0x09, 0x23, 0x33, 0x52, 0xf0, 0x15,
+    0x62, 0x72, 0xd1, 0x0a, 0x16, 0x24, 0x34, 0xe1, 0x25, 0xf1, 0x17, 0x18,
+    0x19, 0x1a, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x35, 0x36, 0x37, 0x38, 0x39,
+    0x3a, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x53, 0x54, 0x55,
+    0x56, 0x57, 0x58, 0x59, 0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69,
+    0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x82, 0x83, 0x84,
+    0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97,
+    0x98, 0x99, 0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa,
+    0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3, 0xc4,
+    0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7,
+    0xd8, 0xd9, 0xda, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea,
+    0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xff, 0xda, 0x00,
+    0x0c, 0x03, 0x01, 0x00, 0x02, 0x11, 0x03, 0x11, 0x00, 0x3f, 0x00, 0xf1,
+    0x4a, 0x28, 0xa2, 0xbf, 0x37, 0x3f, 0xb5, 0x42, 0x8a, 0x28, 0xa0, 0x02,
+    0x8a, 0x28, 0xa0, 0x02, 0x8a, 0x28, 0xa0, 0x02, 0x8a, 0x28, 0xa0, 0x02,
+    0x8a, 0x28, 0xa0, 0x02, 0x8a, 0x28, 0xa0, 0x02, 0x8a, 0x28, 0xa0, 0x0f,
+    0xff, 0xd9,
+};
+
+static void px_white(int x, int y, unsigned char c[3], void *u) {
+  (void)x;
+  (void)y;
+  (void)u;
+  c[0] = c[1] = c[2] = 255;
+}
+
+static void px_half(int x, int y, unsigned char c[3],
+                    void *u) { // right half white
+  (void)y;
+  (void)u;
+  c[0] = c[1] = c[2] = x >= 32 ? 255 : 0;
+}
+
+static void px_red_blue(int x, int y, unsigned char c[3],
+                        void *u) { // left red, right blue
+  (void)y;
+  (void)u;
+  if (x < 10) {
+    c[0] = 220;
+    c[1] = 30;
+    c[2] = 30;
+  } else {
+    c[0] = 30;
+    c[1] = 30;
+    c[2] = 220;
+  }
+}
+
+static void px_solid(int x, int y, unsigned char c[3], void *u) {
+  (void)x;
+  (void)y;
+  memcpy(c, u, 3);
+}
+
+static int write_file(const char *path, const void *d, size_t n) {
+  FILE *f = fopen(path, "wb");
+  if (!f) {
+    return 0;
+  }
+
+  fwrite(d, 1, n, f);
+
+  return fclose(f) == 0;
+}
+
+// Next ESC[38;2;R;G;Bm at or after *pos
+static int next_colour(const unsigned char *b, size_t n, size_t *pos,
+                       int rgb[3]) {
+  static const char pre[] = "\x1b[38;2;";
+  size_t pl = sizeof pre - 1;
+  for (size_t i = *pos; i + pl < n; i++) {
+    if (memcmp(b + i, pre, pl)) {
+      continue;
+    }
+
+    size_t j = i + pl;
+    int v[3] = {0, 0, 0};
+    int ok = 1;
+    for (int c = 0; c < 3 && ok; c++) {
+      int nd = 0;
+      while (j < n && b[j] >= '0' && b[j] <= '9') {
+        v[c] = v[c] * 10 + (b[j++] - '0');
+        nd++;
+      }
+
+      ok = nd > 0 && j < n && b[j] == (c < 2 ? ';' : 'm');
+      j++;
+    }
+
+    if (ok) {
+      rgb[0] = v[0];
+      rgb[1] = v[1];
+      rgb[2] = v[2];
+      *pos = j;
+
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+// Which channel carries most colour in this stretch of output: 'r', 'g', 'b',
+// or 0 when there is none
+static char dominant(const unsigned char *b, size_t n) {
+  long tot[3] = {0, 0, 0};
+  size_t pos = 0;
+  int rgb[3];
+  int any = 0;
+  while (next_colour(b, n, &pos, rgb)) {
+    tot[0] += rgb[0];
+    tot[1] += rgb[1];
+    tot[2] += rgb[2];
+    any = 1;
+  }
+
+  if (!any) {
+    return 0;
+  }
+
+  int best = 0;
+  for (int i = 1; i < 3; i++) {
+    if (tot[i] > tot[best]) {
+      best = i;
+    }
+  }
+
+  return "rgb"[best];
+}
+
+typedef struct {
+  char **row;
+  int n;
+} rows_t;
+
+// Text rows of last complete frame: stretch between last two
+// synchronized-update starts, escape sequences removed, empty lines dropped
+static rows_t frame_rows(const pty_buf *b) {
+  static const char mark[] = "\x1b[?2026h";
+  size_t ml = sizeof mark - 1;
+  long starts[4096];
+  int ns = 0;
+  for (size_t i = 0; i + ml <= b->len && ns < 4096;) {
+    if (!memcmp(b->data + i, mark, ml)) {
+      starts[ns++] = (long)i;
+      i += ml;
+    } else {
+      i++;
+    }
+  }
+
+  const unsigned char *p = b->data;
+  size_t n = b->len;
+  if (ns >= 2) {
+    p = b->data + starts[ns - 2] + ml;
+    n = (size_t)(starts[ns - 1] - starts[ns - 2]) - ml;
+  }
+
+  // Drop CSI sequences: ESC [ [0-9;?<]* letter
+  unsigned char *text = (unsigned char *)malloc(n + 1);
+  size_t tn = 0;
+  for (size_t i = 0; i < n;) {
+    if (p[i] == 0x1b && i + 1 < n && p[i + 1] == '[') {
+      size_t j = i + 2;
+      while (j < n && ((p[j] >= '0' && p[j] <= '9') || p[j] == ';' ||
+                       p[j] == '?' || p[j] == '<')) {
+        j++;
+      }
+
+      if (j < n &&
+          ((p[j] >= 'A' && p[j] <= 'Z') || (p[j] >= 'a' && p[j] <= 'z'))) {
+        i = j + 1;
+
+        continue;
+      }
+    }
+
+    text[tn++] = p[i++];
+  }
+
+  text[tn] = 0;
+  rows_t r = {NULL, 0};
+  size_t i = 0;
+  while (i <= tn) {
+    size_t j = i;
+    while (j < tn && text[j] != '\n') {
+      j++;
+    }
+
+    size_t a = i;
+    size_t e = j;
+    while (a < e && text[a] == '\r') {
+      a++;
+    }
+
+    while (e > a && text[e - 1] == '\r') {
+      e--;
+    }
+
+    if (e > a) {
+      r.row = (char **)realloc(r.row, (size_t)(r.n + 1) * sizeof *r.row);
+      r.row[r.n] = (char *)malloc(j - i + 1);
+      memcpy(r.row[r.n], text + i, j - i);
+      r.row[r.n][j - i] = 0;
+      r.n++;
+    }
+
+    i = j + 1;
+  }
+
+  free(text);
+
+  return r;
+}
+
+static void rows_free(rows_t *r) {
+  for (int i = 0; i < r->n; i++) {
+    free(r->row[i]);
+  }
+
+  free(r->row);
+  r->row = NULL;
+  r->n = 0;
+}
+
+static int count_char(const char *s, char c) {
+  int k = 0;
+  for (; *s; s++) {
+    k += *s == c;
+  }
+
+  return k;
+}
+
+static void real_image(void) {
+  char idir[] = "/tmp/asciicam_img_XXXXXX";
+  if (!mkdtemp(idir)) {
+    check(0, "--image: cannot make a scratch directory");
+
+    return;
+  }
+
+  const args_t IARGS = A("-r", "20", "-m", "ascii", "-s", " .:-=+*#%@", "-W",
+                         "60", "-H", "40", NULL);
+  const args_t IARGS4 = A("-r", "20", "-m", "ascii", "-s", " .:-=+*#%@", NULL);
+  char path[600];
+#define P(name) (snprintf(path, sizeof path, "%s/%s", idir, name), path)
+
+  // A white picture: every cell bright; same thing through -d image:<file>
+  char white[600];
+  snprintf(white, sizeof white, "%s/white.png", idir);
+  mz_png_write(white, 64, 64, px_white, NULL, 0, MZ_DYNAMIC);
+  run_t r = run(cat(A("--image", white, NULL), IARGS), 1.0, -1, "q");
+  check(r.frames >= 10 && r.code == 0 && memchr(r.out.data, '@', r.out.len),
+        "--image PNG: drawn (%ld frames, exit %d)", r.frames, r.code);
+  free(r.out.data);
+  char dimg[640];
+  snprintf(dimg, sizeof dimg, "image:%s", white);
+  r = run(cat(A("-d", dimg, NULL), IARGS), 1.0, -1, "q");
+  check(r.code == 0 && memchr(r.out.data, '@', r.out.len),
+        "-d image:<file> is the same thing");
+  free(r.out.data);
+
+  // PGM, all black: no bright cells
+  unsigned char pgm[11 + 64] = "P5\n8 8\n255\n";
+  memset(pgm + 11, 0, 64);
+  P("black.pgm");
+  write_file(path, pgm, sizeof pgm);
+  r = run(cat(A("--image", path, NULL), IARGS), 1.0, -1, "q");
+  check(r.code == 0 && !memchr(r.out.data, '@', r.out.len),
+        "--image PGM, all black: no bright cells");
+  free(r.out.data);
+
+  // Left half black, right half white: bright cells only on right
+  char half[600];
+  snprintf(half, sizeof half, "%s/half.png", idir);
+  mz_png_write(half, 64, 64, px_half, NULL, 0, MZ_DYNAMIC);
+  r = run(cat(A("--image", half, NULL), IARGS), 1.0, -1, "q");
+  rows_t rows = frame_rows(&r.out);
+  int nb = 0, minfirst = 1 << 30, all_over_3 = 1;
+  for (int i = 0; i < rows.n; i++) {
+    const char *at = strchr(rows.row[i], '@');
+    if (!at) {
+      continue;
+    }
+
+    nb++;
+    int first = (int)(at - rows.row[i]);
+    if (first < minfirst) {
+      minfirst = first;
+    }
+
+    all_over_3 &= count_char(rows.row[i], '@') > 3;
+  }
+
+  check(nb > 0 && minfirst > 5 && all_over_3,
+        "left half black, right half white: bright cells only on the right");
+  rows_free(&rows);
+  free(r.out.data);
+
+  // A wide picture keeps its proportions: bars above and below
+  char wide[600];
+  snprintf(wide, sizeof wide, "%s/wide.png", idir);
+  mz_png_write(wide, 200, 20, px_white, NULL, 0, MZ_DYNAMIC);
+  r = run(cat(A("--image", wide, NULL), IARGS), 1.0, -1, "q");
+  rows = frame_rows(&r.out);
+  int bright = 0;
+  for (int i = 0; i < rows.n; i++) {
+    bright += strchr(rows.row[i], '@') != NULL;
+  }
+
+  check(r.code == 0 && bright > 0 && bright < rows.n - 4,
+        "wide picture keeps its proportions: bars above and below (%d of %d "
+        "rows)",
+        bright, rows.n);
+  rows_free(&rows);
+  free(r.out.data);
+
+  // Colour on a picture
+  r = run(cat(A("--image", half, "-C", NULL), IARGS4), 1.0, -1, "q");
+  check(r.code == 0 && contains(r.out.data, r.out.len, "\x1b[38;2;"),
+        "--image with -C: colour");
+  free(r.out.data);
+
+  // Errors say what is wrong
+  r = run(cat(A("--image", P("nope.png"), NULL), IARGS), 0.5, -1, "q");
+  check(r.code != 0 && contains(r.out.data, r.out.len, "cannot open"),
+        "--image missing file: cannot open");
+  free(r.out.data);
+  P("notpic.txt");
+  write_file(path, "this is text, not a picture\n", 28);
+  r = run(cat(A("--image", path, NULL), IARGS), 0.5, -1, "q");
+  check(r.code != 0 && contains(r.out.data, r.out.len, "not a PNG"),
+        "--image not a picture: not a PNG");
+  free(r.out.data);
+  unsigned char broken[104] = {0xff, 0xd8, 0xff, 0xe0};
+  P("x.jpg");
+  write_file(path, broken, sizeof broken);
+  r = run(cat(A("--image", path, NULL), IARGS), 0.5, -1, "q");
+  check(r.code != 0 && contains(r.out.data, r.out.len, "JPEG"),
+        "--image damaged JPEG: says so");
+  free(r.out.data);
+  P("ok.jpg");
+  write_file(path, JPEG_RED, sizeof JPEG_RED);
+  r = run(cat(A("--image", path, "-C", NULL), IARGS4), 1.0, -1, "q");
+  check(r.code == 0 && contains(r.out.data, r.out.len, "\x1b[38;2;"),
+        "--image JPEG: shown in colour");
+  free(r.out.data);
+
+  // Adam7 interlaced PNG: both halves arrive in right colours
+  P("adam7.png");
+  mz_png_write(path, 20, 20, px_red_blue, NULL, 1, MZ_FIXED);
+  r = run(cat(A("--image", path, "-C", NULL), IARGS4), 1.0, -1, "q");
+  int red = 0, blue = 0, rgb[3];
+  size_t pos = 0;
+  while (next_colour(r.out.data, r.out.len, &pos, rgb)) {
+    red |= rgb[0] > 150 && rgb[2] < 100;
+    blue |= rgb[2] > 150 && rgb[0] < 100;
+  }
+
+  check(r.code == 0 && red && blue,
+        "--image Adam7 PNG: both halves arrive in the right colours");
+  free(r.out.data);
+
+  // A folder is a slideshow: . and , step, a broken picture is skipped
+  char sdir[600];
+  snprintf(sdir, sizeof sdir, "%s/show", idir);
+  mkdir(sdir, 0755);
+  static const struct {
+    const char *name;
+    unsigned char rgb[3];
+  } slides[] = {{"a.png", {230, 30, 30}},
+                {"b.png", {30, 230, 30}},
+                {"c.png", {30, 30, 230}}};
+  for (int i = 0; i < 3; i++) {
+    char f[700];
+    snprintf(f, sizeof f, "%s/%s", sdir, slides[i].name);
+    mz_png_write(f, 16, 16, px_solid, (void *)slides[i].rgb, 0, MZ_FIXED);
+  }
+
+  char f[700];
+  snprintf(f, sizeof f, "%s/d.png", sdir);
+  write_file(f, "not a picture", 13);
+  snprintf(f, sizeof f, "%s/notes.txt", sdir);
+  write_file(f, "x", 1);
+
+  step_t dots[] = {S(".", 0.7), S(".", 0.7), S(".", 0.7), S(",", 0.7)};
+  sess_t se =
+      session(cat(A("--image", sdir, "--slide", "0", "-C", NULL), IARGS4), dots,
+              4, 0.6);
+  char seq[8] = "";
+  for (int k = 0; k < 5; k++) {
+    size_t from = k == 0 ? 0 : se.marks[k - 1];
+    size_t to = se.marks[k];
+    char d = dominant(se.out.data + from, to - from);
+    seq[k] = d ? d : '-';
+  }
+
+  seq[5] = 0;
+  check(!strcmp(seq, "rgbrb"),
+        "slideshow: start, . . . (broken one skipped), , -> ['%c', '%c', '%c', "
+        "'%c', '%c']",
+        seq[0], seq[1], seq[2], seq[3], seq[4]);
+  check(contains(se.out.data + se.marks[0], se.marks[1] - se.marks[0], "2/4") &&
+            contains(se.out.data + se.marks[0], se.marks[1] - se.marks[0],
+                     "b.png"),
+        "slideshow: a toast names the picture");
+  check(!contains(se.out.data, se.out.len, "d.png"),
+        "slideshow: the broken picture is never announced");
+  free(se.out.data);
+
+  // --slide 1: moves on by itself
+  r = run(cat(A("--image", sdir, "--slide", "1", "-C", NULL), IARGS4), 3.2, -1,
+          "q");
+  int seen = 0;
+  static const char mark[] = "\x1b[?2026h";
+  size_t ml = sizeof mark - 1;
+  for (size_t i = 0; i + ml <= r.out.len;) {
+    if (memcmp(r.out.data + i, mark, ml)) {
+      i++;
+
+      continue;
+    }
+
+    size_t a = i + ml;
+    size_t e = a;
+    while (e + ml <= r.out.len && memcmp(r.out.data + e, mark, ml)) {
+      e++;
+    }
+
+    if (e + ml > r.out.len) {
+      e = r.out.len;
+    }
+
+    char d = dominant(r.out.data + a, e - a);
+    seen |= d == 'r' ? 1 : d == 'g' ? 2 : d == 'b' ? 4 : 0;
+    i = e;
+  }
+
+  char seen_str[32] = "";
+  static const char names[3] = {'b', 'g', 'r'};
+  static const int bits[3] = {4, 2, 1};
+  for (int i = 0; i < 3; i++) {
+    if (seen & bits[i]) {
+      size_t u = strlen(seen_str);
+      snprintf(seen_str + u, sizeof seen_str - u, "%s'%c'", u ? ", " : "",
+               names[i]);
+    }
+  }
+
+  check(r.code == 0 && __builtin_popcount((unsigned)seen) >= 3,
+        "slideshow: moves on by itself, --slide 1 ([%s])", seen_str);
+  free(r.out.data);
+
+  P("empty");
+  mkdir(path, 0755);
+  r = run(cat(A("--image", path, NULL), IARGS), 0.5, -1, "q");
+  check(r.code != 0 && contains(r.out.data, r.out.len, "no pictures"),
+        "slideshow: empty folder says so");
+  free(r.out.data);
+  r = run(cat(A("--image", sdir, "--slide", "x", NULL), IARGS), 0.5, -1, "q");
+  check(r.code == 2 && contains(r.out.data, r.out.len, "--slide needs"),
+        "--slide with a bad number: usage error");
+  free(r.out.data);
+#undef P
+
+  rm_rf(idir);
+}
+
 static void real_binary(const char *real) {
   char *abs = realpath(real, NULL);
   if (!abs || access(abs, X_OK) != 0) {
@@ -1078,6 +1593,7 @@ static void real_binary(const char *real) {
   check(r.code != 0 && contains(r.out.data, r.out.len, "--demo"),
         "missing camera: error mentions --demo");
   free(r.out.data);
+  real_image();
   BIN = saved;
   free(abs);
 }
@@ -1154,7 +1670,8 @@ static names_t list_dir(const char *dir) {
 }
 
 static int ends_with(const char *s, const char *suffix) {
-  size_t a = strlen(s), b = strlen(suffix);
+  size_t a = strlen(s);
+  size_t b = strlen(suffix);
 
   return a >= b && !strcmp(s + a - b, suffix);
 }
@@ -1226,26 +1743,31 @@ static char *json_string(const char **pp) {
 
     p++;
     switch (*p) {
-    case 'n':
+    case 'n': {
       o[n++] = '\n';
       p++;
       break;
-    case 'r':
+    }
+    case 'r': {
       o[n++] = '\r';
       p++;
       break;
-    case 't':
+    }
+    case 't': {
       o[n++] = '\t';
       p++;
       break;
-    case 'b':
+    }
+    case 'b': {
       o[n++] = '\b';
       p++;
       break;
-    case 'f':
+    }
+    case 'f': {
       o[n++] = '\f';
       p++;
       break;
+    }
     case 'u': {
       unsigned cp = 0;
       for (int i = 1; i <= 4; i++) {
@@ -1270,8 +1792,9 @@ static char *json_string(const char **pp) {
       break;
     }
 
-    default: // \" \\ \/
+    default: { // \" \\ \/
       o[n++] = *p++;
+    }
     }
   }
 
