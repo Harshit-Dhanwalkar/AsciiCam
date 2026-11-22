@@ -5,6 +5,11 @@
 int plugin_sandbox_enabled = 0;
 int plugin_sandbox_timeout_ms = 1000;
 
+#if defined(__LINUX_NOLIBC__) && defined(__x86_64__)
+
+#include "nl_alloc.h"
+#include "nl_seccomp.h"
+
 // Reset every catchable signal to SIG_DFL and clear blocked-set
 static void plugin_sandbox_reset_signals(void) {
   struct {
@@ -25,11 +30,6 @@ static void plugin_sandbox_reset_signals(void) {
   __sc4(14 /* rt_sigprocmask */, 2 /* SIG_SETMASK */, (long)&empty, 0, 8);
 }
 
-#if defined(__LINUX_NOLIBC__) && defined(__x86_64__)
-
-#include "nl_alloc.h"
-#include "nl_seccomp.h"
-
 // x86-64 system call numbers used here (not everything is in nl_syscall.h)
 #define SB_SYS_MMAP 9
 #define SB_SYS_MUNMAP 11
@@ -48,6 +48,9 @@ static void plugin_sandbox_reset_signals(void) {
 #define SB_PROT_RW 3
 #define SB_MAP_SHARED_ANON (0x01 | 0x20)
 #define SB_PR_SET_PDEATHSIG 1
+#define SB_PR_SET_DUMPABLE 4
+#define SB_SYS_SETRLIMIT 160
+#define SB_RLIMIT_CORE 4
 #define SB_FUTEX_WAIT 0
 #define SB_FUTEX_WAKE 1 // No PRIVATE flag: word is shared between processes
 #define SB_SIGKILL 9
@@ -123,6 +126,18 @@ static void child_main(sb_ctl_t *ctl, uint8_t *data, const filter_plugin_t *fp,
 
   unsigned long none = 0;
   __sc6(SB_SYS_RT_SIGPROCMASK, 2 /* SIG_SETMASK */, (long)&none, 0, 8, 0, 0);
+
+  // A forbidden call or crash ends child with a core-dump signal
+  // Dumping (maybe through a pipe to a crash handler) can keep a dead child
+  // from being reaped past timeout, then death is reported as "did not answer
+  // in time"
+  // No dump: child is gone moment it is killed
+  struct {
+    unsigned long cur;
+    unsigned long max;
+  } nocore = {0, 0};
+  __sc3(SB_SYS_SETRLIMIT, SB_RLIMIT_CORE, (long)&nocore, 0);
+  __sc3(SB_SYS_PRCTL, SB_PR_SET_DUMPABLE, 0, 0);
 
   // Nothing inherited: no camera, no terminal, no files
   if (__sc3(SB_SYS_CLOSE_RANGE, 3, 0xffffffffL, 0) < 0) {
