@@ -6,10 +6,9 @@
  *                                          [PREFIX=/usr/local] [DESTDIR=...]
  *
  * It rebuilds itself when build.c or nb.h change
- * NOTE: Only Linux (nolibc, static) and macOS (system libc) are built entirely
- * from here: nothing in this file and nothing installed app does, needs make
- * (WARN: Windows keeps using Makefile until a Windows backend for nb.h exists)
- * and `make sanitize`
+ * NOTE: Linux (nolibc, static), macOS (system libc) and Windows (MinGW-w64,
+ * system libc, Win32 API only) are all built from here: nothing in this file
+ * needs make, sh, ls or install
  */
 
 #include "nb.h"
@@ -26,17 +25,28 @@ static const char *cc = "clang";
 #else
 static const char *cc = "gcc";
 #endif
-static const char *prefix = "/usr/local";
-static const char *destdir = "";
 static int jobs = 4;
 
-#if defined(__linux__)
+#if defined(_WIN32)
+#define LINUX 0
+#define WINDOWS 1
+#define SO_EXT "dll"
+#define PLATFORM_NAME "windows"
+static const char *prefix = "dist";
+#elif defined(__linux__)
 #define LINUX 1
+#define WINDOWS 0
 #define SO_EXT "so"
+#define PLATFORM_NAME "linux"
+static const char *prefix = "/usr/local";
 #else
 #define LINUX 0
+#define WINDOWS 0
 #define SO_EXT "dylib"
+#define PLATFORM_NAME "macos"
+static const char *prefix = "/usr/local";
 #endif
+static const char *destdir = "";
 
 static const char *core_src[] = {"src/app_paths.c",
                                  "src/ascii.c",
@@ -87,6 +97,7 @@ static const char *plugin_name[] = {
 
 #define COUNT(a) (sizeof(a) / sizeof(*a))
 
+#if LINUX
 // Directory of compiler's own freestanding headers (immintrin.h ...)
 // Linux build uses no other system headers
 static const char *cc_include_dir(void) {
@@ -104,6 +115,7 @@ static const char *cc_include_dir(void) {
 
   return dir;
 }
+#endif
 
 // Flags every compile uses
 static void cflags(nb_cmd *c) {
@@ -112,6 +124,10 @@ static void cflags(nb_cmd *c) {
   nb_cmd_add(c, "-Iinclude", "-Ilib");
 #if LINUX
   nb_cmd_add(c, "-isystem", cc_include_dir());
+#elif WINDOWS
+  // Media foundation capture + winsock
+  nb_add_words(c, "-lmfplat -lmf -lmfreadwrite -lmfuuid -lole32 -loleaut32 "
+                  "-luuid -lstrmiids -lwinpthread -lws2_32");
 #endif
 }
 
@@ -201,22 +217,12 @@ static int build_all(void) {
   nb_procs ps;
   nb_procs_init(&ps, jobs);
 
-  // every object depends on every header: simple and always correct
-  const char *hdrs[128];
-  size_t nh = 0;
-  const char *hdir[] = {"include", "lib"};
-  for (int d = 0; d < 2; d++) {
-    FILE *f = popen(nb_fmt("ls %s/*.h", hdir[d]), "r");
-    char line[256];
-    while (f && fgets(line, sizeof line, f) && nh < 128) {
-      line[strcspn(line, "\n")] = 0;
-      hdrs[nh++] = nb_fmt("%s", line);
-    }
-
-    if (f) {
-      pclose(f);
-    }
-  }
+  // Every object depends on every header
+  nb_cmd hl = {0};
+  nb_glob(&hl, "include", ".h");
+  nb_glob(&hl, "lib", ".h");
+  const char **hdrs = hl.v;
+  size_t nh = hl.n;
 
   const char *all[COUNT(core_src) + COUNT(lib_src) + 1];
   size_t na = 0;
@@ -224,12 +230,16 @@ static int build_all(void) {
     all[na++] = core_src[i];
   }
 
+#if !WINDOWS // Windows uses system libc
   for (size_t i = 0; i < COUNT(lib_src); i++) {
     all[na++] = lib_src[i];
   }
+#endif
 
 #if LINUX
   all[na++] = "src/capture_linux.c";
+#elif WINDOWS
+  all[na++] = "src/capture_windows.c";
 #else
   all[na++] = "src/capture_macos.m";
 #endif
@@ -239,18 +249,20 @@ static int build_all(void) {
   for (size_t i = 0; i < na; i++) {
     const char *o = obj_of(all[i]);
     nb_push(&link, o);
-    const char *deps[129];
+    const char **deps = (const char **)malloc((nh + 1) * sizeof *deps);
     size_t nd = 0;
     deps[nd++] = all[i];
     for (size_t h = 0; h < nh; h++) {
       deps[nd++] = hdrs[h];
     }
 
-    if (nb_needs_rebuild(o, deps, nd)) {
+    int stale = nb_needs_rebuild(o, deps, nd);
+    free((void *)deps);
+    if (stale) {
       nb_cmd c = {0};
       nb_cmd_add(&c, cc);
       cflags(&c);
-#if !LINUX
+#if !LINUX && !WINDOWS
       const char *src = all[i];
       size_t sl = strlen(src);
       if (sl >= 2 && strcmp(src + sl - 2, ".m") == 0) {
@@ -275,7 +287,7 @@ static int build_all(void) {
   nb_push(&link, blob);
 #endif
 
-  const char *target = BUILD "/asciicam";
+  const char *target = BUILD "/asciicam" NB_EXE;
   if (nb_needs_rebuild(target, (const char **)link.v + 1, link.n - 1)) {
     nb_cmd_add(&link, "-o", target);
     ldflags(&link);
@@ -304,16 +316,29 @@ static int build_plugins(void) {
     nb_cmd_add(&c, cc);
     cflags(&c);
     nb_add_words(&c, PB_SHARED);
-#if !LINUX
+#if !LINUX && !WINDOWS
     nb_cmd_add(&c, "-undefined", "dynamic_lookup");
 #endif
     nb_cmd_add(&c, src, "-o", tmp);
-    if (!nb_run(&c) || rename(tmp, out) != 0) {
+    if (!nb_run(&c) || !nb_rename(tmp, out)) {
       return 0;
     }
   }
 
   return 1;
+}
+
+// Copy every file of dir ending in suffix (NULL = all) into dest
+static int install_files(const char *dir, const char *suffix, const char *dest,
+                         const char *mode) {
+  nb_cmd f = {0};
+  nb_glob(&f, dir, suffix);
+  int ok = 1;
+  for (size_t i = 0; i < f.n; i++) {
+    ok &= nb_copy(f.v[i], dest, mode);
+  }
+
+  return ok;
 }
 
 static int install(int sdk) {
@@ -322,39 +347,39 @@ static int install(int sdk) {
   nb_mkdir(bin);
   nb_mkdir(nb_fmt("%s/plugins", share));
   nb_mkdir(nb_fmt("%s/charsets", share));
-  int ok = nb_copy(BUILD "/asciicam", nb_fmt("%s/asciicam", bin), "755");
+  int ok = nb_copy(BUILD "/asciicam" NB_EXE, nb_fmt("%s/asciicam" NB_EXE, bin),
+                   "755");
   for (size_t i = 0; i < COUNT(plugin_name); i++) {
     ok &= nb_copy(nb_fmt(BUILD "/%s." SO_EXT, plugin_name[i]),
                   nb_fmt("%s/plugins", share), "755");
   }
 
-  nb_cmd c = {0};
-  nb_cmd_add(&c, "sh", "-c",
-             nb_fmt("install -m 644 charsets/* %s/charsets", share));
-  ok &= nb_run(&c);
+  ok &= install_files("charsets", NULL, nb_fmt("%s/charsets", share), "644");
   if (sdk) {
-    // plugin build needs: headers and plugin sources
+    // Plugin build needs: headers and plugin sources
     // No Makefile: app runs compiler itself
-    nb_cmd s = {0};
-    nb_cmd_add(&s, "sh", "-c",
-               nb_fmt("d=%s/sdk; mkdir -p $d/include $d/lib $d/filters && "
-                      "install -m 644 include/*.h $d/include && "
-                      "install -m 644 lib/*.h $d/lib && "
-                      "install -m 644 filters/*.c $d/filters",
-                      share));
-    ok &= nb_run(&s);
+    const char *d = nb_fmt("%s/sdk", share);
+    nb_mkdir(nb_fmt("%s/include", d));
+    nb_mkdir(nb_fmt("%s/lib", d));
+    nb_mkdir(nb_fmt("%s/filters", d));
+    ok &= install_files("include", ".h", nb_fmt("%s/include", d), "644");
+    ok &= install_files("lib", ".h", nb_fmt("%s/lib", d), "644");
+    ok &= install_files("filters", ".c", nb_fmt("%s/filters", d), "644");
   }
 
   return ok;
 }
 
 #if LINUX
-// Test programs: each is built from its own sources plus small nolibc core, and
+// Test programs: each is built from its own sources plus small nolibc core and
 // run
 // Order and flags `make test` follow
 typedef struct {
-  const char *name, *opt, *extra, *srcs;
-  const char *args[3]; // each non-NULL entry is one run, e.g. "100000 1"
+  const char *name;
+  const char *opt;
+  const char *extra;
+  const char *srcs;
+  const char *args[3]; // Each non-NULL entry is one run, e.g. "100000 1"
 } nb_test;
 
 static const char *test_libs[] = {"lib/nl_mem.c",   "lib/nl_printf.c",
@@ -647,17 +672,15 @@ static int run_tests(void) {
   return 1;
 }
 
-static void info(void) {
-  printf("Platform : %s\n", LINUX ? "linux" : "macos");
-  printf("CC       : %s\n", cc);
-  printf("Prefix   : %s%s\n", destdir, prefix);
-  printf("Plugins  : %s %s\n", PB_COMMON, PB_TARGET);
-  printf("Shared   : %s\n", PB_SHARED);
+static int run_e2e(void) {
+  nb_log("e2e is Linux only");
+
+  return 1;
 }
 #endif
 
 static void info(void) {
-  printf("Platform : %s\n", LINUX ? "linux" : "macos");
+  printf("Platform : %s\n", PLATFORM_NAME);
   printf("CC       : %s\n", cc);
   printf("Prefix   : %s%s\n", destdir, prefix);
   printf("Plugins  : %s %s\n", PB_COMMON, PB_TARGET);
@@ -665,14 +688,8 @@ static void info(void) {
 }
 
 int main(int argc, char **argv) {
-#if defined(_WIN32)
-  (void)argc;
-  (void)argv;
-  fputs("nb: Windows is not supported yet; use `make`\n", stderr);
-
-  return 1;
-#else
-  NB_REBUILD_SELF(argc, argv, "cc");
+  // Windows MinGW-w64 gcc
+  NB_REBUILD_SELF(argc, argv, WINDOWS ? "gcc" : "cc");
   const char *target = "all";
   for (int i = 1; i < argc; i++) {
     if (!strncmp(argv[i], "-j", 2) && argv[i][2]) {
@@ -710,5 +727,4 @@ int main(int argc, char **argv) {
   }
 
   return ok ? 0 : 1;
-#endif
 }
