@@ -12,6 +12,8 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <sys/stat.h>
 
 static const char *BIN; // Program with software camera
 static int failures;
@@ -55,6 +57,14 @@ static args_t A(const char *first, ...) {
 static args_t plus(args_t a, const char *extra) {
   if (extra && a.n < 46) {
     a.v[a.n++] = extra;
+  }
+
+  return a;
+}
+
+static args_t cat(args_t a, args_t b) {
+  for (int i = 0; i < b.n && a.n < 46; i++) {
+    a.v[a.n++] = b.v[i];
   }
 
   return a;
@@ -534,6 +544,531 @@ static void mouse_tests(void) {
   }
 }
 
+/* Real binary: built-in demo picture, plugins, --net, --vcam, --play */
+
+// Last position of needle in buffer, or -1
+static long rfind_mem(const unsigned char *p, size_t n, const char *needle) {
+  size_t l = strlen(needle);
+  for (size_t i = n; l && i >= l; i--) {
+    if (!memcmp(p + i - l, needle, l)) {
+      return (long)(i - l);
+    }
+  }
+
+  return -1;
+}
+
+// Check for picture change: Distinct 200-byte runs that follow a frame start
+// (first part of each frame: cursor move and top rows)
+static int distinct_frame_heads(const pty_buf *b) {
+  static const char mark[] = "\x1b[?2026h";
+  size_t ml = sizeof mark - 1;
+  const unsigned char *heads[512];
+  int nh = 0, distinct = 0;
+  for (size_t i = 0; i + ml + 200 <= b->len;) {
+    if (memcmp(b->data + i, mark, ml)) {
+      i++;
+
+      continue;
+    }
+
+    const unsigned char *h = b->data + i + ml;
+    int seen = 0;
+    for (int k = 0; k < nh && !seen; k++) {
+      seen = !memcmp(heads[k], h, 200);
+    }
+
+    if (!seen) {
+      distinct++;
+      if (nh < 512) {
+        heads[nh++] = h;
+      }
+    }
+
+    i += ml + 200; // A regex findall would continue after what it matched
+  }
+
+  return distinct;
+}
+
+// Mean (R - B) over the foreground colour escapes ESC[38;2;R;G;Bm
+// Returns 0 when there are none
+static int warmth(const pty_buf *b, double *out) {
+  static const char pre[] = "\x1b[38;2;";
+  size_t pl = sizeof pre - 1;
+  double sum = 0;
+  long count = 0;
+  for (size_t i = 0; i + pl < b->len; i++) {
+    if (memcmp(b->data + i, pre, pl)) {
+      continue;
+    }
+
+    size_t j = i + pl;
+    int v[3] = {0, 0, 0};
+    int ok = 1;
+    for (int c = 0; c < 3 && ok; c++) {
+      int nd = 0;
+      while (j < b->len && b->data[j] >= '0' && b->data[j] <= '9') {
+        v[c] = v[c] * 10 + (b->data[j++] - '0');
+        nd++;
+      }
+
+      ok = nd > 0 && j < b->len && b->data[j] == (c < 2 ? ';' : 'm');
+      j++;
+    }
+
+    if (ok) {
+      sum += v[0] - v[2];
+      count++;
+    }
+  }
+
+  if (!count) {
+    return 0;
+  }
+
+  *out = sum / (double)count;
+
+  return 1;
+}
+
+static const char *num_str(int ok, double v) {
+  static char ring[4][24];
+  static int k;
+  char *s = ring[k++ & 3];
+  if (ok) {
+    snprintf(s, 24, "%.0f", v);
+  } else {
+    snprintf(s, 24, "None");
+  }
+
+  return s;
+}
+
+static void real_demo_and_plugins(const char *real_abs) {
+  static const char *flags[2][2] = {{"--demo", NULL}, {"-d", "demo"}};
+  for (int f = 0; f < 2; f++) {
+    char label[32];
+    snprintf(label, sizeof label, "%s%s%s", flags[f][0], flags[f][1] ? " " : "",
+             flags[f][1] ? flags[f][1] : "");
+    run_t r =
+        run(cat(A(flags[f][0], flags[f][1], NULL), A("-r", "20", "-C", NULL)),
+            1.5, -1, "q");
+    check(r.frames >= 15 && r.code == 0,
+          "real binary %s: picture drawn (%ld frames, exit %d)", label,
+          r.frames, r.code);
+    check(contains(r.out.data, r.out.len, "\x1b[38;2;"),
+          "real binary %s: colour", label);
+    free(r.out.data);
+  }
+
+  run_t r = run(A("--demo", "-r", "20", NULL), 1.0, -1, "q");
+  check(distinct_frame_heads(&r.out) > 3,
+        "real binary --demo: picture animates");
+  free(r.out.data);
+
+  // Every effect plugin loads through real loader and keeps picture moving
+  // (plugin lookups are relative to binary: build/<name>.so)
+  static const char *plugins[] = {
+      "chromatic", "crt",        "dither_bayer", "dither_fs",   "fisheye",
+      "framediff", "glitch",     "kaleidoscope", "matrix_rain", "motion",
+      "neon_edge", "pixel_sort", "ripple",       "sepia",       "thermal",
+      "trails",    "tv_static",  "vhs",          "vignette"};
+  char dir[4096];
+  snprintf(dir, sizeof dir, "%s", real_abs);
+  char *slash = strrchr(dir, '/');
+  if (slash) {
+    *slash = 0;
+  }
+
+  for (size_t i = 0; i < sizeof plugins / sizeof plugins[0]; i++) {
+    char so[4200];
+    snprintf(so, sizeof so, "%s/%s.so", dir, plugins[i]);
+    struct stat st;
+    if (stat(so, &st) != 0) {
+      check(0, "plugin %s: %s was built", plugins[i], so);
+
+      continue;
+    }
+
+    r = run(A("--demo", "-r", "20", "-p", so, NULL), 1.0, -1, "q");
+    check(r.frames >= 8 && r.code == 0 &&
+              !contains(r.out.data, r.out.len, "Failed to load"),
+          "plugin %s: loads and draws (%ld frames, exit %d)", plugins[i],
+          r.frames, r.code);
+    free(r.out.data);
+  }
+
+  // Colour hooks: in colour mode (-C) plugins may repaint picture
+  r = run(A("--demo", "-r", "20", "-C", NULL), 1.2, -1, "q");
+  double w0 = 0;
+  int have0 = warmth(&r.out, &w0);
+  free(r.out.data);
+  static const char *hooks[] = {"sepia", "thermal"};
+  for (int i = 0; i < 2; i++) {
+    char so[4200];
+    snprintf(so, sizeof so, "%s/%s.so", dir, hooks[i]);
+    r = run(A("--demo", "-r", "20", "-C", "-p", so, NULL), 1.2, -1, "q");
+    double w = 0;
+    int have = warmth(&r.out, &w);
+    int pass = have && have0 &&
+               (i == 0 ? w > w0 + 15 : (w > w0 ? w - w0 : w0 - w) > 15);
+    check(r.frames >= 8 && r.code == 0 && pass,
+          "plugin %s repaints colour pictures (warmth %s -> %s, %ld frames)",
+          hooks[i], num_str(have0, w0), num_str(have, w), r.frames);
+    free(r.out.data);
+  }
+
+  // Mirror + colour keeps drawing (colour planes are flipped with luma)
+  r = run(A("--demo", "-r", "20", "-C", "-f", NULL), 1.2, -1, "q");
+  check(r.frames >= 8 && r.code == 0 &&
+            contains(r.out.data, r.out.len, "\x1b[38;2;"),
+        "--demo -C -f: mirrored colour picture drawn (%ld frames, exit %d)",
+        r.frames, r.code);
+  free(r.out.data);
+}
+
+static void real_net_and_vcam(void) {
+  // Slow-link mode: draws, and a bad value is refused up front
+  static const char *levels[] = {"0", "300"};
+  for (int i = 0; i < 2; i++) {
+    run_t r =
+        run(A("--demo", "-r", "20", "--net", levels[i], NULL), 1.0, -1, "q");
+    check(r.frames >= 8 && r.code == 0,
+          "--net %s: draws and exits cleanly (%ld frames, exit %d)", levels[i],
+          r.frames, r.code);
+    free(r.out.data);
+  }
+
+  run_t r = run(A("--demo", "--net", "fast", NULL), 1.0, -1, "q");
+  check(r.code == 2 && contains(r.out.data, r.out.len, "--net needs"),
+        "--net with a bad value is refused");
+  free(r.out.data);
+  r = run(A("--demo", "--net", NULL), 1.0, -1, "q");
+  check(r.code == 2, "--net without a value is refused");
+  free(r.out.data);
+
+  // Virtual camera: raw YUYV frames to a file, one whole frame per picture
+  char vdir[] = "/tmp/asciicam_vcam_XXXXXX";
+  if (!mkdtemp(vdir)) {
+    check(0, "--vcam: cannot make a scratch directory");
+
+    return;
+  }
+
+  char vfile[128];
+  snprintf(vfile, sizeof vfile, "%s/cam.yuv", vdir);
+  const int vw = 640, vh = 360;
+  r = run(A("--demo", "-C", "-r", "20", "--vcam", vfile, "--vcam-size",
+            "640x360", NULL),
+          1.5, -1, "q");
+  struct stat st;
+  long vsize = stat(vfile, &st) == 0 ? (long)st.st_size : -1;
+  long fsize = (long)vw * vh * 2;
+  check(r.code == 0 && vsize > 0 && vsize % fsize == 0 && vsize / fsize >= 10,
+        "--vcam: whole frames written (%ld bytes, %.1f frames, exit %d)", vsize,
+        (double)vsize / (double)fsize, r.code);
+  check(!contains(r.out.data, r.out.len, "Virtual camera:") || r.code == 0,
+        "--vcam: clean exit");
+  free(r.out.data);
+  if (vsize >= fsize) {
+    unsigned char *last = (unsigned char *)malloc((size_t)fsize);
+    FILE *f = fopen(vfile, "rb");
+    if (f && last && fseek(f, vsize - fsize, SEEK_SET) == 0 &&
+        fread(last, 1, (size_t)fsize, f) == (size_t)fsize) {
+      long bright = 0, dark = 0, chroma = 0;
+      for (long i = 0; i < fsize; i += 2) {
+        bright += last[i] > 100;
+        dark += last[i] <= 20;
+      }
+
+      for (long i = 1; i < fsize; i += 4) {
+        chroma += (last[i] > 128 ? last[i] - 128 : 128 - last[i]) > 20;
+      }
+
+      check(bright > 500 && dark > fsize / 8,
+            "--vcam: picture drawn on a dark canvas (bright %ld, dark %ld)",
+            bright, dark);
+      check(chroma > 100,
+            "--vcam: -C gives coloured pixels (%ld chroma samples)", chroma);
+    } else {
+      check(0, "--vcam: cannot read the last frame back");
+    }
+
+    if (f) {
+      fclose(f);
+    }
+
+    free(last);
+  }
+
+  r = run(A("--demo", "--vcam", "/nonexistent-dir/cam", NULL), 1.0, -1, "q");
+  check(r.code == 2 && contains(r.out.data, r.out.len, "--vcam: cannot open"),
+        "--vcam with an unwritable path is refused");
+  free(r.out.data);
+  r = run(A("--demo", "--vcam", NULL), 1.0, -1, "q");
+  check(r.code == 2, "--vcam without a value is refused");
+  free(r.out.data);
+  static const char *bad[] = {"641x360", "10x10", "abc", "1280x", "9000x9000"};
+  for (int i = 0; i < 5; i++) {
+    r = run(A("--demo", "--vcam", vfile, "--vcam-size", bad[i], NULL), 1.0, -1,
+            "q");
+    check(r.code == 2 && contains(r.out.data, r.out.len, "--vcam-size"),
+          "--vcam-size %s is refused", bad[i]);
+    free(r.out.data);
+  }
+
+  unlink(vfile);
+  rmdir(vdir);
+}
+
+/* --play: replay a .cast with its timing, no camera (this is what runs over
+ * ssh)
+ * Output is kept as timed chunks so timing can be checked */
+
+typedef struct {
+  double t;
+  unsigned char *d;
+  size_t n;
+} chunk_t;
+
+typedef struct {
+  chunk_t *c;
+  int n, cap;
+} chunks_t;
+
+typedef struct {
+  double at; // seconds after start
+  const char *data;
+} pstep_t;
+
+static void chunks_add(chunks_t *ch, double t, const unsigned char *d,
+                       size_t n) {
+  if (ch->n == ch->cap) {
+    ch->cap = ch->cap ? ch->cap * 2 : 64;
+    ch->c = (chunk_t *)realloc(ch->c, (size_t)ch->cap * sizeof *ch->c);
+    if (!ch->c) {
+      abort();
+    }
+  }
+
+  unsigned char *copy = (unsigned char *)malloc(n ? n : 1);
+  memcpy(copy, d, n);
+  ch->c[ch->n].t = t;
+  ch->c[ch->n].d = copy;
+  ch->c[ch->n].n = n;
+  ch->n++;
+}
+
+static void chunks_free(chunks_t *ch) {
+  for (int i = 0; i < ch->n; i++) {
+    free(ch->c[i].d);
+  }
+
+  free(ch->c);
+  memset(ch, 0, sizeof *ch);
+}
+
+// Run in a 30x100 terminal for up to `total` seconds, sending steps at their
+// times
+// Returns exit code, or -1 when it had to be killed
+static int play(args_t a, const pstep_t *steps, int nsteps, double total,
+                chunks_t *ch) {
+  memset(ch, 0, sizeof *ch);
+  char *argv[50];
+  argv[0] = (char *)BIN;
+  for (int i = 0; i < a.n; i++) {
+    argv[i + 1] = (char *)a.v[i];
+  }
+
+  argv[a.n + 1] = NULL;
+  pty_proc p;
+  if (pty_spawn(&p, BIN, argv, 30, 100) != 0) {
+    fprintf(stderr, "cannot start %s in a pty\n", BIN);
+    exit(1);
+  }
+
+  double t0 = pty_now();
+  int idx = 0, code = -1, done = 0;
+  while (pty_now() - t0 < total && !done) {
+    while (idx < nsteps && pty_now() - t0 >= steps[idx].at) {
+      pty_write(&p, steps[idx].data, strlen(steps[idx].data));
+      idx++;
+    }
+
+    pty_buf tmp = {0};
+    long got = pty_read(&p, &tmp, 20);
+    if (tmp.len) {
+      chunks_add(ch, pty_now() - t0, tmp.data, tmp.len);
+    }
+
+    free(tmp.data);
+    if (got < 0) {
+      usleep(2000); // Terminal closed: wait for exit status
+    }
+
+    done = pty_exited(&p, &code);
+  }
+
+  if (!done) {
+    pty_finish(&p, 0.0); // Kills it
+    code = -1;
+  } else if (p.fd >= 0) {
+    close(p.fd);
+    p.fd = -1;
+  }
+
+  return code;
+}
+
+// Time of first chunk that contains word, or -1
+static double when(const chunks_t *ch, const char *word) {
+  for (int i = 0; i < ch->n; i++) {
+    if (contains(ch->c[i].d, ch->c[i].n, word)) {
+      return ch->c[i].t;
+    }
+  }
+
+  return -1;
+}
+
+// Everything program printed, joined
+static pty_buf joined(const chunks_t *ch) {
+  pty_buf b = {0};
+  for (int i = 0; i < ch->n; i++) {
+    pty_buf_add(&b, ch->c[i].d, ch->c[i].n);
+  }
+
+  return b;
+}
+
+static int count_chunks_with(const chunks_t *ch, const char *word) {
+  int k = 0;
+  for (int i = 0; i < ch->n; i++) {
+    k += contains(ch->c[i].d, ch->c[i].n, word);
+  }
+
+  return k;
+}
+
+static void real_play(void) {
+  char dir[] = "/tmp/asciicam_play_XXXXXX";
+  if (!mkdtemp(dir)) {
+    check(0, "--play: cannot make a scratch directory");
+
+    return;
+  }
+
+  char cast[128], missing[128];
+  snprintf(cast, sizeof cast, "%s/t.cast", dir);
+  snprintf(missing, sizeof missing, "%s/missing.cast", dir);
+  FILE *f = fopen(cast, "w");
+  if (!f) {
+    check(0, "--play: cannot write the recording");
+    rmdir(dir);
+
+    return;
+  }
+
+  // asciicast v2: a header line, then [time, "o", text] events
+  fputs("{\"version\": 2, \"width\": 60, \"height\": 20}\n"
+        "[0.0, \"o\", \"\\u001b[2J\\u001b[Hone\"]\n"
+        "[0.5, \"o\", \"\\u001b[Htwo\"]\n"
+        "[1.0, \"o\", \"\\u001b[Hthree \\u00e9\"]\n",
+        f);
+  fclose(f);
+
+  chunks_t ch;
+  int code = play(A("--play", cast, NULL), NULL, 0, 3.0, &ch);
+  double t_two = when(&ch, "two"), t_three = when(&ch, "three");
+  check(code == 0 && t_two >= 0 && t_three >= 0,
+        "--play: plays to the end, exit %d", code);
+  check(t_two > 0.4 && t_two < 0.8 && t_three > 0.9 && t_three < 1.4,
+        "--play: keeps recorded timing (0.5 s / 1.0 s, got %.2f / %.2f)", t_two,
+        t_three);
+  pty_buf all = joined(&ch);
+  check(contains(all.data, all.len, "\xc3\xa9"),
+        "--play: UTF-8 bytes arrive intact");
+  long wrap_off = rfind_mem(all.data, all.len, "\x1b[?7l");
+  long wrap_on = rfind_mem(all.data, all.len, "\x1b[?7h");
+  check(wrap_off >= 0 && wrap_on > wrap_off,
+        "--play: wrap is off while playing and back on after");
+  check(ch.n > 0 &&
+            contains(ch.c[ch.n - 1].d, ch.c[ch.n - 1].n, "\x1b[?1049l") &&
+            contains(all.data, all.len, "\x1b[?25h"),
+        "--play: screen and cursor restored");
+  free(all.data);
+  chunks_free(&ch);
+
+  code = play(A("--play", cast, "--speed", "2", NULL), NULL, 0, 3.0, &ch);
+  t_three = when(&ch, "three");
+  check(code == 0 && t_three >= 0 && t_three < 0.8,
+        "--play --speed 2: twice as fast (%.2f)", t_three);
+  chunks_free(&ch);
+
+  pstep_t pause[] = {{0.7, " "}, {2.2, " "}};
+  code = play(A("--play", cast, NULL), pause, 2, 4.0, &ch);
+  t_three = when(&ch, "three");
+  check(code == 0 && t_three > 2.3 && t_three < 3.0,
+        "--play: space pauses and resumes (%.2f)", t_three);
+  chunks_free(&ch);
+
+  pstep_t quit_late[] = {{2.6, "q"}};
+  code = play(A("--play", cast, "--loop", NULL), quit_late, 1, 5.0, &ch);
+  check(code == 0 && count_chunks_with(&ch, "two") >= 2,
+        "--play --loop: repeats, q quits with exit 0");
+  chunks_free(&ch);
+
+  pstep_t quit_early[] = {{0.2, "q"}};
+  code = play(A("--play", cast, NULL), quit_early, 1, 3.0, &ch);
+  check(code == 0 && when(&ch, "three") < 0, "--play: q stops early");
+  chunks_free(&ch);
+
+  code = play(A("--play", missing, NULL), NULL, 0, 3.0, &ch);
+  all = joined(&ch);
+  check(code == 1 && contains(all.data, all.len, "cannot read") &&
+            !contains(all.data, all.len, "\x1b[?1049h"),
+        "--play: missing file refused before touching the screen (exit %d)",
+        code);
+  free(all.data);
+  chunks_free(&ch);
+
+  code = play(A("--play", cast, "--speed", "fast", NULL), NULL, 0, 3.0, &ch);
+  all = joined(&ch);
+  check(code == 2 && contains(all.data, all.len, "--speed needs"),
+        "--play: bad --speed refused");
+  free(all.data);
+  chunks_free(&ch);
+
+  code = play(A("--play", NULL), NULL, 0, 3.0, &ch);
+  check(code == 2, "--play without a file is refused");
+  chunks_free(&ch);
+
+  unlink(cast);
+  rmdir(dir);
+}
+
+static void real_binary(const char *real) {
+  char *abs = realpath(real, NULL);
+  if (!abs || access(abs, X_OK) != 0) {
+    return; // No real binary, nothing to check
+  }
+
+  const char *saved = BIN;
+  BIN = abs;
+  real_demo_and_plugins(abs);
+  real_net_and_vcam();
+  real_play();
+
+  // A missing camera explains how to get a picture
+  run_t r = run(A("-d", "/dev/definitely-not-a-camera", NULL), 0.3, -1, "q");
+  check(r.code != 0 && contains(r.out.data, r.out.len, "--demo"),
+        "missing camera: error mentions --demo");
+  free(r.out.data);
+  BIN = saved;
+  free(abs);
+}
+
 int main(int argc, char **argv) {
   if (argc < 2) {
     fprintf(stderr, "usage: %s <asciicam-fake-binary> [asciicam-binary]\n",
@@ -553,6 +1088,9 @@ int main(int argc, char **argv) {
   smoke();
   stalled_camera();
   mouse_tests();
+  if (argc > 2) {
+    real_binary(argv[2]);
+  }
 
   if (failures) {
     printf("e2e (C): %d FAILED\n", failures);
