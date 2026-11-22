@@ -805,13 +805,21 @@ if REAL and os.access(REAL, os.X_OK):
     # --watch --retry: server restarts, viewer comes back
     port = free_port()
 
+    def listener():
+        lsock = socket.socket()
+        lsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        lsock.bind(("127.0.0.1", port))
+        lsock.listen(1)
+        lsock.settimeout(8)
+        return lsock
+
+    # Listening before viewer starts: binding inside thread raced with viewer's
+    # first connect, which is refused (exit 1) on a busy machine
+    first_listener = listener()
+
     def restarting_server():
-        for word in (b"BEFORE-RESTART", b"AFTER-RESTART"):
-            lsock = socket.socket()
-            lsock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            lsock.bind(("127.0.0.1", port))
-            lsock.listen(1)
-            lsock.settimeout(8)
+        for n, word in enumerate((b"BEFORE-RESTART", b"AFTER-RESTART")):
+            lsock = first_listener if n == 0 else listener()
             try:
                 conn, _ = lsock.accept()
             except OSError:
@@ -821,7 +829,7 @@ if REAL and os.access(REAL, os.X_OK):
             time.sleep(0.5)
             conn.close()
             lsock.close()
-            time.sleep(2.5)  # nobody listens: viewer has to retry
+            time.sleep(2.5)  # Nobody listens: viewer has to retry
 
     th = threading.Thread(target=restarting_server)
     th.start()
@@ -833,7 +841,7 @@ if REAL and os.access(REAL, os.X_OK):
     check(b"\x1b[?7l" in out and out.rfind(b"\x1b[?7h") > out.rfind(b"\x1b[?7l"),
           "--watch: lines are cut at the edge of a small terminal, wrap is put back on leaving")
 
-    # captions on local picture (no call): fifo given, y toggles, y makes one
+    # Captions on local picture (no call): fifo given, y toggles, y makes one
     def drive(args, steps, total, env_extra=None):
         pid, cfd = pty.fork()
         if pid == 0:
