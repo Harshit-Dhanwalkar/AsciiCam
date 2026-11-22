@@ -182,6 +182,20 @@ static void pty_write(pty_proc *p, const void *data, size_t n) {
   }
 }
 
+static int pty_exited(pty_proc *p, int *code) {
+  int st = 0;
+  pid_t r = waitpid(p->pid, &st, WNOHANG);
+  if (r == p->pid) {
+    if (code) {
+      *code = WIFEXITED(st) ? WEXITSTATUS(st) : 128 + WTERMSIG(st);
+    }
+
+    return 1;
+  }
+
+  return r < 0 && errno == ECHILD ? 1 : 0;
+}
+
 // Wait up to `seconds` for program to exit, then kill it
 // Returns its exit code, 128 + signal if a signal ended it, or -1 if it had to
 // be killed
