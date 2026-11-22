@@ -371,8 +371,8 @@ static inline int nl_nanosleep(const struct timespec *req,
 static inline void nl_exit(int code) { _exit(code); }
 
 // termios shim: MinGW ships no <termios.h>, so raw-mode toggling is
-// re-expressed in terms of the Win32 console mode API. Only the bits
-// main.c's term_raw_mode()/term_restore() touch (ICANON, ECHO, VMIN,
+// re-expressed in terms of Win32 console mode API
+// Only bits main.c's term_raw_mode()/term_restore() touch (ICANON, ECHO, VMIN,
 // VTIME, TCSAFLUSH) are modeled
 // WARN: this is not a general termios replacement
 typedef unsigned long nl_tcflag_t;
@@ -390,7 +390,17 @@ typedef unsigned long nl_tcflag_t;
 struct termios {
   nl_tcflag_t c_lflag;
   unsigned char c_cc[NL_TERMIOS_NCC];
+  // Whole console input mode as tcgetattr saw it: restoring a saved struct puts
+  // back every bit, including ones raw mode adds (VT input)
+  unsigned long nl_mode;
 };
+
+#ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+#define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+#endif
+#ifndef ENABLE_VIRTUAL_TERMINAL_INPUT
+#define ENABLE_VIRTUAL_TERMINAL_INPUT 0x0200
+#endif
 
 static inline int nl_tcgetattr(int fd, struct termios *t) {
   HANDLE h = (HANDLE)_get_osfhandle(fd);
@@ -409,6 +419,7 @@ static inline int nl_tcgetattr(int fd, struct termios *t) {
 
   t->c_cc[VMIN] = 1;
   t->c_cc[VTIME] = 0;
+  t->nl_mode = (unsigned long)mode;
 
   return 0;
 }
@@ -419,6 +430,11 @@ static inline int nl_tcsetattr(int fd, int action, const struct termios *t) {
   if (h == INVALID_HANDLE_VALUE || !GetConsoleMode(h, &mode)) {
     return -1;
   }
+
+  if (t->nl_mode) {
+    mode = (DWORD)t->nl_mode; // Start from state tcgetattr saw
+  }
+
   if (t->c_lflag & ICANON) {
     mode |= ENABLE_LINE_INPUT;
   } else {
@@ -435,11 +451,79 @@ static inline int nl_tcsetattr(int fd, int action, const struct termios *t) {
     FlushConsoleInputBuffer(h);
   }
 
+  // Raw mode: arrow keys, Home/End and mouse reports must reach read() as same
+  // ESC sequences a Unix terminal sends
+  // Consoles too old to know flag refuse it, so retry without
+  if (!(t->c_lflag & ICANON)) {
+    if (SetConsoleMode(h, mode | ENABLE_VIRTUAL_TERMINAL_INPUT)) {
+      return 0;
+    }
+  }
+
   return SetConsoleMode(h, mode) ? 0 : -1;
 }
 
 #define tcgetattr(fd, t) nl_tcgetattr(fd, t)
 #define tcsetattr(fd, act, t) nl_tcsetattr(fd, act, t)
+
+// Console output: ANSI escapes only work once VT processing is switched on, and
+// frame is UTF-8 (braille, block characters), so also select UTF-8 code page
+// stdin/stdout become binary so no CRLF translation and no Ctrl-Z end-of-file
+// A redirected stdout (pipe, file, mintty) is not a console and is left alone
+// Everything is put back by nl_console_restore()
+static DWORD nl_con_out_mode_;
+static UINT nl_con_cp_;
+static int nl_con_saved_;
+
+static inline void nl_console_init(void) {
+  HANDLE o = GetStdHandle(STD_OUTPUT_HANDLE);
+  DWORD m;
+  _setmode(0, _O_BINARY);
+  _setmode(1, _O_BINARY);
+  if (o == INVALID_HANDLE_VALUE || !GetConsoleMode(o, &m)) {
+    return;
+  }
+
+  if (!nl_con_saved_) {
+    nl_con_out_mode_ = m;
+    nl_con_cp_ = GetConsoleOutputCP();
+    nl_con_saved_ = 1;
+  }
+
+  SetConsoleMode(o, m | ENABLE_PROCESSED_OUTPUT |
+                        ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+  SetConsoleOutputCP(CP_UTF8);
+}
+
+static inline void nl_console_restore(void) {
+  if (!nl_con_saved_) {
+    return;
+  }
+
+  SetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), nl_con_out_mode_);
+  SetConsoleOutputCP(nl_con_cp_);
+  nl_con_saved_ = 0;
+}
+
+// There is no SIGWINCH on Windows: main loop asks once per frame whether
+// console window changed size
+// First call only records size
+static inline int nl_console_size_changed(void) {
+  static int w = -1;
+  static int h = -1;
+  CONSOLE_SCREEN_BUFFER_INFO i;
+  if (!GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &i)) {
+    return 0;
+  }
+
+  int nw = i.srWindow.Right - i.srWindow.Left + 1;
+  int nh = i.srWindow.Bottom - i.srWindow.Top + 1;
+  int changed = w >= 0 && (nw != w || nh != h);
+  w = nw;
+  h = nh;
+
+  return changed;
+}
 
 #endif // Shared by both macOS and Windows
 

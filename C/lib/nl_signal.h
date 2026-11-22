@@ -53,6 +53,40 @@ static inline int nl_signal(int sig, void (*handler)(int)) {
   return (signal(sig, handler) == SIG_ERR) ? -1 : 0;
 }
 
+#if defined(_WIN32)
+// Windows C runtime only knows SIGINT, SIGTERM, SIGABRT, SIGSEGV, SIGFPE,
+// SIGILL and SIGBREAK; any other number is refused (and with UCRT can abort
+// process), so do not pass SIGHUP / SIGQUIT / SIGWINCH to signal()
+// A terminal reports through them arrives as console control events instead;
+// this turns each one into a call of handler(sig):
+//   Ctrl+C -> SIGINT, Ctrl+Break -> SIGTERM,
+//   window closed / logoff / shutdown -> SIGHUP
+// Handler runs on its own thread, so it must stick to a what signal handler may
+// do
+// Windows ends process once handler returns for "closed" events
+#include <windows.h>
+
+static void (*nl_ctrl_handler_)(int);
+
+static inline BOOL WINAPI nl_ctrl_thunk_(DWORD ev) {
+  if (!nl_ctrl_handler_) {
+    return FALSE;
+  }
+
+  nl_ctrl_handler_(ev == CTRL_C_EVENT       ? SIGINT
+                   : ev == CTRL_BREAK_EVENT ? SIGTERM
+                                            : SIGHUP);
+
+  return TRUE;
+}
+
+static inline int nl_console_ctrl_install(void (*handler)(int)) {
+  nl_ctrl_handler_ = handler;
+
+  return SetConsoleCtrlHandler(nl_ctrl_thunk_, TRUE) ? 0 : -1;
+}
+#endif
+
 #endif
 
 #endif

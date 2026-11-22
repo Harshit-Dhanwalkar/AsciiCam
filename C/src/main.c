@@ -34,8 +34,8 @@
 
 #define DEFAULT_CONFIG_PATH ".asciicamrc"
 #define DEFAULT_CHARSET_DIR "./charsets"
-#define DEFAULT_PLUGIN_DIR "<sdk>/filters"      // plugin sources to browse
-#define DEFAULT_PLUGIN_CACHE "./.cache/plugins" // where runtime builds land
+#define DEFAULT_PLUGIN_DIR "<sdk>/filters"      // Plugin sources to browse
+#define DEFAULT_PLUGIN_CACHE "./.cache/plugins" // Where runtime builds land
 // Plugin sources, build cache, prebuilt libraries and charsets are located
 // relative to binary as well as current directory (app_paths.h)
 
@@ -45,11 +45,11 @@
 #define PANEL_ROWS 4
 #define MIN_ASCII_W 10
 #define MIN_ASCII_H 5
-#define MIN_CAPTURE_W 160 // sanity limits for capture_reinit
+#define MIN_CAPTURE_W 160 // Sanity limits for capture_reinit
 #define MIN_CAPTURE_H 120
 #define MAX_CAPTURE_W 1280
 #define MAX_CAPTURE_H 720
-#define DRAG_MAX_ASCII_W 500 // upper bound mouse can drag frame to
+#define DRAG_MAX_ASCII_W 500 // Upper bound mouse can drag frame to
 #define DRAG_MAX_ASCII_H 200
 
 #ifndef PLATFORM_MACOS
@@ -116,7 +116,7 @@ static void write_all(int fd, const char *p, size_t n) {
 #define SYNC_BEGIN "\033[?2026h"
 #define SYNC_END "\033[?2026l"
 
-// invert is a blend: at generic default of 128 (~50%) it flattens image to
+// Invert is a blend: at generic default of 128 (~50%) it flattens image to
 // mid-grey, so it starts fully on (as it does when run without a param)
 static int plugin_default_param(const filter_plugin_t *p) {
   if (p && p->name && nl_strcmp(p->name, "invert") == 0) {
@@ -131,7 +131,11 @@ static void emergency_terminal_restore(void) {
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_terminal);
   }
 
-  // otherwise shell keeps receiving mouse reports as garbage text
+#if defined(PLATFORM_WINDOWS)
+  nl_console_restore();
+#endif
+
+  // Otherwise shell keeps receiving mouse reports as garbage text
   mouse_disable();
 
   static const char SHOW_CURSOR[] = SYNC_END "\033[?25h\033[0m\n";
@@ -181,7 +185,7 @@ static int my_atoi(const char *s) {
 
 // Usage
 static void print_usage(const char *prog) {
- fprintf(
+  fprintf(
       stderr,
       "Usage: %s [options]\n"
       "\n"
@@ -456,7 +460,7 @@ static void load_config_file(const char *path, char **device, int *ascii_w,
       }
 
       if (*eq != '=') {
-       fprintf(stderr, "[config] malformed line (missing '='): %s\n", l);
+        fprintf(stderr, "[config] malformed line (missing '='): %s\n", l);
       } else {
         *eq = '\0';
         char *key = l;
@@ -530,11 +534,11 @@ static void load_config_file(const char *path, char **device, int *ascii_w,
             plugin_paths[*plugin_path_count] = cfg_plugins[*plugin_path_count];
             (*plugin_path_count)++;
           } else {
-           fprintf(stderr, "[config] max %d plugins, ignoring extra: %s\n",
+            fprintf(stderr, "[config] max %d plugins, ignoring extra: %s\n",
                     MAX_PLUGINS, val);
           }
         } else {
-         fprintf(stderr, "[config] unknown key '%s', ignoring\n", key);
+          fprintf(stderr, "[config] unknown key '%s', ignoring\n", key);
         }
       }
     }
@@ -545,20 +549,26 @@ static void load_config_file(const char *path, char **device, int *ascii_w,
 
 // termios
 void term_raw_mode(void) {
-  tcgetattr(STDIN_FILENO, &orig_terminal); // save stdin state
+  tcgetattr(STDIN_FILENO, &orig_terminal); // Save stdin state
 
   struct termios raw = orig_terminal;
-  raw.c_lflag &= ~(ICANON | ECHO); // no line buffering or no echo
-  raw.c_cc[VMIN] = 0;              // non-blocking read
+  raw.c_lflag &= ~(ICANON | ECHO); // No line buffering or no echo
+  raw.c_cc[VMIN] = 0;              // Non-blocking read
   raw.c_cc[VTIME] = 0;
 
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
   raw_mode_active = 1;
+#if defined(PLATFORM_WINDOWS)
+  nl_console_init(); // VT output, UTF-8, binary stdio
+#endif
 }
 
 void term_restore(void) {
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_terminal);
   raw_mode_active = 0;
+#if defined(PLATFORM_WINDOWS)
+  nl_console_restore();
+#endif
 }
 
 // panel_row: first of PANEL_ROWS rows (1-based) status panel is drawn on
@@ -1156,7 +1166,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (i + 1 >= argc || nl_strlen(argv[i + 1]) > 500) {
-     fprintf(stderr, "--image needs a picture file or a folder of them\n");
+      fprintf(stderr, "--image needs a picture file or a folder of them\n");
 
       return 2;
     }
@@ -1180,7 +1190,7 @@ int main(int argc, char *argv[]) {
 
     long v = i + 1 < argc ? parse_count(argv[i + 1], 86400) : -1;
     if (v < 0) {
-     fprintf(stderr, "--slide needs a number of seconds (0 = keys only)\n");
+      fprintf(stderr, "--slide needs a number of seconds (0 = keys only)\n");
 
       return 2;
     }
@@ -1206,7 +1216,7 @@ int main(int argc, char *argv[]) {
 
     long v = i + 1 < argc ? parse_count(argv[i + 1], 1000000) : -1;
     if (v < 0) {
-     fprintf(stderr, "--net needs a number of kbit/s (0 = lossless)\n");
+      fprintf(stderr, "--net needs a number of kbit/s (0 = lossless)\n");
 
       return 2;
     }
@@ -1230,7 +1240,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (i + 1 >= argc) {
-     fprintf(stderr, "--curve needs points like \"0,0 64,40 255,255\", a "
+      fprintf(stderr, "--curve needs points like \"0,0 64,40 255,255\", a "
                       "preset name or @file\n");
 
       return 2;
@@ -1253,7 +1263,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (i + 1 >= argc) {
-     fprintf(stderr, "--debug-input needs a file name\n");
+      fprintf(stderr, "--debug-input needs a file name\n");
 
       return 2;
     }
@@ -1263,7 +1273,7 @@ int main(int argc, char *argv[]) {
              (int)((unsigned)O_WRONLY | (unsigned)O_CREAT | (unsigned)O_TRUNC),
              0600);
     if (input_log_fd < 0) {
-     fprintf(stderr, "--debug-input: cannot write %s\n", argv[i + 1]);
+      fprintf(stderr, "--debug-input: cannot write %s\n", argv[i + 1]);
 
       return 2;
     }
@@ -1289,7 +1299,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (i + 1 >= argc) {
-     fprintf(stderr, "%s needs a value\n", argv[i]);
+      fprintf(stderr, "%s needs a value\n", argv[i]);
 
       return 2;
     }
@@ -1314,7 +1324,7 @@ int main(int argc, char *argv[]) {
 
       if (a < VCAM_CELL_W || b < VCAM_CELL_H || a > 4096 || b > 4096 ||
           a % 2 != 0 || *z) {
-       fprintf(stderr, "--vcam-size needs WxH, W even, e.g. 1280x720\n");
+        fprintf(stderr, "--vcam-size needs WxH, W even, e.g. 1280x720\n");
 
         return 2;
       }
@@ -1343,7 +1353,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (i + 1 >= argc) {
-     fprintf(stderr, "%s needs an address: 7000 or host:7000\n", argv[i]);
+      fprintf(stderr, "%s needs an address: 7000 or host:7000\n", argv[i]);
 
       return 2;
     }
@@ -1395,7 +1405,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (i + 1 >= argc) {
-     fprintf(stderr, "%s needs a value\n", argv[i]);
+      fprintf(stderr, "%s needs a value\n", argv[i]);
 
       return 2;
     }
@@ -1445,7 +1455,7 @@ int main(int argc, char *argv[]) {
 
     int need = is_list ? 0 : is_enroll ? 2 : 1;
     if (i + need >= argc) {
-     fprintf(stderr, "%s needs %s\n", argv[i],
+      fprintf(stderr, "%s needs %s\n", argv[i],
               is_enroll ? "a word and an audio file" : "a value");
 
       return 2;
@@ -1490,14 +1500,14 @@ int main(int argc, char *argv[]) {
   }
 
   if ((room_addr || call_addr) && (serve_addr || watch_addr)) {
-   fprintf(stderr, "--room and --call do not go together with --serve and "
+    fprintf(stderr, "--room and --call do not go together with --serve and "
                     "--watch\n");
 
     return 2;
   }
 
   if (room_addr && call_addr) {
-   fprintf(stderr, "--room and --call are two programs: run one of each\n");
+    fprintf(stderr, "--room and --call are two programs: run one of each\n");
 
     return 2;
   }
@@ -1515,14 +1525,14 @@ int main(int argc, char *argv[]) {
     uint32_t sip = 0;
     int sport = 0;
     if (nv_parse_addr(serve_addr, &sip, &sport) != 0 || sport == 0) {
-     fprintf(stderr, "--serve needs a port (7000) or an IPv4 address and "
+      fprintf(stderr, "--serve needs a port (7000) or an IPv4 address and "
                       "port (127.0.0.1:7000, *:7000)\n");
 
       return 2;
     }
 
     if (nv_listen(&serve, sip, sport) != 0) {
-     fprintf(stderr, "--serve: cannot listen on %s (in use?)\n", serve_addr);
+      fprintf(stderr, "--serve: cannot listen on %s (in use?)\n", serve_addr);
 
       return 2;
     }
@@ -1531,7 +1541,7 @@ int main(int argc, char *argv[]) {
     netenc_init(&serve_delta_enc, 0, 0);
     netenc_init(&serve_key_enc, 0, 0);
     if (sip != 0x7f000001u) {
-     fprintf(stderr,
+      fprintf(stderr,
               "--serve: listening beyond this machine without a password: "
               "anyone who can reach port %d sees the picture\n",
               sport);
@@ -1540,13 +1550,13 @@ int main(int argc, char *argv[]) {
 
   if (vcam_path) {
     if (vcam_init(&vcam, vcam_w, vcam_h) < 0) {
-     fprintf(stderr, "--vcam: cannot set up a %dx%d canvas\n", vcam_w, vcam_h);
+      fprintf(stderr, "--vcam: cannot set up a %dx%d canvas\n", vcam_w, vcam_h);
 
       return 2;
     }
 
     if (vcam_open(&vcam, vcam_path) < 0) {
-     fprintf(stderr, "--vcam: cannot open %s\n", vcam_path);
+      fprintf(stderr, "--vcam: cannot open %s\n", vcam_path);
       vcam_close(&vcam);
 
       return 2;
@@ -1573,7 +1583,7 @@ int main(int argc, char *argv[]) {
 
     int width = takes_value ? 2 : 1;
     if (takes_value && i + 1 >= argc) {
-     fprintf(stderr, "%s needs a value\n", argv[i]);
+      fprintf(stderr, "%s needs a value\n", argv[i]);
 
       return 2;
     }
@@ -1585,7 +1595,7 @@ int main(int argc, char *argv[]) {
     } else {
       play_speed = parse_speed(argv[i + 1]);
       if (play_speed < 0.0) {
-       fprintf(stderr, "--speed needs a number from 0.0625 to 16\n");
+        fprintf(stderr, "--speed needs a number from 0.0625 to 16\n");
 
         return 2;
       }
@@ -1602,11 +1612,20 @@ int main(int argc, char *argv[]) {
 
   nl_signal(SIGINT, handle_signal);
   nl_signal(SIGTERM, handle_signal);
+#if !defined(PLATFORM_WINDOWS)
   nl_signal(SIGHUP, handle_signal);
   nl_signal(SIGQUIT, handle_signal);
+#endif
   nl_signal(SIGABRT, handle_signal);
   nl_signal(SIGSEGV, handle_signal);
+#if defined(PLATFORM_WINDOWS)
+  // C runtime has no SIGHUP / SIGQUIT / SIGWINCH: Ctrl+C, Ctrl+Break and
+  // closing window come as console events and a resize is polled once per frame
+  // in main loop
+  nl_console_ctrl_install(handle_signal);
+#else
   nl_signal(SIGWINCH, handle_winch);
+#endif
 
   if (room_addr) {
     return room_main(room_addr);
@@ -1615,7 +1634,7 @@ int main(int argc, char *argv[]) {
   if (play_path) {
     int probe = open(play_path, O_RDONLY, 0);
     if (probe < 0) {
-     fprintf(stderr, "cannot read %s\n", play_path);
+      fprintf(stderr, "cannot read %s\n", play_path);
 
       return 1;
     }
@@ -1631,7 +1650,7 @@ int main(int argc, char *argv[]) {
     query_term_size(&tw, &th);
 
     if (rw > 0 && ((tw > 0 && tw < rw) || (th > 0 && th < rh))) {
-     fprintf(stderr,
+      fprintf(stderr,
               "note: recorded at %dx%d, this terminal is %dx%d: the picture "
               "will be cut at the edge; enlarge the window first\n",
               rw, rh, tw, th);
@@ -1649,7 +1668,7 @@ int main(int argc, char *argv[]) {
     (void)write(STDOUT_FILENO, WRAP_ON, sizeof(WRAP_ON) - 1);
     (void)write(STDOUT_FILENO, SCREEN_LEAVE, sizeof(SCREEN_LEAVE) - 1);
     if (rc < 0) {
-     fprintf(stderr, "cannot read %s\n", play_path);
+      fprintf(stderr, "cannot read %s\n", play_path);
 
       return 1;
     }
@@ -1659,7 +1678,7 @@ int main(int argc, char *argv[]) {
 
   if (watch_addr) {
     if (serve_on) {
-     fprintf(stderr, "--watch and --serve do not go together\n");
+      fprintf(stderr, "--watch and --serve do not go together\n");
       nv_close(&serve);
 
       return 2;
@@ -1667,7 +1686,7 @@ int main(int argc, char *argv[]) {
 
     int sock = nv_connect(watch_addr);
     if (sock < 0) {
-     fprintf(stderr,
+      fprintf(stderr,
               "--watch: cannot connect to %s (is --serve running there? over "
               "ssh: ssh -L 7000:localhost:7000 host)\n",
               watch_addr);
@@ -1761,7 +1780,7 @@ int main(int argc, char *argv[]) {
     (void)write(STDOUT_FILENO, WRAP_ON, sizeof(WRAP_ON) - 1);
     (void)write(STDOUT_FILENO, SCREEN_LEAVE, sizeof(SCREEN_LEAVE) - 1);
     if (closed) {
-     fprintf(stderr, "--watch: %s closed the connection\n", watch_addr);
+      fprintf(stderr, "--watch: %s closed the connection\n", watch_addr);
     }
 
     return closed ? 1 : 0;
@@ -2154,7 +2173,7 @@ int main(int argc, char *argv[]) {
   if (webcam_init(&cam, device, cap_w, cap_h) < 0) {
     nl_perror("webcam_init");
     if (!demo_is_device(device)) {
-     fprintf(stderr,
+      fprintf(stderr,
               "no usable camera at %s. To try AsciiCam without one: "
               "%s --demo\n",
               device, argv[0]);
@@ -2163,7 +2182,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
- fprintf(stderr,
+  fprintf(stderr,
           "Device: %s | capture %dx%d | ASCII %dx%d | %d fps | %d "
           "plugin(s) | mode: %s%s%s%s | gamma: %d\n",
           device, cam.width, cam.height, ascii_w, ascii_h, fps, plugin_count,
@@ -2244,7 +2263,7 @@ int main(int argc, char *argv[]) {
       nl_free(gray);
       gray = NULL;
     } else {
-     fprintf(stderr, "capture thread unavailable, capturing inline\n");
+      fprintf(stderr, "capture thread unavailable, capturing inline\n");
     }
   }
 #else
@@ -2362,15 +2381,21 @@ int main(int argc, char *argv[]) {
     last_frame_time = frame_start;
     double current_fps = fps_get(&fps_calc);
 
-    // Apply any pending terminal resize (SIGWINCH) before drawing this
-    // frame. If user has manually sized frame with mouse, terminal auto-fit
-    // is suppressed until press 'a'
+    // Apply any pending terminal resize (SIGWINCH) before drawing this frame
+    // If user has manually sized frame with mouse, terminal auto-fit is
+    // suppressed until press 'a'
+#if defined(PLATFORM_WINDOWS)
+    if (nl_console_size_changed()) {
+      term_resized = 1; // No SIGWINCH here
+    }
+#endif
+
     if (term_resized) {
       term_resized = 0;
 
       query_term_size(&term_w, &term_h);
 
-      // a mid-drag SIGWINCH would corrupt drag's frame-base snapshot
+      // A mid-drag SIGWINCH would corrupt drag's frame-base snapshot
       if (mouse_drag.dragging) {
         mouse_drag.dragging = 0;
       }
@@ -2380,7 +2405,7 @@ int main(int argc, char *argv[]) {
       net_dirty = 1;
 
       if (ascii_size_manual) {
-        // keep chosen frame, but not outside (smaller) terminal
+        // Keep chosen frame, but not outside (smaller) terminal
         int avail_h = term_h - PANEL_ROWS;
         int fw = (term_w > 0 && ascii_w > term_w) ? term_w : ascii_w;
         int fh = (term_h > 0 && ascii_h > avail_h) ? avail_h : ascii_h;
@@ -2458,7 +2483,7 @@ int main(int argc, char *argv[]) {
                                              mev.x, mev.y);
               if (tab >= 0) {
                 if (browser.active && browser.tab == tab) {
-                  browser.active = 0; // open tab was clicked: retract
+                  browser.active = 0; // Open tab was clicked: retract
                   browser_clear_area(term_h, term_w);
                 } else {
                   if (!browser.active) {
@@ -2566,8 +2591,8 @@ int main(int argc, char *argv[]) {
             }
 
             if (seq[1] == 'M') {
-              // Legacy X10 report (ESC [ M b x y) from a terminal that has
-              // no SGR mode: swallow 3 payload bytes, they are not keys (a
+              // Legacy X10 report (ESC [ M b x y) from a terminal that has no
+              // SGR mode: swallow 3 payload bytes, they are not keys (a
               // coordinate byte can equal 'q')
               char junk;
               for (int k = 0; k < 3; k++) {
@@ -2580,7 +2605,7 @@ int main(int argc, char *argv[]) {
             }
 
             switch (seq[1]) {
-            case 'A': { // up arrow key
+            case 'A': { // Up arrow key
               if (browser.active && browser.tab == BROWS_TAB_CURVE) {
                 curve_act_t ca = curve_ui_key(&curve_ui, &curve, BR_KEY_UP, 0);
                 CURVE_ACT(ca);
@@ -2594,7 +2619,7 @@ int main(int argc, char *argv[]) {
 
               break;
             }
-            case 'B': { // down arrow key
+            case 'B': { // Down arrow key
               if (browser.active && browser.tab == BROWS_TAB_CURVE) {
                 curve_act_t ca =
                     curve_ui_key(&curve_ui, &curve, BR_KEY_DOWN, 0);
@@ -2609,8 +2634,8 @@ int main(int argc, char *argv[]) {
 
               break;
             }
-            case 'C':   // right arrow key
-            case 'D': { // left arrow key
+            case 'C':   // Right arrow key
+            case 'D': { // Left arrow key
               if (browser.active && browser.tab == BROWS_TAB_CURVE) {
                 curve_act_t ca =
                     curve_ui_key(&curve_ui, &curve,
@@ -2621,14 +2646,14 @@ int main(int argc, char *argv[]) {
               break;
             }
             default: {
-              // other CSI sequences (Home, End, F1..F12)
-              // are not bound; fall through to outer continue
+              // Other CSI sequences (Home, End, F1..F12) are not bound;
+              // fall through to outer continue
               break;
             }
             }
           }
         } else if (browser.active) {
-          // a lone ESC closes browser panel
+          // A lone ESC closes browser panel
           browser_key(&browser, BR_KEY_ESC, 0, NULL, 0);
           browser.active = 0;
           browser_clear_area(term_h, term_w);
@@ -2640,8 +2665,8 @@ int main(int argc, char *argv[]) {
         continue;
       }
 
-      // Browser panel open: it owns keyboard, same convention as plugin
-      // picker - typing a filename can't accidentally trigger hotkeys below
+      // Browser panel open: it owns keyboard, same convention as plugin picker:
+      // typing a filename can't accidentally trigger hotkeys below
       // (b/q/j/k/g/G all have meaning to browser)
       if (browser.active && ch == '\t') {
         // Tab switches between panel's tabs
@@ -2663,8 +2688,8 @@ int main(int argc, char *argv[]) {
       if (browser.active) {
         char br_path[BROWS_PATH_LEN];
         brows_action_t ba;
-        // Enter arrives as '\r' (or '\n' on some terminals) - map it to
-        // dedicated BR_KEY_ENTER kind so browser_key can act on it
+        // Enter arrives as '\r' (or '\n' on some terminals):
+        // map it to dedicated BR_KEY_ENTER kind so browser_key can act on it
         // regardless of which char terminal sent
         if (ch == '\r' || ch == '\n') {
           ba = browser_key(&browser, BR_KEY_ENTER, 0, br_path, sizeof(br_path));
@@ -2687,8 +2712,8 @@ int main(int argc, char *argv[]) {
         }
         case BROWS_ACT_REPLAY_CAST: {
           int aborted = 0;
-          // Refuse to replay while recording - recording thread would pause
-          // with main loop and corrupt in-flight .cast
+          // Refuse to replay while recording: recording thread would pause with
+          // main loop and corrupt in-flight .cast
           if (rec.active) {
             TOAST("stop recording (t) before replaying a .cast");
             break;
@@ -2709,8 +2734,8 @@ int main(int argc, char *argv[]) {
         continue;
       }
 
-      // Picker open: it owns keyboard, so typing a plugin name can't
-      // trigger hotkeys below (w/e/c would all fire on "water")
+      // Picker open: it owns keyboard, so typing a plugin name can't trigger
+      // hotkeys below (w/e/c would all fire on "water")
       if (picker.active) {
         int load_idx = -1;
         picker_action_t pa =
@@ -2723,8 +2748,7 @@ int main(int argc, char *argv[]) {
             ce->want_load = 1;
             TOAST("%s is already compiling", ce->name);
           } else if (ce->state == PC_READY) {
-            // Already built (or shipped prebuilt): load it, no compiler
-            // needed
+            // Already built (or shipped prebuilt): load it, no compiler needed
             char lmsg[128];
             plugin_activate(&catalog, load_idx, plugins, plugin_params,
                             plugin_cat, &plugin_count, lmsg, sizeof(lmsg));
@@ -2747,7 +2771,7 @@ int main(int argc, char *argv[]) {
         if (!catalog_supported()) {
           TOAST("runtime plugin build not supported on this platform yet");
         } else {
-          catalog_scan(&catalog); // pick up sources added since startup
+          catalog_scan(&catalog); // Pick up sources added since startup
           if (catalog.count == 0) {
             TOAST("no plugin sources in %s", catalog.src_dir);
           } else {
@@ -2877,7 +2901,7 @@ int main(int argc, char *argv[]) {
       case 'y':
       case 'Y': {
         if (caps_src.fd < 0) {
-          // first time: make a fifo anybody can write caption lines into
+          // First time: make a fifo anybody can write caption lines into
           if (capsrc_default_path(caps_path, sizeof(caps_path),
                                   app_getenv(envp, "XDG_RUNTIME_DIR"),
                                   app_getenv(envp, "HOME")) != 0 ||
@@ -2899,7 +2923,7 @@ int main(int argc, char *argv[]) {
       }
       case 's':
       case 'S': {
-        want_shot = 1; // taken from next frame that is rendered
+        want_shot = 1; // Taken from next frame that is rendered
 
         break;
       }
@@ -2965,7 +2989,7 @@ int main(int argc, char *argv[]) {
       }
       case 'a':
       case 'A': {
-        // hand control of frame size back to SIGWINCH; next loop iteration
+        // Hand control of frame size back to SIGWINCH; next loop iteration
         // picks up current terminal size
         ascii_size_manual = 0;
         term_resized = 1;
@@ -3053,20 +3077,20 @@ int main(int argc, char *argv[]) {
       capture_frame_t *cf = NULL;
       int got = capture_pipe_acquire(&cap_pipe, 100, &cf);
       if (got < 0) {
-       fprintf(stderr, "capture thread failed\n");
+        fprintf(stderr, "capture thread failed\n");
 
         break;
       }
 
       if (got == 0) {
-        continue; // no new frame yet; keys were handled above
+        continue; // No new frame yet; keys were handled above
       }
 
-      frame = cf->gray; // exclusively ours until next acquire
+      frame = cf->gray; // Exclusively ours until next acquire
       raw = cf->has_yuyv ? cf->yuyv : NULL;
     } else {
       if (webcam_wait_frame(&cam, 1000) < 0) {
-        continue; // timeout, retry
+        continue; // Timeout, retry
       }
 
       int cap = webcam_capture_frame(&cam, gray);
@@ -3077,7 +3101,7 @@ int main(int argc, char *argv[]) {
       }
 
       if (cap > 0) {
-        continue; // corrupt frame dropped, its buffer is already requeued
+        continue; // Corrupt frame dropped, its buffer is already requeued
       }
 
       // NOTE: cam.buffer is V4L2 mmap region (Linux only)
@@ -3118,11 +3142,11 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    // frame already went through plugins, so use it as Y: shapes and colour
+    // Frame already went through plugins, so use it as Y: shapes and colour
     // then come from same image (U/V are still camera's)
     if (opts.color && rgb && raw) {
       if (opts.mirror) {
-        // luma was flipped above: take U/V from the opposite end as well
+        // Luma was flipped above: take U/V from opposite end as well
         yuyv_to_rgb_mirror(raw, cam.stride, frame, rgb, cam.width, cam.height);
       } else {
         yuyv_to_rgb_ex(raw, cam.stride, frame, rgb, cam.width, cam.height);
@@ -3166,7 +3190,7 @@ int main(int argc, char *argv[]) {
 
     if (browser.active && browser.tab == BROWS_TAB_CURVE) {
       nl_memset(curve_ui.hist, 0, sizeof(curve_ui.hist));
-      opts.tone_hist = curve_ui.hist; // histogram behind curve
+      opts.tone_hist = curve_ui.hist; // Histogram behind curve
     } else {
       opts.tone_hist = NULL;
     }
@@ -3174,7 +3198,7 @@ int main(int argc, char *argv[]) {
     int len = grayscale_to_ascii(frame, rgb, cam.width, cam.height, subpixel_w,
                                  subpixel_h, out_buf, out_size, &opts);
     if (len > (int)out_size) {
-     fprintf(stderr, "WARNING: len=%d > out_size=%zu\n", len, out_size);
+      fprintf(stderr, "WARNING: len=%d > out_size=%zu\n", len, out_size);
     }
 
     if (len > 0) {
@@ -3182,9 +3206,9 @@ int main(int argc, char *argv[]) {
       const char *wire = out_buf;
       size_t wire_len = (size_t)len;
       if (net_kbps >= 0) {
-        // the delta is never much bigger than the frame itself, and sizing
-        // it to the frame (not to out_size, the worst case over all render
-        // modes) keeps it out of the allocator's big-block path
+        // Delta is never much bigger than the frame itself and sizing it to
+        // frame (not to out_size, worst case over all render modes) keeps it
+        // out of allocator's big-block path
         size_t need = (size_t)len + (size_t)len / 4 + 4096;
         if (net_buf_cap < need) {
           nl_free(net_buf);
@@ -3192,11 +3216,11 @@ int main(int argc, char *argv[]) {
           net_buf_cap = net_buf ? need : 0;
           if (!net_buf && !net_warned) {
             net_warned = 1;
-           fprintf(stderr, "--net: out of memory, sending full frames\n");
+            fprintf(stderr, "--net: out of memory, sending full frames\n");
           }
         }
 
-        // repaint everything now and then so a stray character (a terminal
+        // Repaint everything now and then so a stray character (a terminal
         // hiccup, a write from elsewhere) cannot stay on screen for long
         if (++net_age >= fps * 10) {
           net_dirty = 1;
@@ -3220,7 +3244,7 @@ int main(int argc, char *argv[]) {
             wire = net_buf;
             wire_len = (size_t)en;
           } else {
-            netenc_invalidate(&net); // unknown escapes: send as is, then resync
+            netenc_invalidate(&net); // Unknown escapes: send as is, then resync
           }
         }
       }
@@ -3231,7 +3255,7 @@ int main(int argc, char *argv[]) {
       // Whoever gets a copy of picture (virtual camera, viewers) gets bars
       // drawn into it: 24-bit colour only, wire format has no attributes
       if (caps_src.fd >= 0) {
-        // hidden captions are read and thrown away, not saved for later
+        // Hidden captions are read and thrown away, not saved for later
         capsrc_poll(&caps_src, caps_show ? caps_line : caps_drop, &caps_view);
         if (capview_tick(&caps_view, caps_now_ms())) {
           net_dirty = 1;
@@ -3268,7 +3292,7 @@ int main(int argc, char *argv[]) {
         int fresh = nv_accept(&serve);
         int before = serve.nclients;
         if (serve.nclients > 0) {
-          // now and then everybody gets a whole picture: a stray character
+          // Now and then everybody gets a whole picture: a stray character
           // cannot stay on a viewer's screen for long
           if (++serve_age >= fps * 10) {
             nv_want_key_all(&serve);
@@ -3419,7 +3443,7 @@ int main(int argc, char *argv[]) {
       int overlay_now =
           on > 0 || caps_on || browser.active || mouse_drag.dragging;
       if (browser_was_open && !browser.active) {
-        net_dirty = 1; // panel retracted: repaint what it covered
+        net_dirty = 1; // Panel retracted: repaint what it covered
       }
 
       browser_was_open = browser.active;
@@ -3444,10 +3468,10 @@ int main(int argc, char *argv[]) {
   mouse_disable();
   term_restore();
 
- fprintf(stderr, "Stopped.\n");
+  fprintf(stderr, "Stopped.\n");
 
   if (vcam_on) {
-   fprintf(stderr, "Virtual camera: %u frames sent to %s\n",
+    fprintf(stderr, "Virtual camera: %u frames sent to %s\n",
             (unsigned)vcam.frames, vcam_path);
     vcam_close(&vcam);
   }
@@ -3456,7 +3480,7 @@ int main(int argc, char *argv[]) {
     double secs = 0;
     int frames = rec_stop(&rec, rec_mono_ns(), &secs);
     nl_snprintf(saved_cast, sizeof(saved_cast), "%s", rec.path);
-   fprintf(stderr, "Recording ended: %d frames, %d s\n", frames, (int)secs);
+    fprintf(stderr, "Recording ended: %d frames, %d s\n", frames, (int)secs);
   }
 
   if (serve_on) {
@@ -3468,11 +3492,11 @@ int main(int argc, char *argv[]) {
   }
 
   if (saved_cast[0]) {
-   fprintf(stderr, "Recording saved: %s\n", saved_cast);
+    fprintf(stderr, "Recording saved: %s\n", saved_cast);
   }
 
   if (saved_shot[0]) {
-   fprintf(stderr, "Screenshot saved: %s\n", saved_shot);
+    fprintf(stderr, "Screenshot saved: %s\n", saved_shot);
   }
 
   // Restore main screen, reset attributes, and explicitly show cursor
@@ -3495,7 +3519,7 @@ int main(int argc, char *argv[]) {
 
   catalog_cleanup(&catalog);
   charset_registry_cleanup(&charsets);
-  capture_pipe_stop(&cap_pipe); // before camera it reads from is closed
+  capture_pipe_stop(&cap_pipe); // Before camera it reads from is closed
   webcam_cleanup(&cam);
 
   return 0;
