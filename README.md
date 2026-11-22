@@ -140,6 +140,15 @@ cd AsciiCam/C
 make CC=gcc
 ```
 
+or without `make` (also works from `cmd.exe` or PowerShell, only `gcc` has to be
+on `PATH`, see [Building without make](#building-without-make)):
+
+```bash
+cd AsciiCam\C
+gcc -o nb.exe build.c
+nb.exe
+```
+
 This produces build/asciicam (.exe on Windows) and compiles any
 plugins in filters/ into build/\*.{so,dylib,dll}.
 
@@ -171,7 +180,7 @@ make run
 make run ARGS="-C"
 
 # Braille rendering at 30 fps
-make run ARGS="-C -m braille -f 30"
+make run ARGS="-C -m braille -r 30"
 
 # With all three plugins
 make run ARGS="-p build/invert.so -p build/threshold.so -p build/edge_detect.so"
@@ -309,7 +318,7 @@ Which files depends on what you want the user to be able to do:
 | You ship                   | User can                                         | Needs on the target   |
 | -------------------------- | ------------------------------------------------ | --------------------- |
 | binary + `plugins/*.so`    | load every shipped plugin instantly with `/`     | nothing (no compiler) |
-| + SDK (`make install-sdk`) | also compile new plugins from `.c` while running | `make` + `gcc`        |
+| + SDK (`install-sdk`)      | also compile new plugins from `.c` while running | a C compiler (`$CC`)  |
 
 Lookup is relative to the running binary, not the current directory, so the same
 build works from a checkout, from an unpacked release and from an installed prefix:
@@ -322,17 +331,18 @@ installed   <prefix>/bin/asciicam          <prefix>/share/asciicam/{plugins,char
 
 ```bash
 make install PREFIX=/usr/local        # binary + prebuilt plugins + charsets
-make install-sdk PREFIX=/usr/local    # ... plus headers, plugin sources (and Makefile)
+make install-sdk PREFIX=/usr/local    # ... plus headers and plugin sources
+./nb install-sdk PREFIX=/usr/local    # the same without make (see below)
 ```
 
 Prebuilt libraries are preferred; a plugin is only compiled when the picker is
-asked to load one that has no prebuilt library, an SDK is present and `make` and a
-compiler are found. Runtime builds go to `.cache/plugins` in a checkout, otherwise
-to `$XDG_CACHE_HOME/asciicam/plugins` (`~/.cache/asciicam/plugins`), so a read-only
-install prefix is fine. A plugin built from other headers is refused with a
-message instead of crashing: put `PLUGIN_ABI_EXPORT;` next to `plugin_get()` inplugin
-so it carries the interface version (`PLUGIN_ABI` in `include/plugins.h`; plugins
-without it still load).
+asked to load one that has no prebuilt library, an SDK is present and a C compiler
+is found (`$CC`, else `cc`; `gcc` on Windows). Runtime builds go to `.cache/plugins`
+in a checkout, otherwise to `$XDG_CACHE_HOME/asciicam/plugins`
+(`~/.cache/asciicam/plugins`), so a read-only install prefix is fine. A plugin built
+from other headers is refused with a message instead of crashing: put
+`PLUGIN_ABI_EXPORT;` next to `plugin_get()` inplugin so it carries the interface
+version (`PLUGIN_ABI` in `include/plugins.h`; plugins without it still load).
 `-L` / `plugin_dir`, `plugin_cache` and `-k` / `charset_dir` override the automatic locations.
 
 ### Plugin cache validation
@@ -564,7 +574,7 @@ and overlays come on top. The most visible changes are sent first and the rest w
 for later frames, so under a tight budget the picture builds up and settles instead
 of the link falling behind. The screen is also fully repainted every ten seconds and
 whenever it is cleared or an overlay goes away.
-`python3 tests/measure_bandwidth.py build/asciicam` reproduces the table.
+`./nb bandwidth` (add `SECS=2` for a quicker run) reproduces the table.
 (Recordings and screenshots always hold the full frame.)
 
 ### Watching from another machine: `--serve` and `--watch`
@@ -779,15 +789,18 @@ cc -o nb build.c
 ```
 
 Nothing here and nothing installed app does, needs `make`: the picker builds a plugin
-by running the C compiler itself (`$CC`, default `cc`), with the flags from
-`include/plugin_build.h` - the same file `nb` takes them from, so a plugin compiled
-on demand is what a normal build produces. An installed SDK is just `include/`, `lib/`
-and `filters/`.
+by running the C compiler itself (`$CC`, default `cc`, `gcc` on Windows), with the flags
+from `include/plugin_build.h` - the same file `nb` takes them from, so a plugin
+compiled on demand is what a normal build produces. An installed SDK is just
+`include/`, `lib/` and `filters/`.
 
-Linux and macOS(Objective-C camera backend, frameworks) are tested. Makefile remains for
-Windows (`nb.h` has no Windows backend yet, Windows app still runs `make` for on-demand
-plugin builds) and for `make sanitize`. If you change plugin flags, change `plugin_build.h`
-and plugin rule in the Makefile to match.
+Linux and macOS (Objective-C camera backend, frameworks) are tested. On Windows
+(MinGW-w64) `nb.h` uses the Win32 API only (`CreateProcess`, no `sh`, `ls` or `install`)
+and the app builds plugins by running the compiler directly, so `make` is not
+needed there either; `nb.exe` replaces itself while running by renaming the old
+copy to `nb_old.exe`. The Makefile remains as an alternative, for `make sanitize`
+and the static analysis job. If you change plugin flags, change `plugin_build.h`
+and the plugin rule in the Makefile to match.
 
 ## Try it without installing
 
@@ -833,7 +846,7 @@ The image is `FROM scratch`: one static binary plus the prebuilt plugins
   - [ ] Color support for macOS
 - [ ] Windows support (Media Foundation capture backend)
   - [x] Windows capture via Media Foundation
-  - [ ] Windows console raw-mode and signal handling (`SetConsoleMode` / `SetConsoleCtrlHandler`)
+  - [x] Windows console raw-mode and signal handling (`SetConsoleMode` / `SetConsoleCtrlHandler`: VT input and output, UTF-8, resize polling, Ctrl+C / window close)
   - [ ] Hardware controls via `IAMCameraControl` / `IAMVideoProcAmp` (capture works, controls stubbed)
   - [ ] macOS hardware controls via `AVCaptureDevice` exposure/white-balance APIs (capture works, controls stubbed)
 - [x] Runtime plugin catalog: search, build and load plugins while running (`/`)
