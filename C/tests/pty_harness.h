@@ -90,7 +90,11 @@ static size_t pty_buf_count(const pty_buf *b, const char *needle) {
 static int pty_spawn(pty_proc *p, const char *path, char *const argv[],
                      int rows, int cols) {
   memset(p, 0, sizeof *p);
+#ifdef O_CLOEXEC
+  int m = posix_openpt(O_RDWR | O_NOCTTY | O_CLOEXEC); // Not inherited by later children
+#else
   int m = posix_openpt(O_RDWR | O_NOCTTY);
+#endif
   if (m < 0 || grantpt(m) < 0 || unlockpt(m) < 0) {
     return -1;
   }

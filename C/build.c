@@ -662,8 +662,8 @@ static int run_e2e(void) {
   }
 
   nb_cmd ec = {0};
-  nb_cmd_add(&ec, cc, "-O1", "-Wall", "-Wextra", "-o", BUILD "/tests/e2e",
-             "tests/e2e.c");
+  nb_cmd_add(&ec, cc, "-O1", "-Wall", "-Wextra", "-pthread", "-o",
+             BUILD "/tests/e2e", "tests/e2e.c");
   if (!nb_run(&ec)) {
     return 0;
   }

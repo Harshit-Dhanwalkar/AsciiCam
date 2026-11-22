@@ -14,11 +14,16 @@
 
 #include "mini_zlib.h"
 #include "pty_harness.h"
+#include "screen.h"
 
+#include <arpa/inet.h>
 #include <dirent.h>
+#include <netinet/in.h>
+#include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 
 static const char *BIN; // Program with software camera
@@ -1576,7 +1581,466 @@ static void real_image(void) {
   rm_rf(idir);
 }
 
-static void real_binary(const char *real) {
+// Screen model itself: what a terminal would show for known byte strings
+static void screen_case(const char *name, int rows, int cols, int lnm,
+                        const char *in, const char *want) {
+  screen_t s;
+  screen_init(&s, rows, cols);
+  s.lnm = lnm;
+  screen_feed(&s, (const unsigned char *)in, strlen(in));
+  char *t = screen_text(&s);
+  int ok = !strcmp(t, want);
+  check(ok, "screen model: %s", name);
+  if (!ok) {
+    printf("     got  [%s]\n     want [%s]\n", t, want);
+  }
+
+  free(t);
+  screen_free(&s);
+}
+
+static void screen_tests(void) {
+  screen_case("text and newline", 3, 5, 1, "ab\ncd", "ab\ncd\n\n");
+  screen_case("LF alone keeps the column", 3, 6, 0, "ab\ncd", "ab\n  cd\n\n");
+  screen_case("cursor position", 3, 6, 0, "\x1b[2;4Hx", "\n   x\n\n");
+  screen_case("cursor position defaults", 3, 6, 0, "\x1b[Hq\x1b[;5Hz",
+              "q   z\n\n\n");
+  screen_case("cursor position clamps", 2, 4, 0, "\x1b[99;99Hx", "\n   x\n");
+  screen_case("erase display", 2, 4, 1, "ab\ncd\x1b[2J", "\n\n");
+  screen_case("erase below", 2, 4, 1, "abcd\nefgh\x1b[1;3H\x1b[J", "ab\n\n");
+  screen_case("erase above", 2, 4, 1, "abcd\nefgh\x1b[2;2H\x1b[1J", "\n  gh\n");
+  screen_case(
+      "erase in line", 3, 6, 1,
+      "abcdef\nabcdef\nabcdef\x1b[1;3H\x1b[K\x1b[2;3H\x1b[1K\x1b[3;3H\x1b[2K",
+      "ab\n   def\n\n");
+  screen_case("erase characters", 1, 6, 0, "abcdef\x1b[1;2H\x1b[3X",
+              "a   ef\n");
+  screen_case("auto-wrap waits for the next glyph", 3, 5, 0, "abcdefg",
+              "abcde\nfg\n\n");
+  screen_case("auto-wrap off overwrites the last column", 2, 5, 0,
+              "\x1b[?7labcdefg", "abcdg\n\n");
+  screen_case("auto-wrap back on", 2, 5, 0, "\x1b[?7l\x1b[?7habcdefg",
+              "abcde\nfg\n");
+  screen_case("a full line then a cursor move does not wrap", 2, 5, 0,
+              "abcde\x1b[1;1HX", "Xbcde\n\n");
+  screen_case("scrolls at the bottom", 3, 4, 1, "1\n2\n3\n4", "2\n3\n4\n");
+  screen_case("colours and private modes change nothing", 1, 8, 0,
+              "\x1b[1;38;2;1;2;3mhi\x1b[0m\x1b[?25l\x1b[?2026h!", "hi!\n");
+  screen_case("unknown sequences are consumed", 1, 8, 0,
+              "a\x1b[5;2~b\x1b[?1049hc", "abc\n");
+  screen_case("OSC ends at BEL or ST", 1, 8, 0,
+              "a\x1b]0;title\x07"
+              "b\x1b]2;x\x1b\\"
+              "c",
+              "abc\n");
+  screen_case("character set designation is skipped", 1, 8, 0, "a\x1b(Bb",
+              "ab\n");
+  screen_case("backspace and tab", 1, 20, 0, "abc\bX\tY", "abX     Y\n");
+  screen_case("UTF-8", 1, 8, 0, "\xc3\xa9\xe2\x97\x8f\xe2\xa0\x81x",
+              "\xc3\xa9\xe2\x97\x8f\xe2\xa0\x81x\n");
+  screen_case("invalid UTF-8 becomes U+FFFD", 1, 8, 0,
+              "a\xff"
+              "b\xc3"
+              "c",
+              "a\xef\xbf\xbd"
+              "b\xef\xbf\xbd"
+              "c\n");
+
+  screen_t s; // An escape sequence and a character cut in two by reads
+  screen_init(&s, 1, 10);
+  const char *part[] = {"\x1b[1;", "3Hx\xe2\x97", "\x8f"};
+  for (int i = 0; i < 3; i++) {
+    screen_feed(&s, (const unsigned char *)part[i], strlen(part[i]));
+  }
+
+  char *t = screen_text(&s);
+  check(!strcmp(t, "  x\xe2\x97\x8f\n"),
+        "screen model: a sequence and a character split across reads");
+  free(t);
+  screen_free(&s);
+}
+
+// TCP: --serve sends frames to viewers, --watch shows what a server sends
+static int free_port(void) {
+  int s = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+  struct sockaddr_in a;
+  memset(&a, 0, sizeof a);
+  a.sin_family = AF_INET;
+  a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  socklen_t l = sizeof a;
+  int port = -1;
+  if (s >= 0 && bind(s, (struct sockaddr *)&a, sizeof a) == 0 &&
+      getsockname(s, (struct sockaddr *)&a, &l) == 0) {
+    port = ntohs(a.sin_port);
+  }
+
+  if (s >= 0) {
+    close(s);
+  }
+
+  return port;
+}
+
+// Listening socket on 127.0.0.1:port (address reuse on), or -1
+// Make it BEFORE starting program that connects: binding inside server thread
+// raced with first connect
+static int listen_on(int port) {
+  int s = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+  int one = 1;
+  struct sockaddr_in a;
+  memset(&a, 0, sizeof a);
+  a.sin_family = AF_INET;
+  a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  a.sin_port = htons((unsigned short)port);
+  setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+  if (s < 0 || bind(s, (struct sockaddr *)&a, sizeof a) != 0 ||
+      listen(s, 1) != 0) {
+    if (s >= 0) {
+      close(s);
+    }
+
+    return -1;
+  }
+
+  return s;
+}
+
+// accept() with a time limit; -1 on timeout
+// Every socket tests make is close-on-exec: program under test must not inherit
+// a listening socket (it would keep port open after test closed it)
+static int accept_within(int lfd, int ms) {
+  struct pollfd pf = {lfd, POLLIN, 0};
+  if (poll(&pf, 1, ms) <= 0) {
+    return -1;
+  }
+
+  return accept4(lfd, NULL, NULL, SOCK_CLOEXEC);
+}
+
+// Connect to program, retrying for up to 4 s while it starts up
+static int connect_retry(int port) {
+  for (int i = 0; i < 40; i++) {
+    int s = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof a);
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    a.sin_port = htons((unsigned short)port);
+    if (s >= 0 && connect(s, (struct sockaddr *)&a, sizeof a) == 0) {
+      return s;
+    }
+
+    if (s >= 0) {
+      close(s);
+    }
+
+    usleep(100000);
+  }
+
+  return -1;
+}
+
+typedef struct {
+  int port;
+  double delay; // Start after delay,
+  double secs;  //  Read for seconds
+  pty_buf got;
+} viewer_t;
+
+static void *viewer_thread(void *arg) {
+  viewer_t *v = (viewer_t *)arg;
+  usleep((useconds_t)(v->delay * 1e6));
+  int fd = connect_retry(v->port);
+  if (fd < 0) {
+    return NULL;
+  }
+
+  struct timeval tv = {0, 300000};
+  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+  double end = pty_now() + v->secs;
+  unsigned char buf[65536];
+  while (pty_now() < end) {
+    ssize_t n = recv(fd, buf, sizeof buf, 0);
+    if (n > 0) {
+      pty_buf_add(&v->got, buf, (size_t)n);
+    } else if (n == 0 ||
+               (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
+      break;
+    }
+  }
+
+  close(fd);
+
+  return NULL;
+}
+
+static void send_all(int fd, const char *s) {
+  size_t n = strlen(s);
+  while (n > 0) {
+    ssize_t w = send(fd, s, n, MSG_NOSIGNAL);
+    if (w <= 0) {
+      return;
+    }
+
+    s += w;
+    n -= (size_t)w;
+  }
+}
+
+// One client: send a clear-screen and a word, stay 0.4 s, hang up
+static void *serve_once_thread(void *arg) {
+  int lfd = *(int *)arg;
+  int c = accept_within(lfd, 8000);
+  if (c >= 0) {
+    send_all(c, "\x1b[2JHELLO-WATCH-FRAME");
+    usleep(400000);
+    close(c);
+  }
+
+  return NULL;
+}
+
+typedef struct {
+  int first_lfd, port;
+} restart_t;
+
+// A server that goes away and comes back: BEFORE-RESTART, 2.5 s of nobody
+// listening, then AFTER-RESTART
+static void *restarting_thread(void *arg) {
+  restart_t *r = (restart_t *)arg;
+  static const char *words[] = {"\x1b[2JBEFORE-RESTART",
+                                "\x1b[2JAFTER-RESTART"};
+  for (int n = 0; n < 2; n++) {
+    int lfd = n == 0 ? r->first_lfd : listen_on(r->port);
+    if (lfd < 0) {
+      return NULL;
+    }
+
+    int c = accept_within(lfd, 8000);
+    if (c < 0) {
+      close(lfd);
+
+      return NULL;
+    }
+
+    send_all(c, words[n]);
+    usleep(500000);
+    close(c);
+    close(lfd);
+    usleep(2500000);
+  }
+
+  return NULL;
+}
+
+// Offset of first occurrence of needle at or after `from`, or -1
+static long find_from(const unsigned char *p, size_t n, size_t from,
+                      const char *needle) {
+  if (from >= n) {
+    return -1;
+  }
+
+  const void *m = memmem(p + from, n - from, needle, strlen(needle));
+
+  return m ? (long)((const unsigned char *)m - p) : -1;
+}
+
+// What a 200 x 100 terminal shows after these bytes (rows joined by '\n')
+static char *shown(const pty_buf *b) {
+  screen_t s;
+  screen_init(&s, 100, 200);
+  s.lnm = 1; // A TCP stream has bare "\n" line ends
+  screen_feed(&s, b->data, b->len);
+  char *t = screen_text(&s);
+  screen_free(&s);
+
+  return t;
+}
+
+// Text rows of first frame (between first sync start and end), found by cutting
+// escape sequences out, one per line, empty lines dropped
+static char *first_frame_text(const pty_buf *b) {
+  long a = find_from(b->data, b->len, 0, "\x1b[?2026h");
+  if (a < 0) {
+    return strdup("");
+  }
+
+  a += 8;
+  long e = find_from(b->data, b->len, (size_t)a, "\x1b[?2026l");
+  size_t end = e < 0 ? b->len : (size_t)e;
+  pty_buf frame = {b->data + a, end - (size_t)a, end - (size_t)a};
+  rows_t rows = frame_rows(&frame);
+  size_t cap = 1;
+  for (int i = 0; i < rows.n; i++) {
+    cap += strlen(rows.row[i]) + 1;
+  }
+
+  char *out = (char *)calloc(cap, 1);
+  for (int i = 0; i < rows.n; i++) {
+    size_t l = strlen(rows.row[i]);
+    while (l > 0 && (rows.row[i][l - 1] == ' ' || rows.row[i][l - 1] == '\r')) {
+      l--;
+    }
+
+    strncat(out, rows.row[i], l);
+    strcat(out, "\n");
+  }
+
+  rows_free(&rows);
+
+  return out;
+}
+
+// Non-empty rows of a screen text, joined by '\n' (blank rows dropped)
+static char *nonblank_rows(const char *text) {
+  char *out = (char *)calloc(strlen(text) + 1, 1);
+  const char *p = text;
+  while (*p) {
+    const char *nl = strchr(p, '\n');
+    size_t l = nl ? (size_t)(nl - p) : strlen(p);
+    if (l) {
+      strncat(out, p, l);
+      strcat(out, "\n");
+    }
+
+    p += l + (nl ? 1 : 0);
+  }
+
+  return out;
+}
+
+static void real_serve_watch(void) {
+  char idir[] = "/tmp/asciicam_serve_XXXXXX";
+  if (!mkdtemp(idir)) {
+    check(0, "--serve: cannot make a scratch directory");
+
+    return;
+  }
+
+  char pic[600];
+  snprintf(pic, sizeof pic, "%s/a.png", idir);
+  static const unsigned char red[3] = {230, 30, 30};
+  mz_png_write(pic, 16, 16, px_solid, (void *)red, 0, MZ_FIXED);
+  const args_t IARGS = A("-r", "20", "-m", "ascii", "-s", " .:-=+*#%@", "-W",
+                         "60", "-H", "40", NULL);
+  const args_t IARGS4 = A("-r", "20", "-m", "ascii", "-s", " .:-=+*#%@", NULL);
+  char portstr[16];
+
+  // --serve: a viewer on TCP gets a clear-screen, then whole frames
+  int port = free_port();
+  snprintf(portstr, sizeof portstr, "%d", port);
+  viewer_t v1 = {port, 0.0, 1.5, {0}};
+  pthread_t th;
+  pthread_create(&th, NULL, viewer_thread, &v1);
+  run_t r = run(cat(A("--image", pic, "-C", "--serve", portstr, NULL), IARGS4),
+                3.0, -1, "q");
+  pthread_join(th, NULL);
+  const unsigned char *g = v1.got.data;
+  size_t gn = v1.got.len;
+  check(r.code == 0 &&
+            starts_with_str((const char *)g, gn, "\x1b[0m\x1b[?25l\x1b[2J"),
+        "--serve: viewer gets a clear-screen first");
+  size_t on_n = pty_buf_count(&v1.got, "\x1b[?2026h");
+  size_t off_n = pty_buf_count(&v1.got, "\x1b[?2026l");
+  check(on_n >= 5 && on_n == off_n,
+        "--serve: frames arrive whole, one sync pair each");
+  check(contains(g, gn, "\x1b[38;2;"),
+        "--serve: the colours go to the viewer too");
+  check(contains(r.out.data, r.out.len, "viewer connected"),
+        "--serve: the host sees a toast when a viewer joins");
+  free(r.out.data);
+  free(v1.got.data);
+
+  // A viewer who comes late is brought up to date and later frames are only
+  // changes: a still picture costs one whole picture, not one per frame
+  port = free_port();
+  snprintf(portstr, sizeof portstr, "%d", port);
+  viewer_t first = {port, 0.0, 2.2, {0}};
+  viewer_t late = {port, 1.0, 1.4, {0}};
+  pthread_t t1;
+  pthread_t t2;
+  pthread_create(&t1, NULL, viewer_thread, &first);
+  pthread_create(&t2, NULL, viewer_thread, &late);
+  r = run(cat(A("--image", pic, "-C", "--serve", portstr, NULL), IARGS4), 3.5,
+          -1, "q");
+  pthread_join(t1, NULL);
+  pthread_join(t2, NULL);
+  long end_first = find_from(first.got.data, first.got.len, 100, "\x1b[?2026l");
+  check(first.got.len > 1000 && (long)first.got.len < 6 * end_first + 4000,
+        "--serve: a still picture is sent once, then only changes (%zu bytes)",
+        first.got.len);
+  check(contains(late.got.data, late.got.len, "\x1b[38;2;") &&
+            pty_buf_count(&late.got, "\x1b[?2026h") >= 2,
+        "--serve: a viewer that comes late gets the whole picture");
+
+  char *s_first = shown(&first.got), *s_late = shown(&late.got);
+  char *flat = nonblank_rows(s_late);
+  check(!strcmp(s_first, s_late) && flat[0],
+        "--serve: the late viewer ends up with the same picture");
+
+  char *ref = first_frame_text(&first.got), *got_rows = nonblank_rows(s_first);
+  check(!strcmp(ref, got_rows) && ref[0],
+        "--serve: the screen model shows the frame's own text rows");
+  free(ref);
+  free(got_rows);
+  free(flat);
+  free(s_first);
+  free(s_late);
+  free(first.got.data);
+  free(late.got.data);
+  free(r.out.data);
+
+  r = run(cat(A("--serve", "x", NULL), IARGS), 0.5, -1, "q");
+  check(r.code == 2 && contains(r.out.data, r.out.len, "--serve needs a port"),
+        "--serve with a bad address: usage error");
+  free(r.out.data);
+  r = run(A("--serve", NULL), 0.5, -1, "q");
+  check(r.code == 2 &&
+            contains(r.out.data, r.out.len, "--serve needs an address"),
+        "--serve without an address: usage error");
+  free(r.out.data);
+
+  // --watch: copies what a server sends, quits when it closes
+  port = free_port();
+  int srv = listen_on(port);
+  pthread_create(&th, NULL, serve_once_thread, &srv);
+  char watch[48];
+  snprintf(watch, sizeof watch, "127.0.0.1:%d", port);
+  r = run(A("--watch", watch, NULL), 3.0, -1, "q");
+  pthread_join(th, NULL);
+  close(srv);
+  check(contains(r.out.data, r.out.len, "HELLO-WATCH-FRAME"),
+        "--watch: shows what the server sends");
+  check(r.code == 1 && contains(r.out.data, r.out.len, "closed the connection"),
+        "--watch: says so when the server goes away");
+  free(r.out.data);
+
+  // --watch --retry: server restarts, viewer comes back
+  restart_t rs = {0, free_port()};
+  rs.first_lfd = listen_on(rs.port); // Listening before viewer starts
+  pthread_create(&th, NULL, restarting_thread, &rs);
+  snprintf(watch, sizeof watch, "127.0.0.1:%d", rs.port);
+  r = run(A("--watch", watch, "--retry", NULL), 7.0, -1, "q");
+  pthread_join(th, NULL);
+  int saw_before = contains(r.out.data, r.out.len, "BEFORE-RESTART");
+  int saw_recon = contains(r.out.data, r.out.len, "reconnecting");
+  int saw_after = contains(r.out.data, r.out.len, "AFTER-RESTART");
+  check(saw_before && saw_recon && saw_after,
+        "--watch --retry: reconnects after the server restarts (before %d, "
+        "reconnecting %d, after %d)",
+        saw_before, saw_recon, saw_after);
+  check(r.code == 0, "--watch --retry: q still quits (%d)", r.code);
+  long wrap_off = rfind_mem(r.out.data, r.out.len, "\x1b[?7l");
+  long wrap_on = rfind_mem(r.out.data, r.out.len, "\x1b[?7h");
+  check(wrap_off >= 0 && wrap_on > wrap_off,
+        "--watch: lines are cut at the edge of a small terminal, wrap is put "
+        "back on leaving");
+  free(r.out.data);
+
+  rm_rf(idir);
+}
+
+static void real_binary(const char *real, int only_serve) {
   char *abs = realpath(real, NULL);
   if (!abs || access(abs, X_OK) != 0) {
     return; // No real binary, nothing to check
@@ -1584,6 +2048,14 @@ static void real_binary(const char *real) {
 
   const char *saved = BIN;
   BIN = abs;
+  if (only_serve) {
+    real_serve_watch();
+    BIN = saved;
+    free(abs);
+
+    return;
+  }
+
   real_demo_and_plugins(abs);
   real_net_and_vcam();
   real_play();
@@ -1594,12 +2066,12 @@ static void real_binary(const char *real) {
         "missing camera: error mentions --demo");
   free(r.out.data);
   real_image();
+  real_serve_watch();
   BIN = saved;
   free(abs);
 }
 
-/* Files, environment and little JSON recorder writes */
-
+// Files, environment and little JSON recorder writes
 static char REAL_HOME[1024]; // HOME of test run itself
 static char START_DIR[4096];
 
@@ -2079,6 +2551,10 @@ int main(int argc, char **argv) {
   snprintf(REAL_HOME, sizeof REAL_HOME, "%s",
            getenv("HOME") ? getenv("HOME") : "");
 
+  if (want(argc, argv, "screen")) {
+    screen_tests();
+  }
+
   if (want(argc, argv, "smoke")) {
     smoke();
   }
@@ -2096,7 +2572,9 @@ int main(int argc, char **argv) {
   }
 
   if (argc > 2 && want(argc, argv, "real")) {
-    real_binary(argv[2]);
+    real_binary(argv[2], 0);
+  } else if (argc > 2 && want(argc, argv, "serve")) {
+    real_binary(argv[2], 1); // Only --serve / --watch part of "real"
   }
 
   if (failures) {
