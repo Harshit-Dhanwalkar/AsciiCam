@@ -2,14 +2,19 @@
  * tests/e2e.c - end-to-end checks of main loop
  *
  *   cc -O1 -o build/tests/e2e tests/e2e.c
- *   build/tests/e2e build/tests/asciicam_fake [build/asciicam]
+ *   build/tests/e2e build/tests/asciicam_fake [build/asciicam [section ...]]
  *
  * Runs program in a pseudo-terminal against software camera
  * (tests/fake_capture.c) and checks what it draws
  */
 
+#define _GNU_SOURCE
+#endif
+
+#include "mini_zlib.h"
 #include "pty_harness.h"
 
+#include <dirent.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -72,6 +77,12 @@ static args_t cat(args_t a, args_t b) {
 
 /* Output helpers */
 
+static int starts_with_str(const char *s, size_t n, const char *prefix) {
+  size_t l = strlen(prefix);
+
+  return n >= l && !memcmp(s, prefix, l);
+}
+
 static int contains(const unsigned char *p, size_t n, const char *needle) {
   return memmem(p, n, needle, strlen(needle)) != NULL;
 }
@@ -113,7 +124,8 @@ static int last_frame(const unsigned char *b, size_t n, int *w, int *h) {
 }
 
 // Frames are drawn starting with a cursor move to their top-left cell:
-// ESC[?2026h ESC[ y;x H (or just H for 1,1). Last one wins
+// ESC[?2026h ESC[ y;x H (or just H for 1,1)
+// Last one wins
 static int last_origin(const unsigned char *b, size_t n, int *x, int *y) {
   static const char pre[] = "\x1b[?2026h\x1b[";
   size_t pl = sizeof pre - 1;
@@ -591,7 +603,7 @@ static int distinct_frame_heads(const pty_buf *b) {
   return distinct;
 }
 
-// Mean (R - B) over the foreground colour escapes ESC[38;2;R;G;Bm
+// Mean (R - B) over foreground colour escapes ESC[38;2;R;G;Bm
 // Returns 0 when there are none
 static int warmth(const pty_buf *b, double *out) {
   static const char pre[] = "\x1b[38;2;";
@@ -1069,6 +1081,457 @@ static void real_binary(const char *real) {
   free(abs);
 }
 
+/* Files, environment and little JSON recorder writes */
+
+static char REAL_HOME[1024]; // HOME of test run itself
+static char START_DIR[4096];
+
+static void set_home(const char *h) { setenv("HOME", h, 1); }
+
+static int is_dir(const char *p) {
+  struct stat st;
+
+  return stat(p, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+// rm -rf for scratch directories tests make
+static void rm_rf(const char *path) {
+  struct stat st;
+  if (lstat(path, &st) != 0) {
+    return;
+  }
+
+  if (S_ISDIR(st.st_mode)) {
+    DIR *d = opendir(path);
+    struct dirent *e;
+    while (d && (e = readdir(d))) {
+      if (strcmp(e->d_name, ".") && strcmp(e->d_name, "..")) {
+        char sub[4300];
+        snprintf(sub, sizeof sub, "%s/%s", path, e->d_name);
+        rm_rf(sub);
+      }
+    }
+
+    if (d) {
+      closedir(d);
+    }
+
+    rmdir(path);
+  } else {
+    unlink(path);
+  }
+}
+
+static int cmp_names(const void *a, const void *b) {
+  return strcmp((const char *)a, (const char *)b);
+}
+
+typedef struct {
+  char name[16][256];
+  int n;
+} names_t;
+
+// Names in dir, sorted (at most 16)
+static names_t list_dir(const char *dir) {
+  names_t l;
+  memset(&l, 0, sizeof l);
+  DIR *d = opendir(dir);
+  struct dirent *e;
+  while (d && (e = readdir(d)) && l.n < 16) {
+    if (e->d_name[0] != '.') {
+      snprintf(l.name[l.n++], sizeof l.name[0], "%s", e->d_name);
+    }
+  }
+
+  if (d) {
+    closedir(d);
+  }
+
+  qsort(l.name, (size_t)l.n, sizeof l.name[0], cmp_names);
+
+  return l;
+}
+
+static int ends_with(const char *s, const char *suffix) {
+  size_t a = strlen(s), b = strlen(suffix);
+
+  return a >= b && !strcmp(s + a - b, suffix);
+}
+
+static char *read_text(const char *path, size_t *n) {
+  FILE *f = fopen(path, "rb");
+  if (!f) {
+    return NULL;
+  }
+
+  fseek(f, 0, SEEK_END);
+  long len = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  char *b = (char *)malloc((size_t)len + 1);
+  if (!b || fread(b, 1, (size_t)len, f) != (size_t)len) {
+    fclose(f);
+    free(b);
+
+    return NULL;
+  }
+
+  fclose(f);
+  b[len] = 0;
+  if (n) {
+    *n = (size_t)len;
+  }
+
+  return b;
+}
+
+// Number after "key": in a JSON object text
+static int json_int(const char *text, const char *key, long *v) {
+  char pat[64];
+  snprintf(pat, sizeof pat, "\"%s\"", key);
+  const char *p = strstr(text, pat);
+  if (!p) {
+    return 0;
+  }
+
+  p = strchr(p + strlen(pat), ':');
+  if (!p) {
+    return 0;
+  }
+
+  char *end;
+  *v = strtol(p + 1, &end, 10);
+
+  return end != p + 1;
+}
+
+// Decode JSON string starting at *pp (on opening quote) into bytes (UTF-8)
+// Returns a malloc'd NUL-terminated string and moves *pp past closing quote, or
+// NULL
+static char *json_string(const char **pp) {
+  const char *p = *pp;
+  if (*p != '"') {
+    return NULL;
+  }
+
+  p++;
+  size_t cap = strlen(p) + 1, n = 0;
+  char *o = (char *)malloc(cap);
+  while (*p && *p != '"') {
+    if (*p != '\\') {
+      o[n++] = *p++;
+
+      continue;
+    }
+
+    p++;
+    switch (*p) {
+    case 'n':
+      o[n++] = '\n';
+      p++;
+      break;
+    case 'r':
+      o[n++] = '\r';
+      p++;
+      break;
+    case 't':
+      o[n++] = '\t';
+      p++;
+      break;
+    case 'b':
+      o[n++] = '\b';
+      p++;
+      break;
+    case 'f':
+      o[n++] = '\f';
+      p++;
+      break;
+    case 'u': {
+      unsigned cp = 0;
+      for (int i = 1; i <= 4; i++) {
+        char c = p[i];
+        cp = cp * 16 + (unsigned)(c >= 'a'   ? c - 'a' + 10
+                                  : c >= 'A' ? c - 'A' + 10
+                                             : c - '0');
+      }
+
+      p += 5;
+      if (cp < 0x80) {
+        o[n++] = (char)cp;
+      } else if (cp < 0x800) {
+        o[n++] = (char)(0xc0 | (cp >> 6));
+        o[n++] = (char)(0x80 | (cp & 0x3f));
+      } else {
+        o[n++] = (char)(0xe0 | (cp >> 12));
+        o[n++] = (char)(0x80 | ((cp >> 6) & 0x3f));
+        o[n++] = (char)(0x80 | (cp & 0x3f));
+      }
+
+      break;
+    }
+
+    default: // \" \\ \/
+      o[n++] = *p++;
+    }
+  }
+
+  if (*p != '"') {
+    free(o);
+
+    return NULL;
+  }
+
+  o[n] = 0;
+  *pp = p + 1;
+
+  return o;
+}
+
+// One asciicast event line: [time, "kind", "text"]
+static int parse_event(const char *line, double *t, char *kind, char **data) {
+  const char *p = line;
+  if (*p != '[') {
+    return 0;
+  }
+
+  char *end;
+  *t = strtod(p + 1, &end);
+  if (end == p + 1) {
+    return 0;
+  }
+
+  p = end;
+  while (*p == ',' || *p == ' ') {
+    p++;
+  }
+
+  char *k = json_string(&p);
+  if (!k) {
+    return 0;
+  }
+
+  snprintf(kind, 8, "%s", k);
+  free(k);
+  while (*p == ',' || *p == ' ') {
+    p++;
+  }
+
+  *data = json_string(&p);
+
+  return *data != NULL;
+}
+
+/* Recorder, screenshots, unwritable folders */
+
+static void capture_tests(void) {
+  const args_t ARGS = A("-d", "fake", "-W", "40", "-H", "20", "-r", "20", NULL);
+
+  // Options cut out of argv (--net) must not hide environment
+  char root[] = "/tmp/asciicam_net_XXXXXX";
+  if (!mkdtemp(root)) {
+    check(0, "capture: cannot make a scratch directory");
+
+    return;
+  }
+
+  set_home(root);
+  step_t one[] = {S("s", 0.8)};
+  sess_t se = session(cat(ARGS, A("--net", "100", NULL)), one, 1, 0.6);
+  set_home(REAL_HOME);
+  free(se.out.data);
+  char net_dir[300];
+  snprintf(net_dir, sizeof net_dir, "%s/Pictures/asciicam", root);
+  names_t nl = list_dir(net_dir);
+  int any_png = 0;
+  for (int i = 0; i < nl.n; i++) {
+    any_png |= ends_with(nl.name[i], ".png");
+  }
+
+  check(is_dir(net_dir) && any_png,
+        "--net keeps HOME: screenshot saved under ~/Pictures/asciicam");
+  rm_rf(root);
+
+  static const char *labels[] = {"colour", "mono"};
+  static const char *extras[] = {"-C", NULL};
+  for (int v = 0; v < 2; v++) {
+    const char *label = labels[v];
+    int colour = v == 0;
+    // Captures go to ~/Pictures/asciicam: HOME points at a scratch directory so
+    // a test run never writes into real one
+    char cap_root[] = "/tmp/asciicam_cap_XXXXXX";
+    if (!mkdtemp(cap_root)) {
+      check(0, "recorder %s: cannot make a scratch directory", label);
+
+      continue;
+    }
+
+    set_home(cap_root);
+    step_t rec[] = {S("t", 0.9),  // start recording
+                    S("s", 0.5),  // screenshot while recording
+                    S("t", 0.5)}; // stop
+    sess_t s = session(plus(ARGS, extras[v]), rec, 3, 0.6);
+    set_home(REAL_HOME);
+    const unsigned char *out = s.out.data;
+    size_t on = s.out.len;
+
+    char cap_dir[300];
+    snprintf(cap_dir, sizeof cap_dir, "%s/Pictures/asciicam", cap_root);
+    names_t files = list_dir(cap_dir);
+    int ncast = 0, npng = 0, nansi = 0;
+    char cast_name[256] = "", png_name[256] = "", ansi_name[256] = "";
+    char listing[600] = "";
+    for (int i = 0; i < files.n; i++) {
+      if (ends_with(files.name[i], ".cast") && !ncast++) {
+        snprintf(cast_name, sizeof cast_name, "%s", files.name[i]);
+      }
+
+      if (ends_with(files.name[i], ".png") && !npng++) {
+        snprintf(png_name, sizeof png_name, "%s", files.name[i]);
+      }
+
+      if (ends_with(files.name[i], ".ansi") && !nansi++) {
+        snprintf(ansi_name, sizeof ansi_name, "%s", files.name[i]);
+      }
+
+      size_t used = strlen(listing);
+      snprintf(listing + used, sizeof listing - used, "%s%s", i ? ", " : "",
+               files.name[i]);
+    }
+
+    check(ncast == 1 && npng == 1 && nansi == 1,
+          "recorder %s: one .cast, .png, .ansi saved (%s)", label, listing);
+    check(contains(out, on, "REC started"), "recorder %s: toast on start",
+          label);
+    check(contains(out, on, "REC stopped") && contains(out, on, "saved"),
+          "recorder %s: toasts on stop and screenshot", label);
+    check(contains(out, on, "asciicam-"),
+          "recorder %s: toast names the saved file", label);
+    check(contains(out, on, " REC 0:0"),
+          "recorder %s: REC clock drawn in panel", label);
+    if (colour) {
+      check(contains(out, on, "\x1b[1;38;2;255;40;40m\xe2\x97\x8f"),
+            "recorder colour: red dot");
+    } else {
+      check(contains(out, on, "(o) REC"), "recorder mono: (o) dot");
+    }
+
+    if (ncast) {
+      char path[600];
+      snprintf(path, sizeof path, "%s/%s", cap_dir, cast_name);
+      char *text = read_text(path, NULL);
+      long ver = 0, wd = 0, ht = 0;
+      int nev = 0, all_o = 1, sorted = 1, any_esc = 0, any_rec = 0;
+      double prev = -1, last = -1;
+      if (text) {
+        json_int(text, "version", &ver);
+        json_int(text, "width", &wd);
+        json_int(text, "height", &ht);
+        char *line = strchr(text, '\n'); // End of header line
+        while (line) {
+          char *start = line + 1; // Events start on second line
+          char *nl2 = strchr(start, '\n');
+          if (nl2) {
+            *nl2 = 0;
+          }
+
+          double t;
+          char kind[8];
+          char *data;
+          if (*start && parse_event(start, &t, kind, &data)) {
+            nev++;
+            all_o &= !strcmp(kind, "o");
+            sorted &= t >= prev;
+            prev = last = t;
+            any_esc |= strstr(data, "\x1b[") != NULL;
+            any_rec |= strstr(data, "REC") != NULL;
+            free(data);
+          }
+
+          line = nl2;
+        }
+      }
+
+      check(ver == 2 && wd == 120 && ht == 50,
+            "recorder %s: cast header version=%ld width=%ld height=%ld", label,
+            ver, wd, ht);
+      check(nev >= 8 && all_o, "recorder %s: %d output events", label, nev);
+      check(sorted && last > 0.4 && last < 2.0,
+            "recorder %s: event times rise, last %.6f", label, last);
+      check(any_esc, "recorder %s: frames hold the escapes", label);
+      check(!any_rec, "recorder %s: panel/REC clock not part of recording",
+            label);
+      free(text);
+    }
+
+    if (npng) {
+      char path[600];
+      snprintf(path, sizeof path, "%s/%s", cap_dir, png_name);
+      mz_png_info info;
+      int ok = mz_png_read(path, &info);
+      char desc[48];
+      if (ok) {
+        snprintf(desc, sizeof desc, "(%u, %u, %d)", info.w, info.h,
+                 info.channels);
+      } else {
+        snprintf(desc, sizeof desc, "None");
+      }
+
+      // Camera size, not -W/-H
+      check(ok && info.w == 640 && info.h == 480 &&
+                info.channels == (colour ? 3 : 1),
+            "recorder %s: png decodes, %s", label, desc);
+    }
+
+    if (nansi) {
+      char path[600];
+      size_t n = 0;
+      snprintf(path, sizeof path, "%s/%s", cap_dir, ansi_name);
+      char *txt = read_text(path, &n);
+      check(txt && starts_with_str(txt, n, "\x1b[2J\x1b[H") && n > 200,
+            "recorder %s: .ansi holds the frame", label);
+      free(txt);
+    }
+
+    free(s.out.data);
+    rm_rf(cap_root);
+  }
+
+  // Unwritable captures folder (and an unwritable working directory, which is
+  // last-resort fallback): a message, no crash
+  set_home("/proc/nope");
+  if (chdir("/proc") != 0) {
+    fprintf(stderr, "cannot chdir to /proc\n");
+  }
+
+  step_t bad[] = {S("t", 0.5), S("s", 0.5)};
+  se = session(ARGS, bad, 2, 0.6);
+  if (chdir(START_DIR) != 0) {
+    fprintf(stderr, "cannot go back to %s\n", START_DIR);
+  }
+
+  set_home(REAL_HOME);
+  check(contains(se.out.data, se.out.len, "cannot record") &&
+            contains(se.out.data, se.out.len, "cannot save"),
+        "recorder: unwritable folder gives messages, program keeps running");
+  check(pty_buf_count(&se.out, "\x1b[?2026h") > 10,
+        "recorder: still drawing after failures");
+  free(se.out.data);
+}
+
+// Sections named after second argument; none named = all
+static int want(int argc, char **argv, const char *name) {
+  if (argc <= 3) {
+    return 1;
+  }
+
+  for (int i = 3; i < argc; i++) {
+    if (!strcmp(argv[i], name)) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
 int main(int argc, char **argv) {
   if (argc < 2) {
     fprintf(stderr, "usage: %s <asciicam-fake-binary> [asciicam-binary]\n",
@@ -1085,10 +1548,30 @@ int main(int argc, char **argv) {
     return 2;
   }
 
-  smoke();
-  stalled_camera();
-  mouse_tests();
-  if (argc > 2) {
+  if (!getcwd(START_DIR, sizeof START_DIR)) {
+    START_DIR[0] = 0;
+  }
+
+  snprintf(REAL_HOME, sizeof REAL_HOME, "%s",
+           getenv("HOME") ? getenv("HOME") : "");
+
+  if (want(argc, argv, "smoke")) {
+    smoke();
+  }
+
+  if (want(argc, argv, "stalled")) {
+    stalled_camera();
+  }
+
+  if (want(argc, argv, "mouse")) {
+    mouse_tests();
+  }
+
+  if (want(argc, argv, "capture")) {
+    capture_tests();
+  }
+
+  if (argc > 2 && want(argc, argv, "real")) {
     real_binary(argv[2]);
   }
 
