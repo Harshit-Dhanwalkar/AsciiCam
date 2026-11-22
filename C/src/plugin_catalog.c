@@ -410,9 +410,120 @@ static void pc_make_dirs(const char *path) {
   CreateDirectoryA(tmp, NULL);
 }
 
+// Windows has no sh: compiler is run directly with flags from plugin_build.h
+// and writes "<library>.tmp"; pc_finish() moves it into place once compiler
+// succeeded
+#define PC_TMP_PATH_LEN (CATALOG_PATH_LEN + 8)
+
+static void pc_tmp_path(const catalog_entry_t *e, char *out, size_t outsz) {
+  nl_snprintf(out, outsz, "%s.tmp", e->so_path);
+}
+
+// Command line being built, quoted the way the MSVC runtime parses it
+typedef struct {
+  char buf[6 * CATALOG_PATH_LEN];
+  size_t n;
+  int bad; // set when something did not fit
+} pc_cmd_t;
+
+static void pc_cmd_put(pc_cmd_t *c, const char *s) {
+  size_t len = nl_strlen(s);
+  if (c->bad || c->n + len + 1 > sizeof(c->buf)) {
+    c->bad = 1;
+
+    return;
+  }
+
+  nl_memcpy(c->buf + c->n, s, len + 1);
+  c->n += len;
+}
+
+// Prefix + text as one argument; quoted when it holds a space
+static void pc_cmd_arg(pc_cmd_t *c, const char *prefix, const char *text) {
+  int quote = 0;
+  for (const char *p = text; *p; p++) {
+    if (*p == ' ' || *p == '\t') {
+      quote = 1;
+    }
+  }
+
+  if (c->n) {
+    pc_cmd_put(c, " ");
+  }
+
+  if (quote) {
+    pc_cmd_put(c, "\"");
+  }
+
+  pc_cmd_put(c, prefix);
+  pc_cmd_put(c, text);
+  if (quote) {
+    // a trailing backslash would escape the closing quote
+    size_t len = nl_strlen(text);
+    if (len && text[len - 1] == '\\') {
+      pc_cmd_put(c, "\\");
+    }
+
+    pc_cmd_put(c, "\"");
+  }
+}
+
+// Space-separated flags, one argument each
+static void pc_cmd_flags(pc_cmd_t *c, const char *words) {
+  while (*words) {
+    while (*words == ' ') {
+      words++;
+    }
+
+    char w[96];
+    size_t k = 0;
+    while (*words && *words != ' ' && k + 1 < sizeof(w)) {
+      w[k++] = *words++;
+    }
+
+    w[k] = '\0';
+    if (k) {
+      pc_cmd_arg(c, "", w);
+    }
+  }
+}
+
 static int pc_spawn(const plugin_catalog_t *c, const catalog_entry_t *e,
                     pc_proc_t *out, char *err, size_t errsz) {
-  (void)c->envp; // child inherits this process's environment
+  (void)c->envp; // Child inherits this process's environment
+
+  // Compiler: $CC when set, else gcc (MinGW-w64; there is usually no "cc")
+  char cc[CATALOG_PATH_LEN];
+  DWORD ccn = GetEnvironmentVariableA("CC", cc, (DWORD)sizeof(cc));
+  if (ccn == 0 || ccn >= sizeof(cc)) {
+    cat_copy(cc, sizeof(cc), "gcc");
+  }
+
+  const char *sdk = c->sdk_dir[0] ? c->sdk_dir : ".";
+  char inc[CATALOG_PATH_LEN + 16], lib[CATALOG_PATH_LEN + 16];
+  char tmp[PC_TMP_PATH_LEN];
+  nl_snprintf(inc, sizeof(inc), "%s/include", sdk);
+  nl_snprintf(lib, sizeof(lib), "%s/lib", sdk);
+  pc_tmp_path(e, tmp, sizeof(tmp));
+
+  static pc_cmd_t cmd;
+  cmd.n = 0;
+  cmd.bad = 0;
+  cmd.buf[0] = '\0';
+  pc_cmd_arg(&cmd, "", cc);
+  pc_cmd_flags(&cmd, PB_COMMON " " PB_TARGET);
+  pc_cmd_arg(&cmd, "-I", inc);
+  pc_cmd_arg(&cmd, "-I", lib);
+  pc_cmd_flags(&cmd, PB_SYSTEM_HEADERS);
+  pc_cmd_flags(&cmd, PB_SHARED);
+  pc_cmd_arg(&cmd, "", e->src_path);
+  pc_cmd_arg(&cmd, "", "-o");
+  pc_cmd_arg(&cmd, "", tmp);
+  if (cmd.bad) {
+    cat_copy(err, errsz, "build command too long (paths)");
+
+    return -1;
+  }
 
   SECURITY_ATTRIBUTES sa;
   nl_memset(&sa, 0, sizeof(sa));
@@ -440,27 +551,11 @@ static int pc_spawn(const plugin_catalog_t *c, const catalog_entry_t *e,
   si.hStdOutput = hlog;
   si.hStdError = hlog;
 
-  // Git Bash / MSYS ships make; MinGW toolchains ship mingw32-make
-  static const char *tools[] = {"make", "mingw32-make"};
+  DeleteFileA(tmp); // Left over from an interrupted build
   PROCESS_INFORMATION pi;
-  int started = 0;
-
-  for (int t = 0; t < 2 && !started; t++) {
-    char cmd[5 * CATALOG_PATH_LEN];
-    char chdir_arg[CATALOG_PATH_LEN + 8];
-    if (c->sdk_dir[0]) {
-      nl_snprintf(chdir_arg, sizeof(chdir_arg), " -C \"%s\"", c->sdk_dir);
-    } else {
-      chdir_arg[0] = '\0';
-    }
-
-    nl_snprintf(cmd, sizeof(cmd),
-                "%s -s%s \"FILTERDIR=%s\" \"BUILDDIR=%s\" \"%s\"", tools[t],
-                chdir_arg, c->src_dir, c->cache_dir, e->so_path);
-    nl_memset(&pi, 0, sizeof(pi));
-    started = CreateProcessA(NULL, cmd, NULL, NULL, TRUE, CREATE_NO_WINDOW,
-                             NULL, NULL, &si, &pi) != 0;
-  }
+  nl_memset(&pi, 0, sizeof(pi));
+  int started = CreateProcessA(NULL, cmd.buf, NULL, NULL, TRUE,
+                               CREATE_NO_WINDOW, NULL, NULL, &si, &pi) != 0;
 
   CloseHandle(hlog);
   if (hnul != INVALID_HANDLE_VALUE) {
@@ -468,7 +563,8 @@ static int pc_spawn(const plugin_catalog_t *c, const catalog_entry_t *e,
   }
 
   if (!started) {
-    cat_copy(err, errsz, "build tool not found (need make)");
+    cat_copy(err, errsz,
+             "C compiler not found (install MinGW-w64 gcc or set CC)");
 
     return -1;
   }
@@ -477,6 +573,14 @@ static int pc_spawn(const plugin_catalog_t *c, const catalog_entry_t *e,
   *out = (pc_proc_t)(size_t)pi.hProcess;
 
   return 0;
+}
+
+// Compiler succeeded: move "<library>.tmp" over library
+static int pc_finish(const catalog_entry_t *e) {
+  char tmp[PC_TMP_PATH_LEN];
+  pc_tmp_path(e, tmp, sizeof(tmp));
+
+  return MoveFileExA(tmp, e->so_path, MOVEFILE_REPLACE_EXISTING) != 0;
 }
 
 static int pc_reap(pc_proc_t h, int block, int *code) {
@@ -510,6 +614,14 @@ static void pc_kill(pc_proc_t h) {
 #endif
 
 /* Shared logic  */
+#if !defined(PC_WINDOWS)
+// POSIX builds go through sh script
+static int pc_finish(const catalog_entry_t *e) {
+  (void)e;
+
+  return 1;
+}
+#endif
 
 // "dir/name.ext" must fit a catalog path buffer, or it would be silently cut
 static int path_fits(const char *dir, const char *name, size_t extra) {
@@ -889,8 +1001,8 @@ int catalog_scan(plugin_catalog_t *c) {
   static char names[CATALOG_MAX][CATALOG_NAME_LEN];
   int found = list_sources(c->src_dir, names, CATALOG_MAX);
 
-  // Hash SDK headers once for the whole scan: every entry shares them, so
-  // N entries cost 1 directory walk per SDK dir, not N.
+  // Hash SDK headers once for whole scan: every entry shares them, so N entries
+  // cost 1 directory walk per SDK dir, not N
   char hdr_hex[NL_SHA256_HEX_LEN];
   int hdr_ok = (pc_compute_hdr_hash(c->sdk_dir, hdr_hex) == 0);
 
@@ -1052,19 +1164,9 @@ int catalog_start_build(plugin_catalog_t *c, int idx) {
   }
 
   if (c->sdk_dir[0]) {
-    // SDK is headers a plugin includes
-    // WARN: Only Windows build still goes through make and so also needs
-    // Makefile that ships beside them
+    // SDK is headers a plugin includes; app runs compiler itself on every
+    // platform, so nothing else has to ship beside them
     char mk[CATALOG_PATH_LEN + 24];
-#if defined(PC_WINDOWS)
-    nl_snprintf(mk, sizeof(mk), "%s/Makefile", c->sdk_dir);
-    if (!file_exists(mk)) {
-      set_err(e, "no plugin SDK (Makefile + headers): prebuilt plugins only");
-      e->state = PC_FAILED;
-
-      return -1;
-    }
-#endif
     nl_snprintf(mk, sizeof(mk), "%s/include/plugins.h", c->sdk_dir);
     if (!file_exists(mk)) {
       set_err(e, "no plugin SDK (headers): prebuilt plugins only");
@@ -1125,11 +1227,11 @@ static void log_first_error(const char *log_path, int exit_code, char *out,
   if (n <= 0) {
     if (exit_code == 127) {
 #if defined(PC_WINDOWS)
-      cat_copy(out, outsz, "build tool not found (need make)");
+      cat_copy(out, outsz,
+               "C compiler not found (install MinGW-w64 gcc or set CC)");
 #else
       cat_copy(out, outsz, "C compiler not found (install cc or set CC)");
 #endif
-      cat_copy(out, outsz, "build tool not found (need make)");
     } else {
       cat_copy(out, outsz, "build failed (no output)");
     }
@@ -1218,11 +1320,11 @@ int catalog_poll(plugin_catalog_t *c, int *idx) {
     if (r < 0) {
       e->state = PC_FAILED;
       set_err(e, "lost track of build process");
-    } else if (code == 0 && file_exists(e->so_path)) {
+    } else if (code == 0 && pc_finish(e) && file_exists(e->so_path)) {
       // Rehash: if source or headers changed between catalog_start_build (which
       // set e->hash) and now (when compiler read them), .so doesn't match what
       // stamped R
-      // efuse to cache; force a rebuild
+      // Refuse to cache; force a rebuild
       char now[NL_SHA256_HEX_LEN];
       if (e->hash[0] && pc_inputs_hash(c, e, now) == 0 &&
           nl_strcmp(now, e->hash) == 0) {
