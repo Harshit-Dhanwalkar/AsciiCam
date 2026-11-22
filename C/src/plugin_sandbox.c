@@ -5,6 +5,26 @@
 int plugin_sandbox_enabled = 0;
 int plugin_sandbox_timeout_ms = 1000;
 
+// Reset every catchable signal to SIG_DFL and clear blocked-set
+static void plugin_sandbox_reset_signals(void) {
+  struct {
+    long handler;
+    unsigned long flags;
+    long restorer;
+    unsigned long mask;
+  } sa;
+  nl_memset(&sa, 0, sizeof sa); /* handler=0 -> SIG_DFL, no SA_RESTORER */
+  for (int sig = 1; sig < 32; sig++) {
+    if (sig == 9 || sig == 19) {
+      continue; /* SIGKILL/SIGSTOP: never catchable */
+    }
+    __sc6(13 /* rt_sigaction */, sig, (long)&sa, 0, 8, 0, 0);
+  }
+
+  unsigned long empty = 0;
+  __sc4(14 /* rt_sigprocmask */, 2 /* SIG_SETMASK */, (long)&empty, 0, 8);
+}
+
 #if defined(__LINUX_NOLIBC__) && defined(__x86_64__)
 
 #include "nl_alloc.h"
@@ -80,14 +100,14 @@ static void child_exit(int code) {
 
 static void child_main(sb_ctl_t *ctl, uint8_t *data, const filter_plugin_t *fp,
                        plugin_rgb_fn rgb, long ppid) {
-  // die with app
+  // Die with app
   __sc3(SB_SYS_PRCTL, SB_PR_SET_PDEATHSIG, SB_SIGKILL, 0);
   if (__sc1(SB_SYS_GETPPID, 0) != ppid) {
     child_exit(120); // app went away between fork and here
   }
 
-  // app's own crash handlers (restore terminal, print a message) make system
-  // calls filter forbids: a plugin crash would be reported as a forbidden call
+  // Crash handlers (restore terminal, print a message) make system calls filter
+  // forbids: a plugin crash would be reported as a forbidden call
   // Default handlers and an empty mask make it what it was
   for (int sig = 1; sig <= 64; sig++) {
     if (sig != 9 && sig != 19) { // SIGKILL, SIGSTOP: cannot be changed
@@ -104,7 +124,7 @@ static void child_main(sb_ctl_t *ctl, uint8_t *data, const filter_plugin_t *fp,
   unsigned long none = 0;
   __sc6(SB_SYS_RT_SIGPROCMASK, 2 /* SIG_SETMASK */, (long)&none, 0, 8, 0, 0);
 
-  // nothing inherited: no camera, no terminal, no files
+  // Nothing inherited: no camera, no terminal, no files
   if (__sc3(SB_SYS_CLOSE_RANGE, 3, 0xffffffffL, 0) < 0) {
     for (int fd = 3; fd < 1024; fd++) {
       __sc1(SB_SYS_CLOSE, fd);
@@ -141,7 +161,7 @@ static void child_main(sb_ctl_t *ctl, uint8_t *data, const filter_plugin_t *fp,
   }
 }
 
-// ---- app side --------------------------------------------------------------
+// App side
 
 static const char *describe(int status, char *buf, size_t n) {
   if ((status & 0x7f) == 0) {
@@ -151,24 +171,32 @@ static const char *describe(int status, char *buf, size_t n) {
   }
 
   switch (status & 0x7f) {
-  case 31:
+  case 31: {
     return "tried a system call that is not allowed";
-  case 11:
+  }
+  case 11: {
     return "crashed (segmentation fault)";
-  case 7:
+  }
+  case 7: {
     return "crashed (bus error)";
-  case 4:
+  }
+  case 4: {
     return "crashed (illegal instruction)";
-  case 8:
+  }
+  case 8: {
     return "crashed (arithmetic error)";
-  case 6:
+  }
+  case 6: {
     return "crashed (abort)";
-  case 9:
+  }
+  case 9: {
     return "was killed";
-  default:
+  }
+  default: {
     nl_snprintf(buf, n, "died (signal %d)", status & 0x7f);
 
     return buf;
+  }
   }
 }
 
@@ -280,6 +308,7 @@ static int start(plugin_loader_t *pl, size_t need) {
   }
 
   if (pid == 0) {
+    plugin_sandbox_reset_signals();
     child_main(sb->ctl, sb->data, pl->plugin, pl->rgb_process, ppid);
   }
 
