@@ -12,8 +12,13 @@
  * Compiler is $CC when set, else cc
  */
 
+#if defined(_WIN32)
+// Windows links system libc (MinGW-w64)
+#define PB_COMMON "-Wall -Wextra -O2 -fno-stack-protector"
+#else
 #define PB_COMMON                                                              \
   "-Wall -Wextra -O2 -fno-stack-protector -fno-builtin -ffreestanding"
+#endif
 
 // Host decides compiler flags, not PLATFORM_* define (which catalog test sets
 // on a Linux host to exercise POSIX code)
@@ -27,6 +32,15 @@
 // macOS: system headers are fine
 #define PB_SYSTEM_HEADERS ""
 #define PB_SO_EXT "dylib"
+#elif defined(_WIN32)
+// Windows flags (MinGW-w64, system libc)
+#define PB_TARGET                                                              \
+  "-DPLATFORM_WINDOWS -DWIN32_LEAN_AND_MEAN -DUNICODE -D_UNICODE "             \
+  "-D__USE_MINGW_ANSI_STDIO=1 -msse4.1"
+#define PB_SHARED "-shared"
+#define PB_SYSTEM_HEADERS ""
+#define PB_SO_EXT "dll"
+
 #else
 // Linux (nolibc): no system headers at all, only compiler's own freestanding
 // directory (immintrin.h ...), found with -print-file-name
@@ -36,15 +50,20 @@
 #define PB_SO_EXT "so"
 #endif
 
-/*
- * Shell script run as: sh -c PB_SCRIPT sh <source.c> <output> <sdk dir>
- * ($1 source, $2 output, $3 directory holding include/ and lib/). Writes to a
- * temporary name and renames, so a watcher never sees half a library
- */
+/* Shell script run as: sh -c PB_SCRIPT sh <source.c> <output> <sdk dir>
+ * ($1 source, $2 output, $3 directory holding include/ and lib/)
+ * Writes to a temporary name and renames, so a watcher never sees half a
+ * library */
+#if defined(_WIN32)
+// There is no sh on Windows: this is only text plugin cache hashes, so a change
+// of flags invalidates cached plugins
+#define PB_SCRIPT PB_COMMON " " PB_TARGET " " PB_SHARED
+#else
 #define PB_SCRIPT                                                              \
   "cc=\"${CC:-cc}\"; "                                                         \
   "\"$cc\" " PB_COMMON " " PB_TARGET                                           \
   " -I\"$3/include\" -I\"$3/lib\"" PB_SYSTEM_HEADERS " " PB_SHARED             \
   " \"$1\" -o \"$2.tmp\" && mv -f \"$2.tmp\" \"$2\""
+#endif
 
 #endif

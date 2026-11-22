@@ -433,7 +433,7 @@ if REAL and os.access(REAL, os.X_OK):
 
     # Slow-link mode: draws and a bad value is refused up front
     for level in ("0", "300"):
-        frames, code, out, _ = run(["--demo", "-f", "20", "--net", level], 1.0)
+        frames, code, out, _ = run(["--demo", "-r", "20", "--net", level], 1.0)
         check(frames >= 8 and code == 0,
               f"--net {level}: draws and exits cleanly ({frames} frames, exit {code})")
     _, code, out, _ = run(["--demo", "--net", "fast"], 1.0)
@@ -445,7 +445,7 @@ if REAL and os.access(REAL, os.X_OK):
     vdir = tempfile.mkdtemp(prefix="asciicam_vcam_")
     vfile = os.path.join(vdir, "cam.yuv")
     vw, vh = 640, 360
-    frames, code, out, _ = run(["--demo", "-C", "-f", "20", "--vcam", vfile, "--vcam-size", f"{vw}x{vh}"], 1.5)
+    frames, code, out, _ = run(["--demo", "-C", "-r", "20", "--vcam", vfile, "--vcam-size", f"{vw}x{vh}"], 1.5)
     vsize = os.path.getsize(vfile) if os.path.exists(vfile) else -1
     fsize = vw * vh * 2
     check(code == 0 and vsize > 0 and vsize % fsize == 0 and vsize // fsize >= 10,

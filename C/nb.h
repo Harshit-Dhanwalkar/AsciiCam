@@ -5,7 +5,9 @@
  * nb.h - tiny build-in-C helper
  * Build script is a C program that includes this header; it rebuilds itself
  * when its source changes
- * Needs only a C compiler and a POSIX system (Linux / macOS); no make, no cmake
+ * Needs only a C compiler on Linux / macOS (POSIX) or Windows (MinGW-w64, Win32
+ * API only)
+ * NOTE: no make, no cmake, no sh, no ls / install / rm are required
  */
 
 // TODO: Use lib/
@@ -17,8 +19,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+
+#if defined(_WIN32)
+#define NB_WIN 1
+#define NB_EXE ".exe"
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
+#define NB_WIN 0
+#define NB_EXE ""
+#include <dirent.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 
 typedef struct {
   const char **v;
@@ -39,7 +54,15 @@ typedef struct {
 static const char *nb_color(const char *code) {
   static int tty = -1;
   if (tty < 0) {
+#if NB_WIN
+    // Colors only when stderr is a console that accepts ANSI sequences
+    // (ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004)
+    DWORD m = 0;
+    HANDLE h = GetStdHandle(STD_ERROR_HANDLE);
+    tty = GetConsoleMode(h, &m) && SetConsoleMode(h, m | 0x0004);
+#else
     tty = isatty(2);
+#endif
   }
 
   return tty ? code : "";
@@ -140,10 +163,144 @@ static void nb_show(const nb_cmd *c) {
   fputc('\n', stderr);
 }
 
+// Process handle: a pid on POSIX, a HANDLE on Windows
+#if NB_WIN
+typedef HANDLE nb_proc;
+#define NB_NO_PROC NULL
+#else
+typedef pid_t nb_proc;
+#define NB_NO_PROC ((pid_t) - 1)
+#endif
+
+// Build a Windows command line from argv, quoted way MSVC runtime and
+// CommandLineToArgvW read it back (backslashes only matter before a quote)
+// Plain C, so it is same on every host and can be tested anywhere
+// A '/' in argv[0] is turned into '\' because CreateProcess wants that
+#if defined(__GNUC__)
+__attribute__((unused))
+#endif
+static char *nb_cmdline(const nb_cmd *c) {
+  size_t total = 1;
+  for (size_t i = 0; i < c->n; i++) {
+    total += 2 * strlen(c->v[i]) + 3;
+  }
+
+  char *out = (char *)malloc(total);
+  if (!out) {
+    abort();
+  }
+
+  char *o = out;
+  for (size_t i = 0; i < c->n; i++) {
+    const char *a = c->v[i];
+    if (i == 0 && strchr(a, '/')) {
+      char *w = nb_fmt("%s", a);
+      for (char *s = w; *s; s++) {
+        if (*s == '/') {
+          *s = '\\';
+        }
+      }
+
+      a = w;
+    }
+
+    if (i) {
+      *o++ = ' ';
+    }
+
+    int quote = !*a || strpbrk(a, " \t\n\v\"") != NULL;
+    if (quote) {
+      *o++ = '"';
+    }
+
+    for (const char *p = a;; p++) {
+      size_t bs = 0;
+      while (*p == '\\') {
+        p++;
+        bs++;
+      }
+
+      if (!*p) {
+        // Trailing backslashes must not escape closing quote
+        for (size_t k = 0; k < bs * (quote ? 2 : 1); k++) {
+          *o++ = '\\';
+        }
+
+        break;
+      } else if (*p == '"') {
+        for (size_t k = 0; k < bs * 2 + 1; k++) {
+          *o++ = '\\';
+        }
+
+        *o++ = '"';
+      } else {
+        for (size_t k = 0; k < bs; k++) {
+          *o++ = '\\';
+        }
+
+        *o++ = *p;
+      }
+    }
+
+    if (quote) {
+      *o++ = '"';
+    }
+  }
+
+  *o = 0;
+
+  return out;
+}
+
 // Start a command
-// Returns pid or -1
-static pid_t nb_start(const nb_cmd *c, const char *stdout_path) {
+// Returns a process handle or NB_NO_PROC
+static nb_proc nb_start(const nb_cmd *c, const char *stdout_path) {
   nb_show(c);
+#if NB_WIN
+  char *cmd = nb_cmdline(c);
+  STARTUPINFOA si;
+  PROCESS_INFORMATION pi;
+  memset(&si, 0, sizeof si);
+  memset(&pi, 0, sizeof pi);
+  si.cb = sizeof si;
+
+  HANDLE out = INVALID_HANDLE_VALUE;
+  if (stdout_path) {
+    SECURITY_ATTRIBUTES sa;
+    memset(&sa, 0, sizeof sa);
+    sa.nLength = sizeof sa;
+    sa.bInheritHandle = TRUE;
+    out = CreateFileA(stdout_path, GENERIC_WRITE, FILE_SHARE_READ, &sa,
+                      CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (out != INVALID_HANDLE_VALUE) {
+      si.dwFlags = STARTF_USESTDHANDLES;
+      si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+      si.hStdOutput = out;
+      si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    }
+  }
+
+  // lpApplicationName NULL: command is searched on PATH (.exe implied)
+  BOOL ok = CreateProcessA(NULL, cmd, NULL, NULL, out != INVALID_HANDLE_VALUE,
+                           0, NULL, NULL, &si, &pi);
+  DWORD err = GetLastError();
+  if (out != INVALID_HANDLE_VALUE) {
+    CloseHandle(out);
+  }
+
+  free(cmd);
+  if (!ok) {
+    fprintf(stderr, "%s[nb]%s cannot run %s: Windows error %lu\n",
+            nb_color(NB_C_FAIL), nb_color(NB_C_RESET), c->v[0],
+            (unsigned long)err);
+
+    return NB_NO_PROC;
+  }
+
+  CloseHandle(pi.hThread);
+
+  return pi.hProcess;
+#else
   pid_t p = fork();
   if (p == 0) {
     if (stdout_path) {
@@ -160,23 +317,47 @@ static pid_t nb_start(const nb_cmd *c, const char *stdout_path) {
   }
 
   return p;
+#endif
 }
 
-static int nb_wait(pid_t p) {
-  int st = 0;
-  if (p < 0 || waitpid(p, &st, 0) < 0) {
-    return 0;
+// Wait for a command; returns its exit code, or -1 if it did not exit normally
+static int nb_wait_code(nb_proc p) {
+#if NB_WIN
+  DWORD code = 1;
+  if (p == NB_NO_PROC) {
+    return -1;
   }
 
-  return WIFEXITED(st) && WEXITSTATUS(st) == 0;
+  if (WaitForSingleObject(p, INFINITE) != WAIT_OBJECT_0 ||
+      !GetExitCodeProcess(p, &code)) {
+    CloseHandle(p);
+
+    return -1;
+  }
+
+  CloseHandle(p);
+
+  return (int)code;
+#else
+  int st = 0;
+  if (p < 0 || waitpid(p, &st, 0) < 0) {
+    return -1;
+  }
+
+  return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+#endif
 }
+
+static int nb_wait(nb_proc p) { return nb_wait_code(p) == 0; }
 
 static int nb_run(const nb_cmd *c) { return nb_wait(nb_start(c, NULL)); }
 
 // Run commands in parallel, up to jobs at a time (jobs <= 64)
 typedef struct {
-  pid_t pid[64];
-  int jobs, running, ok;
+  nb_proc pid[64];
+  int jobs;
+  int running;
+  int ok;
 } nb_procs;
 
 static void nb_procs_init(nb_procs *p, int jobs) {
@@ -186,6 +367,29 @@ static void nb_procs_init(nb_procs *p, int jobs) {
 }
 
 static void nb_procs_reap_one(nb_procs *p) {
+#if NB_WIN
+  DWORD r = WaitForMultipleObjects((DWORD)p->running, p->pid, FALSE, INFINITE);
+  if (r >= WAIT_OBJECT_0 + (DWORD)p->running) {
+    // Wait itself failed: give up on what's left instead of looping forever
+    for (int i = 0; i < p->running; i++) {
+      CloseHandle(p->pid[i]);
+    }
+
+    p->running = 0;
+    p->ok = 0;
+
+    return;
+  }
+
+  int i = (int)(r - WAIT_OBJECT_0);
+  DWORD code = 1;
+  if (!GetExitCodeProcess(p->pid[i], &code) || code != 0) {
+    p->ok = 0;
+  }
+
+  CloseHandle(p->pid[i]);
+  p->pid[i] = p->pid[--p->running];
+#else
   int st = 0;
   pid_t d = wait(&st);
   for (int i = 0; i < p->running; i++) {
@@ -199,6 +403,7 @@ static void nb_procs_reap_one(nb_procs *p) {
   if (!(WIFEXITED(st) && WEXITSTATUS(st) == 0)) {
     p->ok = 0;
   }
+#endif
 }
 
 static void nb_procs_add(nb_procs *p, const nb_cmd *c) {
@@ -206,8 +411,8 @@ static void nb_procs_add(nb_procs *p, const nb_cmd *c) {
     nb_procs_reap_one(p);
   }
 
-  pid_t pid = nb_start(c, NULL);
-  if (pid < 0) {
+  nb_proc pid = nb_start(c, NULL);
+  if (pid == NB_NO_PROC) {
     p->ok = 0;
 
     return;
@@ -226,6 +431,19 @@ static int nb_procs_wait(nb_procs *p) {
 
 static int nb_mkdir(const char *path) {
   char *t = nb_fmt("%s", path);
+#if NB_WIN
+  // '/' and '\' both separate; the "C:" of a drive path just fails harmlessly
+  for (char *s = t + 1; *s; s++) {
+    if (*s == '/' || *s == '\\') {
+      char sep = *s;
+      *s = 0;
+      CreateDirectoryA(t, NULL);
+      *s = sep;
+    }
+  }
+
+  return CreateDirectoryA(t, NULL) || GetLastError() == ERROR_ALREADY_EXISTS;
+#else
   for (char *s = t + 1; *s; s++) {
     if (*s == '/') {
       *s = 0;
@@ -235,6 +453,7 @@ static int nb_mkdir(const char *path) {
   }
 
   return mkdir(t, 0755) == 0 || errno == EEXIST;
+#endif
 }
 
 static long nb_mtime(const char *path) {
@@ -259,39 +478,212 @@ static int nb_needs_rebuild(const char *out, const char **in, size_t n) {
   return 0;
 }
 
+// rename(2) that replaces an existing target on every platform (plain rename()
+// refuses to on Windows)
+static int nb_rename(const char *from, const char *to) {
+#if NB_WIN
+  return MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING) != 0;
+#else
+  return rename(from, to) == 0;
+#endif
+}
+
+static int nb_cmp_str_(const void *a, const void *b) {
+  return strcmp(*(const char *const *)a, *(const char *const *)b);
+}
+
+// Append "dir/name" to out for every regular file in dir whose name ends in
+// suffix (NULL or "" = all files), in sorted order; names starting with '.'
+// are skipped. This is what `ls dir/*.h` did
+static void nb_glob(nb_cmd *out, const char *dir, const char *suffix) {
+  size_t start = out->n;
+  const char *sfx = suffix ? suffix : "";
+  size_t sl = strlen(sfx);
+#if NB_WIN
+  WIN32_FIND_DATAA fd;
+  HANDLE h = FindFirstFileA(nb_fmt("%s/*", dir), &fd);
+  if (h == INVALID_HANDLE_VALUE) {
+    return;
+  }
+
+  do {
+    size_t n = strlen(fd.cFileName);
+    if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+        fd.cFileName[0] == '.' || n < sl ||
+        strcmp(fd.cFileName + n - sl, sfx)) {
+      continue;
+    }
+
+    nb_push(out, nb_fmt("%s/%s", dir, fd.cFileName));
+  } while (FindNextFileA(h, &fd));
+
+  FindClose(h);
+#else
+  DIR *d = opendir(dir);
+  if (!d) {
+    return;
+  }
+
+  struct dirent *e;
+  while ((e = readdir(d))) {
+    size_t n = strlen(e->d_name);
+    if (e->d_name[0] == '.' || n < sl || strcmp(e->d_name + n - sl, sfx)) {
+      continue;
+    }
+
+    char *p = nb_fmt("%s/%s", dir, e->d_name);
+    struct stat st;
+    if (stat(p, &st) == 0 && S_ISREG(st.st_mode)) {
+      nb_push(out, p);
+    }
+  }
+
+  closedir(d);
+#endif
+  if (out->n > start) {
+    qsort(out->v + start, out->n - start, sizeof *out->v, nb_cmp_str_);
+  }
+}
+
+// rm -rf. A missing path counts as success
 static int nb_rm_tree(const char *path) {
+#if NB_WIN
+  DWORD a = GetFileAttributesA(path);
+  if (a == INVALID_FILE_ATTRIBUTES) {
+    return 1;
+  }
+
+  if (!(a & FILE_ATTRIBUTE_DIRECTORY)) {
+    SetFileAttributesA(path, FILE_ATTRIBUTE_NORMAL); // read-only files
+    return DeleteFileA(path) != 0;
+  }
+
+  // A junction or symlink is removed, never followed
+  if (!(a & FILE_ATTRIBUTE_REPARSE_POINT)) {
+    int ok = 1;
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA(nb_fmt("%s/*", path), &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+      do {
+        if (strcmp(fd.cFileName, ".") && strcmp(fd.cFileName, "..")) {
+          ok &= nb_rm_tree(nb_fmt("%s/%s", path, fd.cFileName));
+        }
+      } while (FindNextFileA(h, &fd));
+
+      FindClose(h);
+    }
+
+    if (!ok) {
+      return 0;
+    }
+  }
+
+  return RemoveDirectoryA(path) != 0;
+#else
   nb_cmd c = {0};
   nb_cmd_add(&c, "rm", "-rf", path);
 
   return nb_run(&c);
+#endif
 }
 
+// Copy a file; `to` may be a directory. mode ("755") is ignored on Windows
 static int nb_copy(const char *from, const char *to, const char *mode) {
+#if NB_WIN
+  (void)mode;
+  const char *dst = to;
+  DWORD a = GetFileAttributesA(to);
+  if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY)) {
+    const char *b = strrchr(from, '/');
+    const char *b2 = strrchr(from, '\\');
+    if (b2 > b) {
+      b = b2;
+    }
+
+    dst = nb_fmt("%s/%s", to, b ? b + 1 : from);
+  }
+
+  fprintf(stderr, "%s[nb]%s copy %s -> %s\n", nb_color(NB_C_INFO),
+          nb_color(NB_C_RESET), from, dst);
+
+  return CopyFileA(from, dst, FALSE) != 0;
+#else
   nb_cmd c = {0};
   nb_cmd_add(&c, "install", "-m", mode, from, to);
 
   return nb_run(&c);
+#endif
 }
 
 // Rebuild this build program when its source (or this header) is newer, then
 // re-run it
 // Call first thing in main()
-#define NB_REBUILD_SELF(argc, argv, cc)                                        \
-  do {                                                                         \
-    const char *nb_src_[] = {__FILE__, "nb.h"};                                \
-    if (nb_needs_rebuild((argv)[0], nb_src_, 2)) {                             \
-      nb_cmd nb_c_ = {0};                                                      \
-      nb_cmd_add(&nb_c_, cc, "-o", (argv)[0], __FILE__);                       \
-      if (!nb_run(&nb_c_)) {                                                   \
-        exit(1);                                                               \
-      }                                                                        \
-      nb_cmd nb_r_ = {0};                                                      \
-      for (int nb_i_ = 0; nb_i_ < (argc); nb_i_++) {                           \
-        nb_push(&nb_r_, (argv)[nb_i_]);                                        \
-      }                                                                        \
-      execv(nb_r_.v[0], (char *const *)nb_r_.v);                               \
-      exit(1);                                                                 \
-    }                                                                          \
-  } while (0)
+static void nb_rebuild_self(int argc, char **argv, const char *cc,
+                            const char *src) {
+  const char *in[] = {src, "nb.h"};
+#if NB_WIN
+  // A running .exe cannot be overwritten but it can be renamed: build next to
+  // it, move old one aside, move new one in, run it and pass its exit code on
+  // Old copy is removed on next start
+  char self[MAX_PATH];
+  DWORD n = GetModuleFileNameA(NULL, self, MAX_PATH);
+  if (n == 0 || n >= MAX_PATH) {
+    return; // Cannot tell where it live: keep running
+  }
 
+  // "<name>_old.exe" / "<name>_new.exe"
+  char *base = nb_fmt("%s", self);
+  size_t bl = strlen(base);
+  if (bl > 4 && !_stricmp(base + bl - 4, ".exe")) {
+    base[bl - 4] = 0;
+  }
+
+  char *old = nb_fmt("%s_old.exe", base);
+  DeleteFileA(old);
+  if (!nb_needs_rebuild(self, in, 2)) {
+    return;
+  }
+
+  char *fresh = nb_fmt("%s_new.exe", base);
+  nb_cmd c = {0};
+  nb_cmd_add(&c, cc, "-o", fresh, src);
+  if (!nb_run(&c)) {
+    exit(1);
+  }
+
+  if (!nb_rename(self, old) || !nb_rename(fresh, self)) {
+    nb_log_error("cannot replace %s", self);
+    nb_rename(old, self);
+    exit(1);
+  }
+
+  nb_cmd r = {0};
+  nb_push(&r, self);
+  for (int i = 1; i < argc; i++) {
+    nb_push(&r, argv[i]);
+  }
+
+  int code = nb_wait_code(nb_start(&r, NULL));
+  exit(code < 0 ? 1 : code);
+#else
+  if (nb_needs_rebuild(argv[0], in, 2)) {
+    nb_cmd c = {0};
+    nb_cmd_add(&c, cc, "-o", argv[0], src);
+    if (!nb_run(&c)) {
+      exit(1);
+    }
+
+    nb_cmd r = {0};
+    for (int i = 0; i < argc; i++) {
+      nb_push(&r, argv[i]);
+    }
+
+    execv(r.v[0], (char *const *)r.v);
+    exit(1);
+  }
+#endif
+}
+
+#define NB_REBUILD_SELF(argc, argv, cc)                                        \
+  nb_rebuild_self((argc), (argv), (cc), __FILE__)
 #endif
