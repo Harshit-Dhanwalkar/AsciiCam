@@ -8,6 +8,7 @@
  * (tests/fake_capture.c) and checks what it draws
  */
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
 
