@@ -21,26 +21,27 @@ V4L2 on Linux, AVFoundation on macOS, Media Foundation on Windows.
 
 ## Features
 
-| Feature                      | Details                                                                                                                                           |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **YUYV to grayscale**        | SSE2 SIMD (`yuyv_to_gray_simd`) - 16 pixels per iteration on x86_64, NEON on ARM64                                                                |
-| **Picture as camera**        | `--image photo.png`: PNG, JPEG or PGM/PPM through every render mode, effect and plugin; a folder is a slideshow; own decoders, no zlib or libjpeg |
-| **YUYV to RGB**              | Fixed‑point BT.601 conversion for truecolor output                                                                                                |
-| **Render modes**             | Braille, Blocks, ASCII ramp, Half-block, Dots - cycle live with `m`/`M`                                                                           |
-| **Edge detection**           | Sobel, Sobel with direction, Laplacian - toggle with `x`/`X`                                                                                      |
-| **Image adjustments**        | Brightness, contrast, gamma (`-g 10..400`), invert mapping                                                                                        |
-| **Tone curve**               | Draw a brightness curve with the mouse in the side panel (`k`), presets, `--curve`; applies to every render mode and colour                       |
-| **Pseudo-3D depth pop**      | Parallax displacement based on brightness — `+`/`-`/`v`                                                                                           |
-| **Floyd‑Steinberg dither**   | Error‑diffusion to reduce banding                                                                                                                 |
-| **ANSI color**               | Truecolor (`-C`) or xterm-256 (`-2`) per-cell foreground                                                                                          |
-| **ANSI truecolor**           | `\033[38;2;R;G;Bm` per‑cell coloring                                                                                                              |
-| **Hot‑reloadable charsets**  | Load `.txt` ramps from a directory, switch with `n`/`N`, monitor with inotify                                                                     |
-| **Hot‑reload plugin system** | `inotify` + `dlopen` - rebuild a filter `.so`, it reloads live                                                                                    |
-| **SIGWINCH auto-resize**     | Terminal resize re-queries `TIOCGWINSZ` and reallocates buffers                                                                                   |
-| **FPS‑capped render loop**   | `CLOCK_MONOTONIC` + `nanosleep` frame pacing                                                                                                      |
-| **Capture thread**           | Linux: capture + luma conversion on a `clone()`d thread, triple-buffered hand-off to the render loop; `-T` captures inline                        |
-| **Hardware camera controls** | V4L2 exposure, contrast, white-balance via `ioctl` - live keys `e`/`E`, `c`/`C`, `w`/`W` (Linux only; macOS/Windows display `n/a`)                |
-| **Cross-platform**           | Linux (V4L2, nolibc), macOS (AVFoundation, system libc), Windows (Media Foundation, MinGW)                                                        |
+| Feature                      | Details                                                                                                                                                     |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **YUYV to grayscale**        | SSE2 SIMD (`yuyv_to_gray_simd`) - 16 pixels per iteration on x86_64, NEON on ARM64                                                                          |
+| **Picture as camera**        | `--image photo.png`: PNG, JPEG or PGM/PPM through every render mode, effect and plugin; a folder is a slideshow; own decoders, no zlib or libjpeg           |
+| **YUYV to RGB**              | Fixed‑point BT.601 conversion for truecolor output                                                                                                          |
+| **Render modes**             | Braille, Blocks, ASCII ramp, Half-block, Dots - cycle live with `m`/`M`                                                                                     |
+| **Edge detection**           | Sobel, Sobel with direction, Laplacian - toggle with `x`/`X`                                                                                                |
+| **Image adjustments**        | Brightness, contrast, gamma (`-g 10..400`), invert mapping                                                                                                  |
+| **Tone curve**               | Draw a brightness curve with the mouse in the side panel (`k`), presets, `--curve`; applies to every render mode and colour                                 |
+| **Pseudo-3D depth pop**      | Parallax displacement based on brightness — `+`/`-`/`v`                                                                                                     |
+| **Assembly downscale**       | Area-average downscale (every frame, every mode) sums pixels with x86-64 assembly (`lib/nl_sumspan.h`: `psadbw`, 16 pixels per step); pure-C twin elsewhere |
+| **Floyd‑Steinberg dither**   | Error‑diffusion to reduce banding                                                                                                                           |
+| **ANSI color**               | Truecolor (`-C`) or xterm-256 (`-2`) per-cell foreground                                                                                                    |
+| **ANSI truecolor**           | `\033[38;2;R;G;Bm` per‑cell coloring                                                                                                                        |
+| **Hot‑reloadable charsets**  | Load `.txt` ramps from a directory, switch with `n`/`N`, monitor with inotify                                                                               |
+| **Hot‑reload plugin system** | `inotify` + `dlopen` - rebuild a filter `.so`, it reloads live                                                                                              |
+| **SIGWINCH auto-resize**     | Terminal resize re-queries `TIOCGWINSZ` and reallocates buffers                                                                                             |
+| **FPS‑capped render loop**   | `CLOCK_MONOTONIC` + `nanosleep` frame pacing                                                                                                                |
+| **Capture thread**           | Linux: capture + luma conversion on a `clone()`d thread, triple-buffered hand-off to the render loop; `-T` captures inline                                  |
+| **Hardware camera controls** | V4L2 exposure, contrast, white-balance via `ioctl` - live keys `e`/`E`, `c`/`C`, `w`/`W` (Linux only; macOS/Windows display `n/a`)                          |
+| **Cross-platform**           | Linux (V4L2, nolibc), macOS (AVFoundation, system libc), Windows (Media Foundation, MinGW)                                                                  |
 
 - Linux: requires `gcc` only (no kernel headers, `libdl` or `libpthread`).
 - macOS: requires `Clang` and `AVFoundation` frameworks (linked automatically).
@@ -315,10 +316,10 @@ The program binary contains **no plugin code** (static binary ≈ 86 KB, each
 filter ≈ 15 KB), so plugins are separate files and have to be shipped with it.
 Which files depends on what you want the user to be able to do:
 
-| You ship                   | User can                                         | Needs on the target   |
-| -------------------------- | ------------------------------------------------ | --------------------- |
-| binary + `plugins/*.so`    | load every shipped plugin instantly with `/`     | nothing (no compiler) |
-| + SDK (`install-sdk`)      | also compile new plugins from `.c` while running | a C compiler (`$CC`)  |
+| You ship                | User can                                         | Needs on the target   |
+| ----------------------- | ------------------------------------------------ | --------------------- |
+| binary + `plugins/*.so` | load every shipped plugin instantly with `/`     | nothing (no compiler) |
+| + SDK (`install-sdk`)   | also compile new plugins from `.c` while running | a C compiler (`$CC`)  |
 
 Lookup is relative to the running binary, not the current directory, so the same
 build works from a checkout, from an unpacked release and from an installed prefix:
@@ -372,8 +373,33 @@ Consequences:
 
 No manual pruning of `~/.cache` is ever needed; the cache is self-invalidating.
 Note that the compiler's own identity (`$CC`, its version) is **not** part of the hash
-, so switching `gcc` → `clang` without couching source or headers reuses the old
+, so switching `gcc` $\rightarrow$ `clang` without couching source or headers reuses the old
 `.so`; that is the one case where deleting the `.stamp` by hand is the fix.
+
+## Assembly kernels: `nl_sumspan` (x86-64 Linux)
+
+`lib/nl_sumspan.h` holds two loops that area-average downscale spends its time in,
+written in assembly (SSE2, part of x86-64 baseline, so no CPU check) next to a
+pure-C twin:
+
+| Function        | What it does                                                         | Used for                                                                                                |
+| --------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `nl_sumspan_u8` | sum of many byte spans of one row, 16 pixels per `psadbw`            | grayscale cell sums                                                                                     |
+| `nl_addrow_u8`  | add a row of bytes into 32-bit column sums, widening 16 bytes a step | colour: rows are added up per column first, cells then add columns (cell-height times less scalar work) |
+
+The assembly is a top-level `__asm__` block in the header, emitted by the one translation
+unit that defines `NL_SUMSPAN_IMPL` (`ascii.c`), so there is no extra object file or
+build rule. It is used on x86-64 Linux only (System V ABI, ELF); macOS, Windows and
+ARM64 get the C functions, with the same results. Build with `-DNL_SUMSPAN_NO_ASM` to
+force C everywhere (the tests do, as a third run).
+
+Neither kernel reads or writes outside the spans / `n` entries it is given
+(`tests/test_nl_sumspan.c` runs them against an unmapped guard page and a fenced output).
+`tests/test_downscale.c` checks `grayscale_to_ascii` against a pixel-by-pixel reference
+on awkward sizes, and flat colours in every cell. Measured on one machine, 160x60
+cells, `-O2`: a 640x480 grayscale frame goes from about 310 to 170 us, 1920x1080 from
+about 1300 to 400 us; colour frames are dominated by output formatting, so they gain
+less (1920x1080: about 1700 to 1200 us).
 
 ## Memory: `nl_gc` (Linux)
 
