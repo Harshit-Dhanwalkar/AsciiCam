@@ -332,6 +332,9 @@ test: all
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_hash.c $(TEST_LIBS) -o $(TESTDIR)/hash_O2
 	$(CC) -O0 $(TEST_FLAGS) tests/test_nl_ramfs.c $(TEST_LIBS) -o $(TESTDIR)/ramfs_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_ramfs.c $(TEST_LIBS) -o $(TESTDIR)/ramfs_O2
+	$(CC) -O0 $(TEST_FLAGS) tests/test_nl_sumspan.c $(TEST_LIBS) -o $(TESTDIR)/sumspan_O0
+	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_sumspan.c $(TEST_LIBS) -o $(TESTDIR)/sumspan_O2
+	$(CC) -O2 $(TEST_FLAGS) -DNL_SUMSPAN_NO_ASM tests/test_nl_sumspan.c $(TEST_LIBS) -o $(TESTDIR)/sumspan_c
 	$(CC) $(TEST_FLAGS) tests/test_nl_slice.c $(TEST_LIBS) -o $(TESTDIR)/slice
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_slice.c $(TEST_LIBS) -o $(TESTDIR)/slice_O2
 	$(CC) $(TEST_FLAGS) tests/test_nl_dlfcn.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/dlfcn
@@ -381,6 +384,10 @@ test: all
 	$(CC) -O0 $(TEST_FLAGS) tests/test_curve.c $(SRCDIR)/curve.c $(TEST_LIBS) -o $(TESTDIR)/curve_O0
 	$(CC) -O0 $(TEST_FLAGS) tests/test_curve_ui.c $(SRCDIR)/curve_ui.c $(SRCDIR)/curve.c $(SRCDIR)/browser.c $(SRCDIR)/recorder.c $(TEST_LIBS) -o $(TESTDIR)/curve_ui_O0
 	$(CC) -O0 $(TEST_FLAGS) tests/test_tone.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/tone_O0
+	$(CC) -O0 $(TEST_FLAGS) tests/test_downscale.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/downscale_O0
+	$(CC) -O2 $(TEST_FLAGS) tests/test_downscale.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/downscale_O2
+	$(CC) -O2 $(TEST_FLAGS) -DNL_SUMSPAN_NO_ASM tests/test_downscale.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/downscale_c
+	$(CC) -O0 $(TEST_FLAGS) tests/test_colour.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/colour_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_curve.c $(SRCDIR)/curve.c $(TEST_LIBS) -o $(TESTDIR)/curve_O2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_curve_ui.c $(SRCDIR)/curve_ui.c $(SRCDIR)/curve.c $(SRCDIR)/browser.c $(SRCDIR)/recorder.c $(TEST_LIBS) -o $(TESTDIR)/curve_ui_O2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_tone.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/tone_O2
@@ -414,6 +421,9 @@ test: all
 	$(TESTDIR)/hash_O2
 	$(TESTDIR)/ramfs_O0
 	$(TESTDIR)/ramfs_O2
+	$(TESTDIR)/sumspan_O0
+	$(TESTDIR)/sumspan_O2
+	$(TESTDIR)/sumspan_c
 	$(TESTDIR)/copy_file
 	$(TESTDIR)/dlfcn build
 	$(TESTDIR)/dlopen_mem $(BUILDDIR)/invert.so
@@ -465,6 +475,9 @@ test: all
 	$(TESTDIR)/curve_ui_O2
 	$(TESTDIR)/tone_O0
 	$(TESTDIR)/tone_O2
+	$(TESTDIR)/downscale_O0
+	$(TESTDIR)/downscale_O2
+	$(TESTDIR)/downscale_c
 	$(TESTDIR)/browser_O0
 	$(TESTDIR)/browser_O2
 	$(TESTDIR)/colour_O0

@@ -2,13 +2,17 @@
 // SIMD paths:
 // -   x86_64 Linux/macOS:  SSE2 via <immintrin.h>
 // -   ARM64  macOS:        NEON via <arm_neon.h>
-// - TODO:          Windows:
+// - TODO: Windows
 
 #include "nolibc.h"
 
 #include "nl_gc.h"
 #include "nl_inotify.h"
 #include "nl_types.h"
+
+// Emits assembly kernel of nl_sumspan_u8 into this unit (x86-64 Linux)
+#define NL_SUMSPAN_IMPL
+#include "nl_sumspan.h"
 
 #include "ascii.h"
 #include "platform.h"
@@ -842,43 +846,100 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
       do_color ? nl_gc_alloc_atomic((size_t)(safe_dst_w * safe_dst_h * 3))
                : NULL;
 
-  if (!subpixel_g || (do_color && !subpixel_rgb)) {
+  // Cell edges (start | end) and one 64-bit sum per cell for row in hand
+  int32_t *cell_x =
+      nl_gc_alloc_atomic(sizeof(int32_t) * 2 * (size_t)safe_dst_w);
+  uint64_t *cell_acc =
+      nl_gc_alloc_atomic(sizeof(uint64_t) * (size_t)safe_dst_w);
+  // Colour: R G B sums per source column for the cell row in hand
+  uint32_t *col_acc =
+      do_color ? nl_gc_alloc_atomic(sizeof(uint32_t) * 3 * (size_t)src_w)
+               : NULL;
+
+  if (!subpixel_g || (do_color && !subpixel_rgb) || !cell_x || !cell_acc ||
+      (do_color && !col_acc)) {
     nl_gc_release(subpixel_g);
     nl_gc_release(subpixel_rgb);
+    nl_gc_release(cell_x);
+    nl_gc_release(cell_acc);
+    nl_gc_release(col_acc);
 
     return -1;
   }
 
   // Downscale and interpolate high-res frames to subpixel boundaries
+  // Edges of cell columns are same for every row, so they are worked out
+  // once and clamped to picture; a whole row of cells is then summed by
+  // nl_sumspan_u8 (assembly on x86-64 Linux, a C loop elsewhere): same sums
+  // either way
+  int32_t *cell_xs = cell_x;
+  int32_t *cell_xe = cell_x + safe_dst_w;
+  for (int x = 0; x < safe_dst_w; x++) {
+    int xs = (int)(x * bw), xe = (int)((x + 1) * bw);
+    if (xe <= xs) {
+      xe = xs + 1;
+    }
+
+    if (xe > src_w) {
+      xe = src_w;
+    }
+
+    if (xs > xe) {
+      xs = xe;
+    }
+
+    cell_xs[x] = xs;
+    cell_xe[x] = xe;
+  }
+
   for (int y = 0; y < safe_dst_h; y++) {
     int ys = (int)(y * bh), ye = (int)((y + 1) * bh);
     if (ye <= ys) {
       ye = ys + 1;
     }
 
+    if (ye > src_h) {
+      ye = src_h;
+    }
+
+    int rows = ye > ys ? ye - ys : 0;
+
     for (int x = 0; x < safe_dst_w; x++) {
-      int xs = (int)(x * bw), xe = (int)((x + 1) * bw);
-      if (xe <= xs) {
-        xe = xs + 1;
+      cell_acc[x] = 0;
+    }
+
+    for (int sy = ys; sy < ye; sy++) {
+      nl_sumspan_u8(gray + (size_t)sy * (size_t)src_w, cell_xs, cell_xe,
+                    safe_dst_w, cell_acc);
+    }
+
+    // Colour: rows of cell row are added up column by column (assembly),
+    // cells then only add columns: `rows` times less work than pixel by pixel
+    if (do_color) {
+      for (size_t i = 0; i < 3 * (size_t)src_w; i++) {
+        col_acc[i] = 0;
       }
 
-      long tg = 0;
+      for (int sy = ys; sy < ye; sy++) {
+        nl_addrow_u8(col_acc, rgb + (size_t)sy * (size_t)src_w * 3,
+                     3 * (size_t)src_w);
+      }
+    }
+
+    for (int x = 0; x < safe_dst_w; x++) {
+      int xs = cell_xs[x], xe = cell_xe[x];
+      long tg = (long)cell_acc[x];
       long tr = 0;
       long tgv = 0;
       long tb = 0;
-      int count = 0;
-      for (int sy = ys; sy < ye && sy < src_h; sy++) {
-        for (int sx = xs; sx < xe && sx < src_w; sx++) {
-          tg += gray[sy * src_w + sx];
-          if (do_color) {
-            const uint8_t *px = rgb + (sy * src_w + sx) * 3;
+      int count = rows * (xe - xs);
+      if (do_color) {
+        for (int sx = xs; sx < xe; sx++) {
+          const uint32_t *px = col_acc + (size_t)sx * 3;
 
-            tr += px[0];
-            tgv += px[1];
-            tb += px[2];
-          }
-
-          count++;
+          tr += px[0];
+          tgv += px[1];
+          tb += px[2];
         }
       }
 
@@ -917,6 +978,10 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
       }
     }
   }
+
+  nl_gc_release(cell_x);
+  nl_gc_release(cell_acc);
+  nl_gc_release(col_acc);
 
   // TEST:
   // Pseudo-3D "pop out" parallax effect
