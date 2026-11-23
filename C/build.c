@@ -746,12 +746,11 @@ static int run_bandwidth(void) {
 }
 #endif
 
-static void info(void) {
-  printf("Platform : %s\n", PLATFORM_NAME);
-  printf("CC       : %s\n", cc);
-  printf("Prefix   : %s%s\n", destdir, prefix);
-  printf("Plugins  : %s %s\n", PB_COMMON, PB_TARGET);
-  printf("Shared   : %s\n", PB_SHARED);
+// Software camera and pty driven checks are Linux only too
+static int run_e2e(void) {
+  nb_log("e2e is Linux only");
+
+  return 1;
 }
 
 int main(int argc, char **argv) {
