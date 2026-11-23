@@ -424,6 +424,8 @@ jobs:
         # on Windows a Git Bash path such as /d/a/... is not a path
         # native nb.exe understands
       - name: Install with SDK (layout check)
+         env:
+           MSYS_NO_PATHCONV: 1
         run: |
           set -euo pipefail
           $NB install-sdk PREFIX=/usr DESTDIR=stage
