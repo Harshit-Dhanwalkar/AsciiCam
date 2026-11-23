@@ -739,6 +739,46 @@ static void real_demo_and_plugins(const char *real_abs) {
     free(r.out.data);
   }
 
+  // --sandbox: plugins run in a locked-down child, picture and colour hooks
+  // still work and several plugins can be stacked
+  static const char *sb[] = {"glitch", "vhs", "ripple"};
+  for (int i = 0; i < 3; i++) {
+    char so[4200];
+    snprintf(so, sizeof so, "%s/%s.so", dir, sb[i]);
+    r = run(A("--demo", "-r", "20", "--sandbox", "-p", so, NULL), 1.2, -1, "q");
+    check(r.frames >= 8 && r.code == 0 &&
+              !contains(r.out.data, r.out.len, "switched off"),
+          "--sandbox plugin %s: loads and draws (%ld frames, exit %d)", sb[i],
+          r.frames, r.code);
+    free(r.out.data);
+  }
+  for (int i = 0; i < 2; i++) {
+    char so[4200];
+    snprintf(so, sizeof so, "%s/%s.so", dir, hooks[i]);
+    r = run(A("--demo", "-r", "20", "-C", "--sandbox", "-p", so, NULL), 1.5, -1,
+            "q");
+    double w = 0;
+    int have = warmth(&r.out, &w);
+    int pass = have && have0 &&
+               (i == 0 ? w > w0 + 15 : (w > w0 ? w - w0 : w0 - w) > 15);
+    check(r.frames >= 8 && r.code == 0 && pass,
+          "--sandbox plugin %s repaints colour pictures (warmth %s -> %s)",
+          hooks[i], num_str(have0, w0), num_str(have, w));
+    free(r.out.data);
+  }
+  {
+    char so1[4200];
+    char so2[4200];
+    snprintf(so1, sizeof so1, "%s/glitch.so", dir);
+    snprintf(so2, sizeof so2, "%s/vignette.so", dir);
+    r = run(A("--demo", "-r", "20", "--sandbox", "-p", so1, "-p", so2, NULL),
+            1.2, -1, "q");
+    check(r.frames >= 8 && r.code == 0,
+          "--sandbox with two plugins stacked (%ld frames, exit %d)", r.frames,
+          r.code);
+    free(r.out.data);
+  }
+
   // Mirror + colour keeps drawing (colour planes are flipped with luma)
   r = run(A("--demo", "-r", "20", "-C", "-f", NULL), 1.2, -1, "q");
   check(r.frames >= 8 && r.code == 0 &&
