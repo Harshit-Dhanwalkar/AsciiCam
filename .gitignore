@@ -80,3 +80,4 @@ C/models/config.json
 C/models/model.safetensors
 C/models/tensors.txt
 C/models/tokenizer.json
+__pycache__/
