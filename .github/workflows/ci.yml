@@ -132,6 +132,24 @@ jobs:
           make clean
           make -j4 CC="${{ matrix.cc }}" ${{ matrix.extra-make-args }} all
 
+      - name: Install SDK without make (Windows)
+        if: matrix.platform == 'windows'
+        working-directory: C
+        shell: bash
+        env:
+          NB: ./nb.exe
+        run: |
+          set -euo pipefail
+          ${{ matrix.cc }} -o nb.exe build.c
+          MSYS_NO_PATHCONV=1 "$NB" install-sdk PREFIX=/usr DESTDIR=stage
+          root=stage/usr
+          test -f "$root/bin/asciicam.exe"
+          test -f "$root/share/asciicam/plugins/invert.dll"
+          test -f "$root/share/asciicam/plugins/threshold.dll"
+          test -f "$root/share/asciicam/charsets/ascii.txt"
+          test -f "$root/share/asciicam/sdk/include/plugins.h"
+          test -f "$root/share/asciicam/sdk/filters/invert.c"
+
       - name: Unit + fuzz + GC + security + plugin tests (Linux nolibc)
         if: matrix.platform == 'linux'
         working-directory: C
@@ -328,30 +346,98 @@ jobs:
               -not -path '*/build/*' \
             | xargs clang-tidy -p .
 
+  # C/build.c + C/nb.h build everything without make on all three platforms
   nb-build:
-    name: Build without make (linux-x86_64)
-    runs-on: ubuntu-latest
+    name: Build without make (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.allow_failure }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runner: ubuntu-latest
+            platform: linux
+            exe: ""
+            so: so
+            allow_failure: false
+          - name: macos-arm64
+            runner: macos-26
+            platform: macos
+            exe: ""
+            so: dylib
+            allow_failure: false
+          # NOTE: First CI run of the Windows backend in nb.h (CreateProcess,
+          # direct compiler for plugins, no make). Does not fail the workflow
+          # until it has passed once; then set allow_failure to false
+          - name: windows-x86_64
+            runner: windows-latest
+            platform: windows
+            exe: .exe
+            so: dll
+            allow_failure: true
+    env:
+      NB: ./nb${{ matrix.exe }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: C
     steps:
       - uses: actions/checkout@v7
 
-      - name: Remove make
+      - name: Remove make (Linux)
+        if: matrix.platform == 'linux'
         run: |
           sudo rm -f /usr/bin/make /usr/bin/gmake
           ! command -v make
 
+      - name: Install MinGW (Windows)
+        if: matrix.platform == 'windows'
+        uses: egor-tensin/setup-mingw@v3
+        with:
+          platform: x64
+          version: "12.2.0"
+
       - name: Bootstrap build program
-        working-directory: C
-        run: cc -o nb build.c
+        run: |
+          if [ "${{ matrix.platform }}" = windows ]; then
+            gcc -Wall -Wextra -o nb.exe build.c
+          else
+            cc -Wall -Wextra -o nb build.c
+          fi
 
       - name: Build
-        working-directory: C
-        run: ./nb -j4
+        run: $NB -j4
+
+      - name: Smoke test --help
+        run: ./build/asciicam${{ matrix.exe }} --help | head -20
 
       - name: Unit tests
         working-directory: C
         run: ./nb test
 
       - name: End-to-end test
-        working-directory: C
-        run: ./nb e2e
+        if: matrix.platform == 'linux'
+        run: $NB e2e
 
+        # NOTE: DESTDIR is relative on purpose:
+        # on Windows a Git Bash path such as /d/a/... is not a path
+        # native nb.exe understands
+      - name: Install with SDK (layout check)
+        env:
+           MSYS_NO_PATHCONV: 1
+        run: |
+          set -euo pipefail
+          $NB install-sdk PREFIX=/usr DESTDIR=stage
+          root=stage/usr
+          test -f "$root/bin/asciicam${{ matrix.exe }}"
+          test -f "$root/share/asciicam/plugins/invert.${{ matrix.so }}"
+          test -f "$root/share/asciicam/plugins/threshold.${{ matrix.so }}"
+          test -f "$root/share/asciicam/charsets/ascii.txt"
+          test -f "$root/share/asciicam/sdk/include/plugins.h"
+          test -f "$root/share/asciicam/sdk/filters/invert.c"
+
+      - name: Clean
+        run: |
+          $NB clean
+          test ! -e build

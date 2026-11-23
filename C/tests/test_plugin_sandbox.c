@@ -70,13 +70,17 @@ static void rgb_swap(uint8_t *rgb, int w, int h, void *ctx) {
 // Remembers how often it ran (state a plugin keeps between frames)
 static void p_count(uint8_t *g, int w, int h, void *ctx) {
   static int calls;
-  (void)w, (void)h, (void)ctx;
+  (void)w;
+  (void)h;
+  (void)ctx;
   g[0] = (uint8_t)++calls;
 }
 
 // What plugin's real imports allow: small and large allocations
 static void p_alloc(uint8_t *g, int w, int h, void *ctx) {
-  (void)w, (void)h, (void)ctx;
+  (void)w;
+  (void)h;
+  (void)ctx;
   uint8_t *big = (uint8_t *)malloc(3u << 20); // Large: mmap behind malloc
   uint8_t *small = (uint8_t *)malloc(100);
   uint8_t *zero = (uint8_t *)calloc(64, 1);
@@ -95,68 +99,105 @@ static void p_alloc(uint8_t *g, int w, int h, void *ctx) {
 }
 
 static void p_open(uint8_t *g, int w, int h, void *ctx) {
-  (void)g, (void)w, (void)h, (void)ctx;
+  (void)g;
+  (void)w;
+  (void)h;
+  (void)ctx;
   __sc3(2 /* open */, (long)"/tmp/plugin_sandbox_pwned", 0x241 /* WC|T */,
         0644);
 }
 
 static void p_open_read(uint8_t *g, int w, int h, void *ctx) {
-  (void)g, (void)w, (void)h, (void)ctx;
+  (void)g;
+  (void)w;
+  (void)h;
+  (void)ctx;
   __sc3(2, (long)"/etc/passwd", 0, 0);
 }
 
 static void p_openat(uint8_t *g, int w, int h, void *ctx) {
-  (void)g, (void)w, (void)h, (void)ctx;
+  (void)g;
+  (void)w;
+  (void)h;
+  (void)ctx;
   __sc6(257, -100, (long)"/etc/passwd", 0, 0, 0, 0);
 }
 
 static void p_write(uint8_t *g, int w, int h, void *ctx) {
-  (void)g, (void)w, (void)h, (void)ctx;
+  (void)g;
+  (void)w;
+  (void)h;
+  (void)ctx;
   __sc3(1, 1, (long)"x", 1);
 }
 
 static void p_socket(uint8_t *g, int w, int h, void *ctx) {
-  (void)g, (void)w, (void)h, (void)ctx;
+  (void)g;
+  (void)w;
+  (void)h;
+  (void)ctx;
   __sc3(41, 2, 1, 0);
 }
 
 static void p_fork(uint8_t *g, int w, int h, void *ctx) {
-  (void)g, (void)w, (void)h, (void)ctx;
+  (void)g;
+  (void)w;
+  (void)h;
+  (void)ctx;
   __sc6(57, 0, 0, 0, 0, 0, 0);
 }
 
 static void p_clone(uint8_t *g, int w, int h, void *ctx) {
-  (void)g, (void)w, (void)h, (void)ctx;
+  (void)g;
+  (void)w;
+  (void)h;
+  (void)ctx;
   __sc6(56, 0x100, 0, 0, 0, 0, 0);
 }
 
 static void p_exec(uint8_t *g, int w, int h, void *ctx) {
-  (void)g, (void)w, (void)h, (void)ctx;
+  (void)g;
+  (void)w;
+  (void)h;
+  (void)ctx;
   __sc3(59, (long)"/bin/sh", 0, 0);
 }
 
 static void p_kill_app(uint8_t *g, int w, int h, void *ctx) {
-  (void)g, (void)w, (void)h;
+  (void)g;
+  (void)w;
+  (void)h;
   __sc3(62, *(int *)ctx, 9, 0); // ctx = app's pid
 }
 
 static void p_ptrace(uint8_t *g, int w, int h, void *ctx) {
-  (void)g, (void)w, (void)h;
+  (void)g;
+  (void)w;
+  (void)h;
   __sc6(101, 16, *(int *)ctx, 0, 0, 0, 0);
 }
 
 static void p_mmap_exec(uint8_t *g, int w, int h, void *ctx) {
-  (void)g, (void)w, (void)h, (void)ctx;
+  (void)g;
+  (void)w;
+  (void)h;
+  (void)ctx;
   __sc6(9, 0, 4096, 7 /* RWX */, 0x22, -1, 0);
 }
 
 static void p_mmap_rx(uint8_t *g, int w, int h, void *ctx) {
-  (void)g, (void)w, (void)h, (void)ctx;
+  (void)g;
+  (void)w;
+  (void)h;
+  (void)ctx;
   __sc6(9, 0, 4096, 5 /* R-X */, 0x22, -1, 0);
 }
 
 static void p_mprotect(uint8_t *g, int w, int h, void *ctx) {
-  (void)g, (void)w, (void)h, (void)ctx;
+  (void)g;
+  (void)w;
+  (void)h;
+  (void)ctx;
   long m = __sc6(9, 0, 4096, 3, 0x22, -1, 0); // Fine: RW
   __sc3(10 /* mprotect */, m, 4096, 5);       // Not fine: make it executable
 }
@@ -164,7 +205,9 @@ static void p_mprotect(uint8_t *g, int w, int h, void *ctx) {
 // mmap is allowed, so it must have nothing to map: tries every descriptor app
 // had open and reports in frame whether any of them could be mapped
 static void p_inherit(uint8_t *g, int w, int h, void *ctx) {
-  (void)w, (void)h, (void)ctx;
+  (void)w;
+  (void)h;
+  (void)ctx;
   g[0] = 0;
   for (int fd = 0; fd < 64; fd++) {
     long m = __sc6(9, 0, 4096, 1 /* PROT_READ */, 0x2 /* PRIVATE */, fd, 0);
@@ -175,24 +218,36 @@ static void p_inherit(uint8_t *g, int w, int h, void *ctx) {
 }
 
 static void p_segv(uint8_t *g, int w, int h, void *ctx) {
-  (void)g, (void)w, (void)h, (void)ctx;
+  (void)g;
+  (void)w;
+  (void)h;
+  (void)ctx;
   *(volatile int *)0 = 1;
 }
 
 static void p_ill(uint8_t *g, int w, int h, void *ctx) {
-  (void)g, (void)w, (void)h, (void)ctx;
+  (void)g;
+  (void)w;
+  (void)h;
+  (void)ctx;
   __asm__ volatile("ud2");
 }
 
 static void p_spin(uint8_t *g, int w, int h, void *ctx) {
-  (void)g, (void)w, (void)h, (void)ctx;
+  (void)g;
+  (void)w;
+  (void)h;
+  (void)ctx;
   for (;;) {
     __asm__ volatile("");
   }
 }
 
 static void p_exit(uint8_t *g, int w, int h, void *ctx) {
-  (void)g, (void)w, (void)h, (void)ctx;
+  (void)g;
+  (void)w;
+  (void)h;
+  (void)ctx;
   __sc1(231, 0);
 }
 
@@ -373,7 +428,7 @@ static void good_plugins(void) {
   pl.plugin = NULL;
   CHECK(plugin_run(&pl, 0, px, 16, 16, &p) == 0, "unloaded plugin");
 
-  // absurd picture: refused, not allocated
+  // Absurd picture: refused, not allocated
   make(&pl, &fp_invert, NULL);
   CHECK(plugin_run(&pl, 0, px, 100000, 100000, &p) < 0 && pl.disabled,
         "absurd frame size accepted");
@@ -390,7 +445,7 @@ static void lifecycle(void) {
     make(&pl, &fp_invert, NULL);
     plugin_run(&pl, 0, px, 16, 16, &p);
     plugin_sandbox_stop(&pl);
-    plugin_sandbox_stop(&pl); // twice is fine
+    plugin_sandbox_stop(&pl);
   }
 
   CHECK(lowest_fd() == before, "descriptors leaked");
@@ -427,7 +482,7 @@ static void hostile(void) {
       {"quit by itself", p_exit, "exited unexpectedly"},
   };
 
-  unlink("/tmp/plugin_sandbox_pwned"); // from an earlier failed run
+  unlink("/tmp/plugin_sandbox_pwned");
   long me = __sc1(39, 0);
   for (size_t i = 0; i < sizeof(bad) / sizeof(*bad); i++) {
     filter_plugin_t fp = {bad[i].fn, "evil"};

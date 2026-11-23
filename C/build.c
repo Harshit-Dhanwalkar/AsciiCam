@@ -28,7 +28,6 @@ static const char *cc = "gcc";
 static int jobs = 4;
 static const char *secs = "4"; // bandwidth: seconds per measurement
 
-
 #if defined(_WIN32)
 #define LINUX 0
 #define WINDOWS 1
@@ -126,10 +125,6 @@ static void cflags(nb_cmd *c) {
   nb_cmd_add(c, "-Iinclude", "-Ilib");
 #if LINUX
   nb_cmd_add(c, "-isystem", cc_include_dir());
-#elif WINDOWS
-  // Media foundation capture + winsock
-  nb_add_words(c, "-lmfplat -lmf -lmfreadwrite -lmfuuid -lole32 -loleaut32 "
-                  "-luuid -lstrmiids -lwinpthread -lws2_32");
 #endif
 }
 
@@ -137,6 +132,10 @@ static void ldflags(nb_cmd *c) {
 #if LINUX
   nb_cmd_add(c, "-nostdlib", "-nostdinc", "-Wl,--no-as-needed", "-B/usr/bin/",
              "-L/usr/lib/x86_64-linux-gnu", "-static", "-msse4.1");
+#elif WINDOWS
+  // Media foundation capture + winsock
+  nb_add_words(c, "-lmfplat -lmf -lmfreadwrite -lmfuuid -lole32 -loleaut32 "
+                  "-luuid -lstrmiids -lwinpthread -lws2_32");
 #else
   nb_add_words(c, "-framework AVFoundation -framework CoreMedia "
                   "-framework CoreVideo -framework Foundation -lpthread");
@@ -232,7 +231,7 @@ static int build_all(void) {
     all[na++] = core_src[i];
   }
 
-#if !WINDOWS // Windows uses system libc
+#if LINUX // nolibc: only Linux; macOS and Windows use system libc
   for (size_t i = 0; i < COUNT(lib_src); i++) {
     all[na++] = lib_src[i];
   }
@@ -647,9 +646,11 @@ static int run_e2e(void) {
   }
 
   nb_push(&c, "tests/fake_capture.c");
+#if LINUX // nolibc only; macOS uses system libc
   for (size_t i = 0; i < COUNT(lib_src); i++) {
     nb_push(&c, lib_src[i]);
   }
+#endif
 
   nb_cmd_add(&c, "-o", bin);
   ldflags(&c);
@@ -662,10 +663,22 @@ static int run_e2e(void) {
     return 0;
   }
 
+  nb_cmd ec = {0};
+  nb_cmd_add(&ec, cc, "-O1", "-Wall", "-Wextra", "-pthread", "-o",
+             BUILD "/tests/e2e", "tests/e2e.c");
+  if (!nb_run(&ec)) {
+    return 0;
+  }
+
+  nb_cmd er = {0};
+  nb_cmd_add(&er, BUILD "/tests/e2e", bin, BUILD "/asciicam");
+  int ok_c = nb_run(&er);
+
   nb_cmd py = {0};
   nb_cmd_add(&py, "python3", "tests/e2e_capture.py", bin, BUILD "/asciicam");
+  int ok_py = nb_run(&py);
 
-  return nb_run(&py);
+  return ok_c && ok_py;
 }
 #else
 static int run_tests(void) {
@@ -710,7 +723,6 @@ static int run_bandwidth(void) {
   return 1;
 }
 #endif
-
 
 static void info(void) {
   printf("Platform : %s\n", PLATFORM_NAME);
