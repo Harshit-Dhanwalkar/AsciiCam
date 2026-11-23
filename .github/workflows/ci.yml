@@ -132,6 +132,24 @@ jobs:
           make clean
           make -j4 CC="${{ matrix.cc }}" ${{ matrix.extra-make-args }} all
 
+      - name: Install SDK without make (Windows)
+        if: matrix.platform == 'windows'
+        working-directory: C
+        shell: bash
+        env:
+          NB: ./nb.exe
+        run: |
+          set -euo pipefail
+          ${{ matrix.cc }} -o nb.exe build.c
+          MSYS_NO_PATHCONV=1 "$NB" install-sdk PREFIX=/usr DESTDIR=stage
+          root=stage/usr
+          test -f "$root/bin/asciicam.exe"
+          test -f "$root/share/asciicam/plugins/invert.dll"
+          test -f "$root/share/asciicam/plugins/threshold.dll"
+          test -f "$root/share/asciicam/charsets/ascii.txt"
+          test -f "$root/share/asciicam/sdk/include/plugins.h"
+          test -f "$root/share/asciicam/sdk/filters/invert.c"
+
       - name: Unit + fuzz + GC + security + plugin tests (Linux nolibc)
         if: matrix.platform == 'linux'
         working-directory: C
