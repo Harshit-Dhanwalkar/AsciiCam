@@ -26,6 +26,10 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 
+#if defined(__linux__)
+#include "../include/plugin_build.h" // PB_SCRIPT: How app builds a plugin
+#endif
+
 static const char *BIN; // Program with software camera
 static int failures;
 
@@ -285,6 +289,12 @@ static run_t run(args_t a, double seconds, double quit_after, const char *key) {
     }
   }
 
+  // NOTE: Whatever program wrote last may still be waiting in terminal when
+  // exit is noticed (read, then it writes and exits, then waitpid): take it
+  while (pty_read(&p, &r.out, 10) > 0) {
+    // Continue
+  }
+
   r.code = done ? code : pty_finish(&p, 0.0); // kills it
   if (sent_at >= 0) {
     r.latency = pty_now() - sent_at;
@@ -386,6 +396,9 @@ static sess_t session(args_t a, const step_t *steps, int nsteps,
 
   return s;
 }
+
+static char START_DIR[4096]; // Location from run began
+static int write_file(const char *path, const void *d, size_t n);
 
 // One byte at a time, 4 ms apart (a slow link, tmux or ssh)
 static int trickle(step_t *dst, int at, step_t whole) {
@@ -800,6 +813,79 @@ static void real_demo_and_plugins(const char *real_abs) {
     free(r.out.data);
   }
 
+#if defined(__linux__)
+  // Every plugin under --sandbox, in colour mode so luma and colour hooks both
+  // run in locked-down child: a plugin that needs a call sandbox forbids is
+  // switched off with a "sandbox: <name> ..." message and picture stops
+  // changing
+  for (size_t i = 0; i < sizeof plugins / sizeof plugins[0]; i++) {
+    char so[4200];
+    snprintf(so, sizeof so, "%s/%s.so", dir, plugins[i]);
+    r = run(A("--sandbox", "--demo", "-r", "20", "-C", "-p", so, NULL), 1.2, -1,
+            "q");
+    check(r.frames >= 8 && r.code == 0 &&
+              !contains(r.out.data, r.out.len, "sandbox: "),
+          "plugin %s under --sandbox: keeps drawing (%ld frames, exit %d)",
+          plugins[i], r.frames, r.code);
+    free(r.out.data);
+  }
+
+  // A plugin that makes a call sandbox forbids is caught and switched off and
+  // program carries on. Built here way app builds one on demand
+  {
+    char sdir[] = "/tmp/asciicam_bad_XXXXXX";
+    if (mkdtemp(sdir)) {
+      char src[300], bad[300], cmd[5200];
+      snprintf(src, sizeof src, "%s/bad.c", sdir);
+      snprintf(bad, sizeof bad, "%s/bad.so", sdir);
+      // socket(2): in no allow list; written as raw system call because a
+      // plugin has no errno of its own to link with
+      static const char code[] =
+          "#include \"nolibc.h\"\n#include \"fx.h\"\n#include "
+          "\"plugins.h\"\n"
+          "void bad_process(uint8_t *g, int w, int h, void *ctx) {\n"
+          "  (void)g; (void)w; (void)h; (void)ctx;\n"
+          "#if defined(__x86_64__)\n"
+          "  long r;\n"
+          "  __asm__ volatile(\"syscall\" : \"=a\"(r) : \"0\"(41L), \"D\"(2L), "
+          "\"S\"(1L), \"d\"(0L) : \"rcx\", \"r11\", \"memory\");\n"
+          "#elif defined(__aarch64__)\n"
+          "  register long x0 __asm__(\"x0\") = 2;\n"
+          "  register long x1 __asm__(\"x1\") = 1;\n"
+          "  register long x2 __asm__(\"x2\") = 0;\n"
+          "  register long x8 __asm__(\"x8\") = 198;\n"
+          "  __asm__ volatile(\"svc 0\" : \"+r\"(x0) : \"r\"(x1), \"r\"(x2), "
+          "\"r\"(x8) : \"memory\");\n"
+          "#endif\n}\n"
+          "static filter_plugin_t self = {.process = bad_process, .name = "
+          "\"bad\"};\n"
+          "filter_plugin_t *plugin_get(void) { return &self; }\n"
+          "PLUGIN_ABI_EXPORT;\n";
+      write_file(src, code, sizeof code - 1);
+      snprintf(cmd, sizeof cmd, "sh -c '%s' sh '%s' '%s' '%s' 2>&1", PB_SCRIPT,
+               src, bad, START_DIR);
+      int built = system(cmd) == 0;
+      check(built,
+            "sandbox: test plugin builds with app's plugin build script");
+      if (built) {
+        r = run(A("--sandbox", "--demo", "-r", "20", "-C", "-p", bad, NULL),
+                1.5, -1, "q");
+        check(contains(r.out.data, r.out.len,
+                       "sandbox: bad tried a system call that is not allowed"),
+              "sandbox: forbidden system call is caught and named");
+        check(r.frames >= 8 && r.code == 0,
+              "sandbox: program carries on after plugin was stopped (%ld "
+              "frames, exit %d)",
+              r.frames, r.code);
+        free(r.out.data);
+      }
+
+      rm_rf(sdir);
+    }
+  }
+
+#endif
+
   // Mirror + colour keeps drawing (colour planes are flipped with luma)
   r = run(A("--demo", "-r", "20", "-C", "-f", NULL), 1.2, -1, "q");
   check(r.frames >= 8 && r.code == 0 &&
@@ -970,7 +1056,9 @@ static int play(args_t a, const pstep_t *steps, int nsteps, double total,
   }
 
   double t0 = pty_now();
-  int idx = 0, code = -1, done = 0;
+  int idx = 0;
+  int code = -1;
+  int done = 0;
   while (pty_now() - t0 < total && !done) {
     while (idx < nsteps && pty_now() - t0 >= steps[idx].at) {
       pty_write(&p, steps[idx].data, strlen(steps[idx].data));
@@ -989,6 +1077,21 @@ static int play(args_t a, const pstep_t *steps, int nsteps, double total,
     }
 
     done = pty_exited(&p, &code);
+  }
+
+  if (done) { // Last output can still be waiting in the terminal
+    for (;;) {
+      pty_buf rest = {0};
+      long got = pty_read(&p, &rest, 10);
+      if (rest.len) {
+        chunks_add(ch, pty_now() - t0, rest.data, rest.len);
+      }
+
+      free(rest.data);
+      if (got <= 0) {
+        break;
+      }
+    }
   }
 
   if (!done) {
