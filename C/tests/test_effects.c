@@ -28,6 +28,7 @@
 #include "../filters/motion.c"
 #include "../filters/neon_edge.c"
 #include "../filters/pixel_sort.c"
+#include "../filters/pixelate.c"
 #include "../filters/posterize.c"
 #include "../filters/ripple.c"
 #include "../filters/sepia.c"
@@ -92,6 +93,7 @@ static const effect_t effects[] = {
     {"neon_edge", neon_edge_process, 1},
     {"pixel_sort", pixel_sort_process, 1},
     {"posterize", posterize_process, 1},
+    {"pixelate", pixelate_process, 1},
     {"ripple", ripple_process, 1},
     {"sepia", sepia_process, 1},
     {"sharpen", sharpen_process, 1},
@@ -958,6 +960,7 @@ static void test_rgb_hooks(void) {
   } hooks[] = {{"thermal_rgb", thermal_rgb},
                {"sepia_rgb", sepia_rgb},
                {"solarize_rgb", solarize_rgb},
+               {"posterize_rgb", posterize_rgb},
                {"chromatic_rgb", chromatic_rgb}};
 
   for (size_t k = 0; k < sizeof(hooks) / sizeof(hooks[0]); k++) {
