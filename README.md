@@ -278,7 +278,6 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 
 ### Effect plugins
 
-Besides `edge_detect`, `invert` and `threshold`, `filters/` holds 25 effects.
 Each takes one parameter 0-255 (the `[128]` in the panel): 0 is "off", 128 is a
 default. `process()` only sees the luma plane, so in mono mode the "colour"
 effects (`thermal`, `sepia`, `chromatic`) are tone-curve approximations. In
@@ -298,14 +297,14 @@ picture from the plugins' luma output and then calls every plugin's
 without it load and run exactly as before, and the interface version
 (`PLUGIN_ABI`) did not change.
 
-| Look    | Plugins                                                                                                                        |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Analog  | `crt` (curved screen, scanlines), `vhs` (wobble, tracking band), `tv_static`, `chromatic` (edge fringing), `vignette`, `sepia` |
-| Digital | `glitch` (bursts), `pixel_sort`, `matrix_rain`, `dither_bayer`, `dither_fs` (levels set by the parameter)                      |
-| Motion  | `trails` (ghosting), `framediff` (highlight what moved), `motion` (detector: frames what moves, meter at the bottom)           |
-| Shape   | `neon_edge`, `ripple`, `fisheye`, `kaleidoscope` (2/4/8-fold), `thermal` (heat bands)                                          |
-| Tone    | `solarize` (flips tones above a threshold), `sharpen` (unsharp mask), `posterize` (fewer tones), `emboss` (relief)             |
-| Blocks  | `halftone` (print dots), `pixelate` (big pixels); the parameter sets the cell size                                             |
+| Look    | Plugins                                                                                                                                                                                                                                                                                      |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Analog  | `crt` (curved screen, scanlines), `vhs` (wobble, tracking band), `tv_static`, `chromatic` (edge fringing), `vignette`, `sepia`                                                                                                                                                               |
+| Digital | `glitch` (bursts), `pixel_sort`, `matrix_rain`, `dither_bayer`, `dither_fs` (levels set by the parameter)                                                                                                                                                                                    |
+| Motion  | `trails` (ghosting), `framediff` (highlight what moved), `motion` (detector: frames what moves, meter at the bottom)                                                                                                                                                                         |
+| Shape   | `neon_edge`, `ripple`, `fisheye`, `kaleidoscope` (2/4/8-fold), `thermal` (heat bands), `swirl` (twirl around the centre)                                                                                                                                                                     |
+| Tone    | `solarize` (flips tones above a threshold), `sharpen` (unsharp mask), `posterize` (fewer tones), `emboss` (relief), `equalize` (histogram equalisation: full contrast for an ASCII ramp), `bloom` (highlights glow), `nightvision` (lifted shadows, grain, round lens; green in colour mode) |
+| Blocks  | `halftone` (print dots), `pixelate` (big pixels); the parameter sets the cell size                                                                                                                                                                                                           |
 
 Shared helpers (bounds check, parameter clamp, integer sine and square root, PRNG)
 live in `include/fx.h`; none of the effects use floating point, libm or `malloc`.
