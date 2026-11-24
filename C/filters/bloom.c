@@ -37,8 +37,17 @@ void bloom_process(uint8_t *gray, int w, int h, void *ctx) {
 
     uint8_t *out = bloom_tmp + y * w;
     for (int x = 0; x < w; x++) {
-      int lo = x - r < 0 ? 0 : x - r;
-      int hi = x + r >= w ? w - 1 : x + r;
+      int lo = x - r;
+      if (lo < 0) {
+        lo = 0;
+      }
+      int hi = x + r;
+      if (hi >= w) {
+        hi = w - 1;
+      }
+      if (hi < 0) {
+        hi = 0;
+      }
       out[x] = (uint8_t)((bloom_sum[hi + 1] - bloom_sum[lo]) /
                          (uint32_t)(hi - lo + 1));
     }
@@ -52,8 +61,17 @@ void bloom_process(uint8_t *gray, int w, int h, void *ctx) {
     }
 
     for (int y = 0; y < h; y++) {
-      int lo = y - r < 0 ? 0 : y - r;
-      int hi = y + r >= h ? h - 1 : y + r;
+      int lo = y - r;
+      if (lo < 0) {
+        lo = 0;
+      }
+      int hi = y + r;
+      if (hi >= h) {
+        hi = h - 1;
+      }
+      if (hi < 0) {
+        hi = 0;
+      }
       int glow =
           (int)((bloom_sum[hi + 1] - bloom_sum[lo]) / (uint32_t)(hi - lo + 1));
       glow = glow * p / 255;
