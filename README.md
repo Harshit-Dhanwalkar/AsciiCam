@@ -278,12 +278,13 @@ gcc -O2 -fPIC -shared -Iinclude filters/my_filter.c -o build/my_filter.so
 
 ### Effect plugins
 
-Besides `edge_detect`, `invert` and `threshold`, `filters/` holds 19 effects.
+Besides `edge_detect`, `invert` and `threshold`, `filters/` holds 25 effects.
 Each takes one parameter 0-255 (the `[128]` in the panel): 0 is "off", 128 is a
 default. `process()` only sees the luma plane, so in mono mode the "colour"
 effects (`thermal`, `sepia`, `chromatic`) are tone-curve approximations. In
 colour mode (`-C`) they also repaint the picture itself: a heat palette, a
-brown sepia tint, red and blue channels sliding apart.
+brown sepia tint, red and blue channels sliding apart. `solarize` and
+`posterize` apply their tone table to every colour channel.
 
 **Colour hook for plugins:** export, next to `plugin_get()`,
 
@@ -308,9 +309,9 @@ without it load and run exactly as before, and the interface version
 
 Shared helpers (bounds check, parameter clamp, integer sine and square root, PRNG)
 live in `include/fx.h`; none of the effects use floating point, libm or `malloc`.
-Stateful ones (`trails`, `framediff`, `motion`, `glitch`, `matrix_rain`, ...) keep
-their history in static buffers sized for up to 1920x1080 and pass larger frames
-through untouched.
+Stateful ones (`trails`, `framediff`, `motion`, `glitch`, `matrix_rain`, ...) keep their
+history in static buffers sized for up to 1920x1080 and pass larger frames through
+untouched; `sharpen` and `emboss` only keep two rows of the picture.
 
 ### Shipping plugins
 
