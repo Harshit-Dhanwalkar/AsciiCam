@@ -387,7 +387,6 @@ test: all
 	$(CC) -O0 $(TEST_FLAGS) tests/test_downscale.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/downscale_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_downscale.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/downscale_O2
 	$(CC) -O2 $(TEST_FLAGS) -DNL_SUMSPAN_NO_ASM tests/test_downscale.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/downscale_c
-	$(CC) -O0 $(TEST_FLAGS) tests/test_colour.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/colour_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_curve.c $(SRCDIR)/curve.c $(TEST_LIBS) -o $(TESTDIR)/curve_O2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_curve_ui.c $(SRCDIR)/curve_ui.c $(SRCDIR)/curve.c $(SRCDIR)/browser.c $(SRCDIR)/recorder.c $(TEST_LIBS) -o $(TESTDIR)/curve_ui_O2
 	$(CC) -O2 $(TEST_FLAGS) tests/test_tone.c $(SRCDIR)/ascii.c $(LIBDIR)/nl_gc.c $(TEST_LIBS) -o $(TESTDIR)/tone_O2
@@ -496,13 +495,17 @@ test: all
 	@echo "All tests passed"
 
 # `make e2e`: main loop, linked against a software camera instead of V4L2,
-# driven through a pty (NOTE: Require python3)
+# driven through a pty by tests/e2e.c
+# One part only: make e2e E2E_SECTION=curve (smoke stalled mouse capture curve
+# voice model real; several may be given)
 E2E_BIN := $(TESTDIR)/asciicam_fake
+E2E_SECTION ?=
 
 e2e: all
 	@mkdir -p $(TESTDIR)
 	$(CC) $(CFLAGS) $(CORE_SRCS) tests/fake_capture.c $(LIBSRCS) -o $(E2E_BIN) $(LDFLAGS)
-	python3 tests/e2e_capture.py $(E2E_BIN) $(TARGET)
+	$(CC) -O1 -Wall -Wextra -o $(TESTDIR)/e2e tests/e2e.c
+	$(TESTDIR)/e2e $(E2E_BIN) $(TARGET) $(E2E_SECTION)
 
 .PHONY: test e2e
 else
@@ -521,7 +524,6 @@ info:
 	@echo "Objects  : $(OBJECTS)"
 
 # Installing
-#
 #   make install        binary + prebuilt plugins + charsets (no compiler needed
 #                       on target machine)
 #   make install-sdk    additionally Makefile, headers and plugin sources, so

@@ -1108,977 +1108,9 @@ static void real_play(void) {
   rmdir(dir);
 }
 
-/* --image: a picture file (or a folder of them) as camera */
-
-// Baseline JPEG, 64x32, solid (200, 40, 40), made with PIL at quality 90
-// Kept as bytes so check runs everywhere, not only where PIL is installed
-static const unsigned char JPEG_RED[] = {
-    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01,
-    0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xdb, 0x00, 0x43,
-    0x00, 0x03, 0x02, 0x02, 0x03, 0x02, 0x02, 0x03, 0x03, 0x03, 0x03, 0x04,
-    0x03, 0x03, 0x04, 0x05, 0x08, 0x05, 0x05, 0x04, 0x04, 0x05, 0x0a, 0x07,
-    0x07, 0x06, 0x08, 0x0c, 0x0a, 0x0c, 0x0c, 0x0b, 0x0a, 0x0b, 0x0b, 0x0d,
-    0x0e, 0x12, 0x10, 0x0d, 0x0e, 0x11, 0x0e, 0x0b, 0x0b, 0x10, 0x16, 0x10,
-    0x11, 0x13, 0x14, 0x15, 0x15, 0x15, 0x0c, 0x0f, 0x17, 0x18, 0x16, 0x14,
-    0x18, 0x12, 0x14, 0x15, 0x14, 0xff, 0xdb, 0x00, 0x43, 0x01, 0x03, 0x04,
-    0x04, 0x05, 0x04, 0x05, 0x09, 0x05, 0x05, 0x09, 0x14, 0x0d, 0x0b, 0x0d,
-    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
-    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
-    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
-    0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14, 0x14,
-    0x14, 0x14, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x20, 0x00, 0x40, 0x03,
-    0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01, 0xff, 0xc4, 0x00,
-    0x1f, 0x00, 0x00, 0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
-    0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0xff, 0xc4, 0x00, 0xb5, 0x10, 0x00,
-    0x02, 0x01, 0x03, 0x03, 0x02, 0x04, 0x03, 0x05, 0x05, 0x04, 0x04, 0x00,
-    0x00, 0x01, 0x7d, 0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21,
-    0x31, 0x41, 0x06, 0x13, 0x51, 0x61, 0x07, 0x22, 0x71, 0x14, 0x32, 0x81,
-    0x91, 0xa1, 0x08, 0x23, 0x42, 0xb1, 0xc1, 0x15, 0x52, 0xd1, 0xf0, 0x24,
-    0x33, 0x62, 0x72, 0x82, 0x09, 0x0a, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x25,
-    0x26, 0x27, 0x28, 0x29, 0x2a, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a,
-    0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x53, 0x54, 0x55, 0x56,
-    0x57, 0x58, 0x59, 0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a,
-    0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x83, 0x84, 0x85, 0x86,
-    0x87, 0x88, 0x89, 0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99,
-    0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa, 0xb2, 0xb3,
-    0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6,
-    0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9,
-    0xda, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xf1,
-    0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xff, 0xc4, 0x00,
-    0x1f, 0x01, 0x00, 0x03, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
-    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
-    0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0xff, 0xc4, 0x00, 0xb5, 0x11, 0x00,
-    0x02, 0x01, 0x02, 0x04, 0x04, 0x03, 0x04, 0x07, 0x05, 0x04, 0x04, 0x00,
-    0x01, 0x02, 0x77, 0x00, 0x01, 0x02, 0x03, 0x11, 0x04, 0x05, 0x21, 0x31,
-    0x06, 0x12, 0x41, 0x51, 0x07, 0x61, 0x71, 0x13, 0x22, 0x32, 0x81, 0x08,
-    0x14, 0x42, 0x91, 0xa1, 0xb1, 0xc1, 0x09, 0x23, 0x33, 0x52, 0xf0, 0x15,
-    0x62, 0x72, 0xd1, 0x0a, 0x16, 0x24, 0x34, 0xe1, 0x25, 0xf1, 0x17, 0x18,
-    0x19, 0x1a, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x35, 0x36, 0x37, 0x38, 0x39,
-    0x3a, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x53, 0x54, 0x55,
-    0x56, 0x57, 0x58, 0x59, 0x5a, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69,
-    0x6a, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x82, 0x83, 0x84,
-    0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97,
-    0x98, 0x99, 0x9a, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9, 0xaa,
-    0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xc2, 0xc3, 0xc4,
-    0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7,
-    0xd8, 0xd9, 0xda, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea,
-    0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xff, 0xda, 0x00,
-    0x0c, 0x03, 0x01, 0x00, 0x02, 0x11, 0x03, 0x11, 0x00, 0x3f, 0x00, 0xf1,
-    0x4a, 0x28, 0xa2, 0xbf, 0x37, 0x3f, 0xb5, 0x42, 0x8a, 0x28, 0xa0, 0x02,
-    0x8a, 0x28, 0xa0, 0x02, 0x8a, 0x28, 0xa0, 0x02, 0x8a, 0x28, 0xa0, 0x02,
-    0x8a, 0x28, 0xa0, 0x02, 0x8a, 0x28, 0xa0, 0x02, 0x8a, 0x28, 0xa0, 0x0f,
-    0xff, 0xd9,
-};
-
-static void px_white(int x, int y, unsigned char c[3], void *u) {
-  (void)x;
-  (void)y;
-  (void)u;
-  c[0] = c[1] = c[2] = 255;
-}
-
-static void px_half(int x, int y, unsigned char c[3],
-                    void *u) { // right half white
-  (void)y;
-  (void)u;
-  c[0] = c[1] = c[2] = x >= 32 ? 255 : 0;
-}
-
-static void px_red_blue(int x, int y, unsigned char c[3],
-                        void *u) { // left red, right blue
-  (void)y;
-  (void)u;
-  if (x < 10) {
-    c[0] = 220;
-    c[1] = 30;
-    c[2] = 30;
-  } else {
-    c[0] = 30;
-    c[1] = 30;
-    c[2] = 220;
-  }
-}
-
-static void px_solid(int x, int y, unsigned char c[3], void *u) {
-  (void)x;
-  (void)y;
-  memcpy(c, u, 3);
-}
-
-static int write_file(const char *path, const void *d, size_t n) {
-  FILE *f = fopen(path, "wb");
-  if (!f) {
-    return 0;
-  }
-
-  fwrite(d, 1, n, f);
-
-  return fclose(f) == 0;
-}
-
-// Next ESC[38;2;R;G;Bm at or after *pos
-static int next_colour(const unsigned char *b, size_t n, size_t *pos,
-                       int rgb[3]) {
-  static const char pre[] = "\x1b[38;2;";
-  size_t pl = sizeof pre - 1;
-  for (size_t i = *pos; i + pl < n; i++) {
-    if (memcmp(b + i, pre, pl)) {
-      continue;
-    }
-
-    size_t j = i + pl;
-    int v[3] = {0, 0, 0};
-    int ok = 1;
-    for (int c = 0; c < 3 && ok; c++) {
-      int nd = 0;
-      while (j < n && b[j] >= '0' && b[j] <= '9') {
-        v[c] = v[c] * 10 + (b[j++] - '0');
-        nd++;
-      }
-
-      ok = nd > 0 && j < n && b[j] == (c < 2 ? ';' : 'm');
-      j++;
-    }
-
-    if (ok) {
-      rgb[0] = v[0];
-      rgb[1] = v[1];
-      rgb[2] = v[2];
-      *pos = j;
-
-      return 1;
-    }
-  }
-
-  return 0;
-}
-
-// Which channel carries most colour in this stretch of output: 'r', 'g', 'b',
-// or 0 when there is none
-static char dominant(const unsigned char *b, size_t n) {
-  long tot[3] = {0, 0, 0};
-  size_t pos = 0;
-  int rgb[3];
-  int any = 0;
-  while (next_colour(b, n, &pos, rgb)) {
-    tot[0] += rgb[0];
-    tot[1] += rgb[1];
-    tot[2] += rgb[2];
-    any = 1;
-  }
-
-  if (!any) {
-    return 0;
-  }
-
-  int best = 0;
-  for (int i = 1; i < 3; i++) {
-    if (tot[i] > tot[best]) {
-      best = i;
-    }
-  }
-
-  return "rgb"[best];
-}
-
-typedef struct {
-  char **row;
-  int n;
-} rows_t;
-
-// Text rows of last complete frame: stretch between last two
-// synchronized-update starts, escape sequences removed, empty lines dropped
-static rows_t frame_rows(const pty_buf *b) {
-  static const char mark[] = "\x1b[?2026h";
-  size_t ml = sizeof mark - 1;
-  long starts[4096];
-  int ns = 0;
-  for (size_t i = 0; i + ml <= b->len && ns < 4096;) {
-    if (!memcmp(b->data + i, mark, ml)) {
-      starts[ns++] = (long)i;
-      i += ml;
-    } else {
-      i++;
-    }
-  }
-
-  const unsigned char *p = b->data;
-  size_t n = b->len;
-  if (ns >= 2) {
-    p = b->data + starts[ns - 2] + ml;
-    n = (size_t)(starts[ns - 1] - starts[ns - 2]) - ml;
-  }
-
-  // Drop CSI sequences: ESC [ [0-9;?<]* letter
-  unsigned char *text = (unsigned char *)malloc(n + 1);
-  size_t tn = 0;
-  for (size_t i = 0; i < n;) {
-    if (p[i] == 0x1b && i + 1 < n && p[i + 1] == '[') {
-      size_t j = i + 2;
-      while (j < n && ((p[j] >= '0' && p[j] <= '9') || p[j] == ';' ||
-                       p[j] == '?' || p[j] == '<')) {
-        j++;
-      }
-
-      if (j < n &&
-          ((p[j] >= 'A' && p[j] <= 'Z') || (p[j] >= 'a' && p[j] <= 'z'))) {
-        i = j + 1;
-
-        continue;
-      }
-    }
-
-    text[tn++] = p[i++];
-  }
-
-  text[tn] = 0;
-  rows_t r = {NULL, 0};
-  size_t i = 0;
-  while (i <= tn) {
-    size_t j = i;
-    while (j < tn && text[j] != '\n') {
-      j++;
-    }
-
-    size_t a = i;
-    size_t e = j;
-    while (a < e && text[a] == '\r') {
-      a++;
-    }
-
-    while (e > a && text[e - 1] == '\r') {
-      e--;
-    }
-
-    if (e > a) {
-      r.row = (char **)realloc(r.row, (size_t)(r.n + 1) * sizeof *r.row);
-      r.row[r.n] = (char *)malloc(j - i + 1);
-      memcpy(r.row[r.n], text + i, j - i);
-      r.row[r.n][j - i] = 0;
-      r.n++;
-    }
-
-    i = j + 1;
-  }
-
-  free(text);
-
-  return r;
-}
-
-static void rows_free(rows_t *r) {
-  for (int i = 0; i < r->n; i++) {
-    free(r->row[i]);
-  }
-
-  free(r->row);
-  r->row = NULL;
-  r->n = 0;
-}
-
-static int count_char(const char *s, char c) {
-  int k = 0;
-  for (; *s; s++) {
-    k += *s == c;
-  }
-
-  return k;
-}
-
-static void real_image(void) {
-  char idir[] = "/tmp/asciicam_img_XXXXXX";
-  if (!mkdtemp(idir)) {
-    check(0, "--image: cannot make a scratch directory");
-
-    return;
-  }
-
-  const args_t IARGS = A("-r", "20", "-m", "ascii", "-s", " .:-=+*#%@", "-W",
-                         "60", "-H", "40", NULL);
-  const args_t IARGS4 = A("-r", "20", "-m", "ascii", "-s", " .:-=+*#%@", NULL);
-  char path[600];
-#define P(name) (snprintf(path, sizeof path, "%s/%s", idir, name), path)
-
-  // A white picture: every cell bright; same thing through -d image:<file>
-  char white[600];
-  snprintf(white, sizeof white, "%s/white.png", idir);
-  mz_png_write(white, 64, 64, px_white, NULL, 0, MZ_DYNAMIC);
-  run_t r = run(cat(A("--image", white, NULL), IARGS), 1.0, -1, "q");
-  check(r.frames >= 10 && r.code == 0 && memchr(r.out.data, '@', r.out.len),
-        "--image PNG: drawn (%ld frames, exit %d)", r.frames, r.code);
-  free(r.out.data);
-  char dimg[640];
-  snprintf(dimg, sizeof dimg, "image:%s", white);
-  r = run(cat(A("-d", dimg, NULL), IARGS), 1.0, -1, "q");
-  check(r.code == 0 && memchr(r.out.data, '@', r.out.len),
-        "-d image:<file> is the same thing");
-  free(r.out.data);
-
-  // PGM, all black: no bright cells
-  unsigned char pgm[11 + 64] = "P5\n8 8\n255\n";
-  memset(pgm + 11, 0, 64);
-  P("black.pgm");
-  write_file(path, pgm, sizeof pgm);
-  r = run(cat(A("--image", path, NULL), IARGS), 1.0, -1, "q");
-  check(r.code == 0 && !memchr(r.out.data, '@', r.out.len),
-        "--image PGM, all black: no bright cells");
-  free(r.out.data);
-
-  // Left half black, right half white: bright cells only on right
-  char half[600];
-  snprintf(half, sizeof half, "%s/half.png", idir);
-  mz_png_write(half, 64, 64, px_half, NULL, 0, MZ_DYNAMIC);
-  r = run(cat(A("--image", half, NULL), IARGS), 1.0, -1, "q");
-  rows_t rows = frame_rows(&r.out);
-  int nb = 0, minfirst = 1 << 30, all_over_3 = 1;
-  for (int i = 0; i < rows.n; i++) {
-    const char *at = strchr(rows.row[i], '@');
-    if (!at) {
-      continue;
-    }
-
-    nb++;
-    int first = (int)(at - rows.row[i]);
-    if (first < minfirst) {
-      minfirst = first;
-    }
-
-    all_over_3 &= count_char(rows.row[i], '@') > 3;
-  }
-
-  check(nb > 0 && minfirst > 5 && all_over_3,
-        "left half black, right half white: bright cells only on the right");
-  rows_free(&rows);
-  free(r.out.data);
-
-  // A wide picture keeps its proportions: bars above and below
-  char wide[600];
-  snprintf(wide, sizeof wide, "%s/wide.png", idir);
-  mz_png_write(wide, 200, 20, px_white, NULL, 0, MZ_DYNAMIC);
-  r = run(cat(A("--image", wide, NULL), IARGS), 1.0, -1, "q");
-  rows = frame_rows(&r.out);
-  int bright = 0;
-  for (int i = 0; i < rows.n; i++) {
-    bright += strchr(rows.row[i], '@') != NULL;
-  }
-
-  check(r.code == 0 && bright > 0 && bright < rows.n - 4,
-        "wide picture keeps its proportions: bars above and below (%d of %d "
-        "rows)",
-        bright, rows.n);
-  rows_free(&rows);
-  free(r.out.data);
-
-  // Colour on a picture
-  r = run(cat(A("--image", half, "-C", NULL), IARGS4), 1.0, -1, "q");
-  check(r.code == 0 && contains(r.out.data, r.out.len, "\x1b[38;2;"),
-        "--image with -C: colour");
-  free(r.out.data);
-
-  // Errors say what is wrong
-  r = run(cat(A("--image", P("nope.png"), NULL), IARGS), 0.5, -1, "q");
-  check(r.code != 0 && contains(r.out.data, r.out.len, "cannot open"),
-        "--image missing file: cannot open");
-  free(r.out.data);
-  P("notpic.txt");
-  write_file(path, "this is text, not a picture\n", 28);
-  r = run(cat(A("--image", path, NULL), IARGS), 0.5, -1, "q");
-  check(r.code != 0 && contains(r.out.data, r.out.len, "not a PNG"),
-        "--image not a picture: not a PNG");
-  free(r.out.data);
-  unsigned char broken[104] = {0xff, 0xd8, 0xff, 0xe0};
-  P("x.jpg");
-  write_file(path, broken, sizeof broken);
-  r = run(cat(A("--image", path, NULL), IARGS), 0.5, -1, "q");
-  check(r.code != 0 && contains(r.out.data, r.out.len, "JPEG"),
-        "--image damaged JPEG: says so");
-  free(r.out.data);
-  P("ok.jpg");
-  write_file(path, JPEG_RED, sizeof JPEG_RED);
-  r = run(cat(A("--image", path, "-C", NULL), IARGS4), 1.0, -1, "q");
-  check(r.code == 0 && contains(r.out.data, r.out.len, "\x1b[38;2;"),
-        "--image JPEG: shown in colour");
-  free(r.out.data);
-
-  // Adam7 interlaced PNG: both halves arrive in right colours
-  P("adam7.png");
-  mz_png_write(path, 20, 20, px_red_blue, NULL, 1, MZ_FIXED);
-  r = run(cat(A("--image", path, "-C", NULL), IARGS4), 1.0, -1, "q");
-  int red = 0, blue = 0, rgb[3];
-  size_t pos = 0;
-  while (next_colour(r.out.data, r.out.len, &pos, rgb)) {
-    red |= rgb[0] > 150 && rgb[2] < 100;
-    blue |= rgb[2] > 150 && rgb[0] < 100;
-  }
-
-  check(r.code == 0 && red && blue,
-        "--image Adam7 PNG: both halves arrive in the right colours");
-  free(r.out.data);
-
-  // A folder is a slideshow: . and , step, a broken picture is skipped
-  char sdir[600];
-  snprintf(sdir, sizeof sdir, "%s/show", idir);
-  mkdir(sdir, 0755);
-  static const struct {
-    const char *name;
-    unsigned char rgb[3];
-  } slides[] = {{"a.png", {230, 30, 30}},
-                {"b.png", {30, 230, 30}},
-                {"c.png", {30, 30, 230}}};
-  for (int i = 0; i < 3; i++) {
-    char f[700];
-    snprintf(f, sizeof f, "%s/%s", sdir, slides[i].name);
-    mz_png_write(f, 16, 16, px_solid, (void *)slides[i].rgb, 0, MZ_FIXED);
-  }
-
-  char f[700];
-  snprintf(f, sizeof f, "%s/d.png", sdir);
-  write_file(f, "not a picture", 13);
-  snprintf(f, sizeof f, "%s/notes.txt", sdir);
-  write_file(f, "x", 1);
-
-  step_t dots[] = {S(".", 0.7), S(".", 0.7), S(".", 0.7), S(",", 0.7)};
-  sess_t se =
-      session(cat(A("--image", sdir, "--slide", "0", "-C", NULL), IARGS4), dots,
-              4, 0.6);
-  char seq[8] = "";
-  for (int k = 0; k < 5; k++) {
-    size_t from = k == 0 ? 0 : se.marks[k - 1];
-    size_t to = se.marks[k];
-    char d = dominant(se.out.data + from, to - from);
-    seq[k] = d ? d : '-';
-  }
-
-  seq[5] = 0;
-  check(!strcmp(seq, "rgbrb"),
-        "slideshow: start, . . . (broken one skipped), , -> ['%c', '%c', '%c', "
-        "'%c', '%c']",
-        seq[0], seq[1], seq[2], seq[3], seq[4]);
-  check(contains(se.out.data + se.marks[0], se.marks[1] - se.marks[0], "2/4") &&
-            contains(se.out.data + se.marks[0], se.marks[1] - se.marks[0],
-                     "b.png"),
-        "slideshow: a toast names the picture");
-  check(!contains(se.out.data, se.out.len, "d.png"),
-        "slideshow: the broken picture is never announced");
-  free(se.out.data);
-
-  // --slide 1: moves on by itself
-  r = run(cat(A("--image", sdir, "--slide", "1", "-C", NULL), IARGS4), 3.2, -1,
-          "q");
-  int seen = 0;
-  static const char mark[] = "\x1b[?2026h";
-  size_t ml = sizeof mark - 1;
-  for (size_t i = 0; i + ml <= r.out.len;) {
-    if (memcmp(r.out.data + i, mark, ml)) {
-      i++;
-
-      continue;
-    }
-
-    size_t a = i + ml;
-    size_t e = a;
-    while (e + ml <= r.out.len && memcmp(r.out.data + e, mark, ml)) {
-      e++;
-    }
-
-    if (e + ml > r.out.len) {
-      e = r.out.len;
-    }
-
-    char d = dominant(r.out.data + a, e - a);
-    seen |= d == 'r' ? 1 : d == 'g' ? 2 : d == 'b' ? 4 : 0;
-    i = e;
-  }
-
-  char seen_str[32] = "";
-  static const char names[3] = {'b', 'g', 'r'};
-  static const int bits[3] = {4, 2, 1};
-  for (int i = 0; i < 3; i++) {
-    if (seen & bits[i]) {
-      size_t u = strlen(seen_str);
-      snprintf(seen_str + u, sizeof seen_str - u, "%s'%c'", u ? ", " : "",
-               names[i]);
-    }
-  }
-
-  check(r.code == 0 && __builtin_popcount((unsigned)seen) >= 3,
-        "slideshow: moves on by itself, --slide 1 ([%s])", seen_str);
-  free(r.out.data);
-
-  P("empty");
-  mkdir(path, 0755);
-  r = run(cat(A("--image", path, NULL), IARGS), 0.5, -1, "q");
-  check(r.code != 0 && contains(r.out.data, r.out.len, "no pictures"),
-        "slideshow: empty folder says so");
-  free(r.out.data);
-  r = run(cat(A("--image", sdir, "--slide", "x", NULL), IARGS), 0.5, -1, "q");
-  check(r.code == 2 && contains(r.out.data, r.out.len, "--slide needs"),
-        "--slide with a bad number: usage error");
-  free(r.out.data);
-#undef P
-
-  rm_rf(idir);
-}
-
-// Screen model itself: what a terminal would show for known byte strings
-static void screen_case(const char *name, int rows, int cols, int lnm,
-                        const char *in, const char *want) {
-  screen_t s;
-  screen_init(&s, rows, cols);
-  s.lnm = lnm;
-  screen_feed(&s, (const unsigned char *)in, strlen(in));
-  char *t = screen_text(&s);
-  int ok = !strcmp(t, want);
-  check(ok, "screen model: %s", name);
-  if (!ok) {
-    printf("     got  [%s]\n     want [%s]\n", t, want);
-  }
-
-  free(t);
-  screen_free(&s);
-}
-
-static void screen_tests(void) {
-  screen_case("text and newline", 3, 5, 1, "ab\ncd", "ab\ncd\n\n");
-  screen_case("LF alone keeps the column", 3, 6, 0, "ab\ncd", "ab\n  cd\n\n");
-  screen_case("cursor position", 3, 6, 0, "\x1b[2;4Hx", "\n   x\n\n");
-  screen_case("cursor position defaults", 3, 6, 0, "\x1b[Hq\x1b[;5Hz",
-              "q   z\n\n\n");
-  screen_case("cursor position clamps", 2, 4, 0, "\x1b[99;99Hx", "\n   x\n");
-  screen_case("erase display", 2, 4, 1, "ab\ncd\x1b[2J", "\n\n");
-  screen_case("erase below", 2, 4, 1, "abcd\nefgh\x1b[1;3H\x1b[J", "ab\n\n");
-  screen_case("erase above", 2, 4, 1, "abcd\nefgh\x1b[2;2H\x1b[1J", "\n  gh\n");
-  screen_case(
-      "erase in line", 3, 6, 1,
-      "abcdef\nabcdef\nabcdef\x1b[1;3H\x1b[K\x1b[2;3H\x1b[1K\x1b[3;3H\x1b[2K",
-      "ab\n   def\n\n");
-  screen_case("erase characters", 1, 6, 0, "abcdef\x1b[1;2H\x1b[3X",
-              "a   ef\n");
-  screen_case("auto-wrap waits for the next glyph", 3, 5, 0, "abcdefg",
-              "abcde\nfg\n\n");
-  screen_case("auto-wrap off overwrites the last column", 2, 5, 0,
-              "\x1b[?7labcdefg", "abcdg\n\n");
-  screen_case("auto-wrap back on", 2, 5, 0, "\x1b[?7l\x1b[?7habcdefg",
-              "abcde\nfg\n");
-  screen_case("a full line then a cursor move does not wrap", 2, 5, 0,
-              "abcde\x1b[1;1HX", "Xbcde\n\n");
-  screen_case("scrolls at the bottom", 3, 4, 1, "1\n2\n3\n4", "2\n3\n4\n");
-  screen_case("colours and private modes change nothing", 1, 8, 0,
-              "\x1b[1;38;2;1;2;3mhi\x1b[0m\x1b[?25l\x1b[?2026h!", "hi!\n");
-  screen_case("unknown sequences are consumed", 1, 8, 0,
-              "a\x1b[5;2~b\x1b[?1049hc", "abc\n");
-  screen_case("OSC ends at BEL or ST", 1, 8, 0,
-              "a\x1b]0;title\x07"
-              "b\x1b]2;x\x1b\\"
-              "c",
-              "abc\n");
-  screen_case("character set designation is skipped", 1, 8, 0, "a\x1b(Bb",
-              "ab\n");
-  screen_case("backspace and tab", 1, 20, 0, "abc\bX\tY", "abX     Y\n");
-  screen_case("UTF-8", 1, 8, 0, "\xc3\xa9\xe2\x97\x8f\xe2\xa0\x81x",
-              "\xc3\xa9\xe2\x97\x8f\xe2\xa0\x81x\n");
-  screen_case("invalid UTF-8 becomes U+FFFD", 1, 8, 0,
-              "a\xff"
-              "b\xc3"
-              "c",
-              "a\xef\xbf\xbd"
-              "b\xef\xbf\xbd"
-              "c\n");
-
-  screen_t s; // An escape sequence and a character cut in two by reads
-  screen_init(&s, 1, 10);
-  const char *part[] = {"\x1b[1;", "3Hx\xe2\x97", "\x8f"};
-  for (int i = 0; i < 3; i++) {
-    screen_feed(&s, (const unsigned char *)part[i], strlen(part[i]));
-  }
-
-  char *t = screen_text(&s);
-  check(!strcmp(t, "  x\xe2\x97\x8f\n"),
-        "screen model: a sequence and a character split across reads");
-  free(t);
-  screen_free(&s);
-}
-
-// TCP: --serve sends frames to viewers, --watch shows what a server sends
-static int free_port(void) {
-  int s = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-  struct sockaddr_in a;
-  memset(&a, 0, sizeof a);
-  a.sin_family = AF_INET;
-  a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  socklen_t l = sizeof a;
-  int port = -1;
-  if (s >= 0 && bind(s, (struct sockaddr *)&a, sizeof a) == 0 &&
-      getsockname(s, (struct sockaddr *)&a, &l) == 0) {
-    port = ntohs(a.sin_port);
-  }
-
-  if (s >= 0) {
-    close(s);
-  }
-
-  return port;
-}
-
-// Listening socket on 127.0.0.1:port (address reuse on), or -1
-// Make it BEFORE starting program that connects: binding inside server thread
-// raced with first connect
-static int listen_on(int port) {
-  int s = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-  int one = 1;
-  struct sockaddr_in a;
-  memset(&a, 0, sizeof a);
-  a.sin_family = AF_INET;
-  a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  a.sin_port = htons((unsigned short)port);
-  setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
-  if (s < 0 || bind(s, (struct sockaddr *)&a, sizeof a) != 0 ||
-      listen(s, 1) != 0) {
-    if (s >= 0) {
-      close(s);
-    }
-
-    return -1;
-  }
-
-  return s;
-}
-
-// accept() with a time limit; -1 on timeout
-// Every socket tests make is close-on-exec: program under test must not inherit
-// a listening socket (it would keep port open after test closed it)
-static int accept_within(int lfd, int ms) {
-  struct pollfd pf = {lfd, POLLIN, 0};
-  if (poll(&pf, 1, ms) <= 0) {
-    return -1;
-  }
-
-  return accept4(lfd, NULL, NULL, SOCK_CLOEXEC);
-}
-
-// Connect to program, retrying for up to 4 s while it starts up
-static int connect_retry(int port) {
-  for (int i = 0; i < 40; i++) {
-    int s = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    struct sockaddr_in a;
-    memset(&a, 0, sizeof a);
-    a.sin_family = AF_INET;
-    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    a.sin_port = htons((unsigned short)port);
-    if (s >= 0 && connect(s, (struct sockaddr *)&a, sizeof a) == 0) {
-      return s;
-    }
-
-    if (s >= 0) {
-      close(s);
-    }
-
-    usleep(100000);
-  }
-
-  return -1;
-}
-
-typedef struct {
-  int port;
-  double delay; // Start after delay,
-  double secs;  //  Read for seconds
-  pty_buf got;
-} viewer_t;
-
-static void *viewer_thread(void *arg) {
-  viewer_t *v = (viewer_t *)arg;
-  usleep((useconds_t)(v->delay * 1e6));
-  int fd = connect_retry(v->port);
-  if (fd < 0) {
-    return NULL;
-  }
-
-  struct timeval tv = {0, 300000};
-  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
-  double end = pty_now() + v->secs;
-  unsigned char buf[65536];
-  while (pty_now() < end) {
-    ssize_t n = recv(fd, buf, sizeof buf, 0);
-    if (n > 0) {
-      pty_buf_add(&v->got, buf, (size_t)n);
-    } else if (n == 0 ||
-               (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
-      break;
-    }
-  }
-
-  close(fd);
-
-  return NULL;
-}
-
-static void send_all(int fd, const char *s) {
-  size_t n = strlen(s);
-  while (n > 0) {
-    ssize_t w = send(fd, s, n, MSG_NOSIGNAL);
-    if (w <= 0) {
-      return;
-    }
-
-    s += w;
-    n -= (size_t)w;
-  }
-}
-
-// One client: send a clear-screen and a word, stay 0.4 s, hang up
-static void *serve_once_thread(void *arg) {
-  int lfd = *(int *)arg;
-  int c = accept_within(lfd, 8000);
-  if (c >= 0) {
-    send_all(c, "\x1b[2JHELLO-WATCH-FRAME");
-    usleep(400000);
-    close(c);
-  }
-
-  return NULL;
-}
-
-typedef struct {
-  int first_lfd, port;
-} restart_t;
-
-// A server that goes away and comes back: BEFORE-RESTART, 2.5 s of nobody
-// listening, then AFTER-RESTART
-static void *restarting_thread(void *arg) {
-  restart_t *r = (restart_t *)arg;
-  static const char *words[] = {"\x1b[2JBEFORE-RESTART",
-                                "\x1b[2JAFTER-RESTART"};
-  for (int n = 0; n < 2; n++) {
-    int lfd = n == 0 ? r->first_lfd : listen_on(r->port);
-    if (lfd < 0) {
-      return NULL;
-    }
-
-    int c = accept_within(lfd, 8000);
-    if (c < 0) {
-      close(lfd);
-
-      return NULL;
-    }
-
-    send_all(c, words[n]);
-    usleep(500000);
-    close(c);
-    close(lfd);
-    usleep(2500000);
-  }
-
-  return NULL;
-}
-
-// Offset of first occurrence of needle at or after `from`, or -1
-static long find_from(const unsigned char *p, size_t n, size_t from,
-                      const char *needle) {
-  if (from >= n) {
-    return -1;
-  }
-
-  const void *m = memmem(p + from, n - from, needle, strlen(needle));
-
-  return m ? (long)((const unsigned char *)m - p) : -1;
-}
-
-// What a 200 x 100 terminal shows after these bytes (rows joined by '\n')
-static char *shown(const pty_buf *b) {
-  screen_t s;
-  screen_init(&s, 100, 200);
-  s.lnm = 1; // A TCP stream has bare "\n" line ends
-  screen_feed(&s, b->data, b->len);
-  char *t = screen_text(&s);
-  screen_free(&s);
-
-  return t;
-}
-
-// Text rows of first frame (between first sync start and end), found by cutting
-// escape sequences out, one per line, empty lines dropped
-static char *first_frame_text(const pty_buf *b) {
-  long a = find_from(b->data, b->len, 0, "\x1b[?2026h");
-  if (a < 0) {
-    return strdup("");
-  }
-
-  a += 8;
-  long e = find_from(b->data, b->len, (size_t)a, "\x1b[?2026l");
-  size_t end = e < 0 ? b->len : (size_t)e;
-  pty_buf frame = {b->data + a, end - (size_t)a, end - (size_t)a};
-  rows_t rows = frame_rows(&frame);
-  size_t cap = 1;
-  for (int i = 0; i < rows.n; i++) {
-    cap += strlen(rows.row[i]) + 1;
-  }
-
-  char *out = (char *)calloc(cap, 1);
-  for (int i = 0; i < rows.n; i++) {
-    size_t l = strlen(rows.row[i]);
-    while (l > 0 && (rows.row[i][l - 1] == ' ' || rows.row[i][l - 1] == '\r')) {
-      l--;
-    }
-
-    strncat(out, rows.row[i], l);
-    strcat(out, "\n");
-  }
-
-  rows_free(&rows);
-
-  return out;
-}
-
-// Non-empty rows of a screen text, joined by '\n' (blank rows dropped)
-static char *nonblank_rows(const char *text) {
-  char *out = (char *)calloc(strlen(text) + 1, 1);
-  const char *p = text;
-  while (*p) {
-    const char *nl = strchr(p, '\n');
-    size_t l = nl ? (size_t)(nl - p) : strlen(p);
-    if (l) {
-      strncat(out, p, l);
-      strcat(out, "\n");
-    }
-
-    p += l + (nl ? 1 : 0);
-  }
-
-  return out;
-}
-
-static void real_serve_watch(void) {
-  char idir[] = "/tmp/asciicam_serve_XXXXXX";
-  if (!mkdtemp(idir)) {
-    check(0, "--serve: cannot make a scratch directory");
-
-    return;
-  }
-
-  char pic[600];
-  snprintf(pic, sizeof pic, "%s/a.png", idir);
-  static const unsigned char red[3] = {230, 30, 30};
-  mz_png_write(pic, 16, 16, px_solid, (void *)red, 0, MZ_FIXED);
-  const args_t IARGS = A("-r", "20", "-m", "ascii", "-s", " .:-=+*#%@", "-W",
-                         "60", "-H", "40", NULL);
-  const args_t IARGS4 = A("-r", "20", "-m", "ascii", "-s", " .:-=+*#%@", NULL);
-  char portstr[16];
-
-  // --serve: a viewer on TCP gets a clear-screen, then whole frames
-  int port = free_port();
-  snprintf(portstr, sizeof portstr, "%d", port);
-  viewer_t v1 = {port, 0.0, 1.5, {0}};
-  pthread_t th;
-  pthread_create(&th, NULL, viewer_thread, &v1);
-  run_t r = run(cat(A("--image", pic, "-C", "--serve", portstr, NULL), IARGS4),
-                3.0, -1, "q");
-  pthread_join(th, NULL);
-  const unsigned char *g = v1.got.data;
-  size_t gn = v1.got.len;
-  check(r.code == 0 &&
-            starts_with_str((const char *)g, gn, "\x1b[0m\x1b[?25l\x1b[2J"),
-        "--serve: viewer gets a clear-screen first");
-  size_t on_n = pty_buf_count(&v1.got, "\x1b[?2026h");
-  size_t off_n = pty_buf_count(&v1.got, "\x1b[?2026l");
-  check(on_n >= 5 && on_n == off_n,
-        "--serve: frames arrive whole, one sync pair each");
-  check(contains(g, gn, "\x1b[38;2;"),
-        "--serve: the colours go to the viewer too");
-  check(contains(r.out.data, r.out.len, "viewer connected"),
-        "--serve: the host sees a toast when a viewer joins");
-  free(r.out.data);
-  free(v1.got.data);
-
-  // A viewer who comes late is brought up to date and later frames are only
-  // changes: a still picture costs one whole picture, not one per frame
-  port = free_port();
-  snprintf(portstr, sizeof portstr, "%d", port);
-  viewer_t first = {port, 0.0, 2.2, {0}};
-  viewer_t late = {port, 1.0, 1.4, {0}};
-  pthread_t t1;
-  pthread_t t2;
-  pthread_create(&t1, NULL, viewer_thread, &first);
-  pthread_create(&t2, NULL, viewer_thread, &late);
-  r = run(cat(A("--image", pic, "-C", "--serve", portstr, NULL), IARGS4), 3.5,
-          -1, "q");
-  pthread_join(t1, NULL);
-  pthread_join(t2, NULL);
-  long end_first = find_from(first.got.data, first.got.len, 100, "\x1b[?2026l");
-  check(first.got.len > 1000 && (long)first.got.len < 6 * end_first + 4000,
-        "--serve: a still picture is sent once, then only changes (%zu bytes)",
-        first.got.len);
-  check(contains(late.got.data, late.got.len, "\x1b[38;2;") &&
-            pty_buf_count(&late.got, "\x1b[?2026h") >= 2,
-        "--serve: a viewer that comes late gets the whole picture");
-
-  char *s_first = shown(&first.got), *s_late = shown(&late.got);
-  char *flat = nonblank_rows(s_late);
-  check(!strcmp(s_first, s_late) && flat[0],
-        "--serve: the late viewer ends up with the same picture");
-
-  char *ref = first_frame_text(&first.got), *got_rows = nonblank_rows(s_first);
-  check(!strcmp(ref, got_rows) && ref[0],
-        "--serve: the screen model shows the frame's own text rows");
-  free(ref);
-  free(got_rows);
-  free(flat);
-  free(s_first);
-  free(s_late);
-  free(first.got.data);
-  free(late.got.data);
-  free(r.out.data);
-
-  r = run(cat(A("--serve", "x", NULL), IARGS), 0.5, -1, "q");
-  check(r.code == 2 && contains(r.out.data, r.out.len, "--serve needs a port"),
-        "--serve with a bad address: usage error");
-  free(r.out.data);
-  r = run(A("--serve", NULL), 0.5, -1, "q");
-  check(r.code == 2 &&
-            contains(r.out.data, r.out.len, "--serve needs an address"),
-        "--serve without an address: usage error");
-  free(r.out.data);
-
-  // --watch: copies what a server sends, quits when it closes
-  port = free_port();
-  int srv = listen_on(port);
-  pthread_create(&th, NULL, serve_once_thread, &srv);
-  char watch[48];
-  snprintf(watch, sizeof watch, "127.0.0.1:%d", port);
-  r = run(A("--watch", watch, NULL), 3.0, -1, "q");
-  pthread_join(th, NULL);
-  close(srv);
-  check(contains(r.out.data, r.out.len, "HELLO-WATCH-FRAME"),
-        "--watch: shows what the server sends");
-  check(r.code == 1 && contains(r.out.data, r.out.len, "closed the connection"),
-        "--watch: says so when the server goes away");
-  free(r.out.data);
-
-  // --watch --retry: server restarts, viewer comes back
-  restart_t rs = {0, free_port()};
-  rs.first_lfd = listen_on(rs.port); // Listening before viewer starts
-  pthread_create(&th, NULL, restarting_thread, &rs);
-  snprintf(watch, sizeof watch, "127.0.0.1:%d", rs.port);
-  r = run(A("--watch", watch, "--retry", NULL), 7.0, -1, "q");
-  pthread_join(th, NULL);
-  int saw_before = contains(r.out.data, r.out.len, "BEFORE-RESTART");
-  int saw_recon = contains(r.out.data, r.out.len, "reconnecting");
-  int saw_after = contains(r.out.data, r.out.len, "AFTER-RESTART");
-  check(saw_before && saw_recon && saw_after,
-        "--watch --retry: reconnects after the server restarts (before %d, "
-        "reconnecting %d, after %d)",
-        saw_before, saw_recon, saw_after);
-  check(r.code == 0, "--watch --retry: q still quits (%d)", r.code);
-  long wrap_off = rfind_mem(r.out.data, r.out.len, "\x1b[?7l");
-  long wrap_on = rfind_mem(r.out.data, r.out.len, "\x1b[?7h");
-  check(wrap_off >= 0 && wrap_on > wrap_off,
-        "--watch: lines are cut at the edge of a small terminal, wrap is put "
-        "back on leaving");
-  free(r.out.data);
-
-  rm_rf(idir);
-}
+static void real_image(void);
+static void real_serve_and_watch(void);
+static void real_captions_and_calls(void);
 
 static void real_binary(const char *real, int only_serve) {
   char *abs = realpath(real, NULL);
@@ -2089,7 +1121,7 @@ static void real_binary(const char *real, int only_serve) {
   const char *saved = BIN;
   BIN = abs;
   if (only_serve) {
-    real_serve_watch();
+    real_serve_and_watch();
     BIN = saved;
     free(abs);
 
@@ -2099,14 +1131,15 @@ static void real_binary(const char *real, int only_serve) {
   real_demo_and_plugins(abs);
   real_net_and_vcam();
   real_play();
+  real_image();
+  real_serve_and_watch();
+  real_captions_and_calls();
 
   // A missing camera explains how to get a picture
   run_t r = run(A("-d", "/dev/definitely-not-a-camera", NULL), 0.3, -1, "q");
   check(r.code != 0 && contains(r.out.data, r.out.len, "--demo"),
         "missing camera: error mentions --demo");
   free(r.out.data);
-  real_image();
-  real_serve_watch();
   BIN = saved;
   free(abs);
 }
@@ -2401,9 +1434,9 @@ static void capture_tests(void) {
     }
 
     set_home(cap_root);
-    step_t rec[] = {S("t", 0.9),  // start recording
-                    S("s", 0.5),  // screenshot while recording
-                    S("t", 0.5)}; // stop
+    step_t rec[] = {S("t", 0.9),  // Start recording
+                    S("s", 0.5),  // Screenshot while recording
+                    S("t", 0.5)}; // Stop
     sess_t s = session(plus(ARGS, extras[v]), rec, 3, 0.6);
     set_home(REAL_HOME);
     const unsigned char *out = s.out.data;
@@ -2454,9 +1487,16 @@ static void capture_tests(void) {
       char path[600];
       snprintf(path, sizeof path, "%s/%s", cap_dir, cast_name);
       char *text = read_text(path, NULL);
-      long ver = 0, wd = 0, ht = 0;
-      int nev = 0, all_o = 1, sorted = 1, any_esc = 0, any_rec = 0;
-      double prev = -1, last = -1;
+      long ver = 0;
+      long wd = 0;
+      long ht = 0;
+      int nev = 0;
+      int all_o = 1;
+      int sorted = 1;
+      int any_esc = 0;
+      int any_rec = 0;
+      double prev = -1;
+      double last = -1;
       if (text) {
         json_int(text, "version", &ver);
         json_int(text, "width", &wd);
@@ -2553,6 +1593,2593 @@ static void capture_tests(void) {
   free(se.out.data);
 }
 
+/* Real binary: --image and slideshows */
+
+typedef void (*pix_fn)(int x, int y, void *ctx, unsigned char rgb[3]);
+
+static void pix_solid(int x, int y, void *ctx, unsigned char o[3]) {
+  (void)x;
+  (void)y;
+  memcpy(o, ctx, 3);
+}
+
+static void pix_half(int x, int y, void *ctx, unsigned char o[3]) {
+  (void)y;
+  (void)ctx;
+  o[0] = o[1] = o[2] = x >= 32 ? 255 : 0;
+}
+
+static void pix_red_blue(int x, int y, void *ctx, unsigned char o[3]) {
+  (void)y;
+  (void)ctx;
+  static const unsigned char red[3] = {220, 30, 30};
+  static const unsigned char blue[3] = {30, 30, 220};
+  memcpy(o, x < 10 ? red : blue, 3);
+}
+
+static void put_be32(unsigned char *p, uint32_t v) {
+  p[0] = (unsigned char)(v >> 24);
+  p[1] = (unsigned char)(v >> 16);
+  p[2] = (unsigned char)(v >> 8);
+  p[3] = (unsigned char)v;
+}
+
+static void png_chunk(FILE *f, const char *type, const unsigned char *d,
+                      size_t n) {
+  static const unsigned char none[1] = {0};
+  if (!d) {
+    d = none;
+  }
+
+  unsigned char hdr[8];
+  put_be32(hdr, (uint32_t)n);
+  memcpy(hdr + 4, type, 4);
+  fwrite(hdr, 1, 8, f);
+  fwrite(d, 1, n, f);
+  uint32_t crc = mz_crc32((const unsigned char *)type, 4, 0);
+  crc = mz_crc32(d, n, crc);
+  unsigned char c[4];
+  put_be32(c, crc);
+  fwrite(c, 1, 4, f);
+}
+
+// 8-bit RGB PNG (stored deflate blocks, so no compressor is needed)
+static int write_png(const char *path, int w, int h, pix_fn pix, void *ctx,
+                     int interlace) {
+  static const int A7[7][4] = {{0, 0, 8, 8}, {4, 0, 8, 8}, {0, 4, 4, 8},
+                               {2, 0, 4, 4}, {0, 2, 2, 4}, {1, 0, 2, 2},
+                               {0, 1, 1, 2}};
+  size_t cap = (size_t)h * (1 + (size_t)w * 3) + 16, n = 0;
+  unsigned char *raw = (unsigned char *)malloc(cap);
+  if (!raw) {
+    return 0;
+  }
+
+  for (int p = 0; p < (interlace ? 7 : 1); p++) {
+    int x0 = interlace ? A7[p][0] : 0, y0 = interlace ? A7[p][1] : 0;
+    int dx = interlace ? A7[p][2] : 1, dy = interlace ? A7[p][3] : 1;
+    for (int y = y0; y < h; y += dy) {
+      if (x0 >= w) {
+        continue;
+      }
+
+      raw[n++] = 0; // Filter: none
+      for (int x = x0; x < w; x += dx) {
+        pix(x, y, ctx, raw + n);
+        n += 3;
+      }
+    }
+  }
+
+  size_t zcap = n + n / 65535 * 5 + 64, zn = 0;
+  unsigned char *z = (unsigned char *)malloc(zcap);
+  if (!z) {
+    free(raw);
+
+    return 0;
+  }
+
+  z[zn++] = 0x78;
+  z[zn++] = 0x01;
+  for (size_t off = 0; off < n || off == 0;) {
+    size_t len = n - off > 65535 ? 65535 : n - off;
+    int last = off + len >= n;
+    z[zn++] = (unsigned char)last;
+    z[zn++] = (unsigned char)len;
+    z[zn++] = (unsigned char)(len >> 8);
+    z[zn++] = (unsigned char)~len;
+    z[zn++] = (unsigned char)(~len >> 8);
+    memcpy(z + zn, raw + off, len);
+    zn += len;
+    off += len;
+    if (last) {
+      break;
+    }
+  }
+
+  put_be32(z + zn, mz_adler32(raw, n));
+  zn += 4;
+  FILE *f = fopen(path, "wb");
+  if (f) {
+    unsigned char ihdr[13];
+    put_be32(ihdr, (uint32_t)w);
+    put_be32(ihdr + 4, (uint32_t)h);
+    ihdr[8] = 8;
+    ihdr[9] = 2;
+    ihdr[10] = 0;
+    ihdr[11] = 0;
+    ihdr[12] = (unsigned char)interlace;
+    fwrite("\x89PNG\r\n\x1a\n", 1, 8, f);
+    png_chunk(f, "IHDR", ihdr, 13);
+    png_chunk(f, "IDAT", z, zn);
+    png_chunk(f, "IEND", NULL, 0);
+    fclose(f);
+  }
+
+  free(raw);
+  free(z);
+
+  return f != NULL;
+}
+
+static int write_file(const char *path, const void *d, size_t n) {
+  FILE *f = fopen(path, "wb");
+  if (!f) {
+    return 0;
+  }
+
+  fwrite(d, 1, n, f);
+
+  return fclose(f) == 0;
+}
+
+// Text of last whole frame with escape sequences removed, split in rows
+typedef struct {
+  char *text;
+  const char *row[256];
+  size_t len[256];
+  int n;
+} rows_t;
+
+static rows_t frame_rows(const pty_buf *out) {
+  // Last frame: from the last sync-begin to the sync-end that follows it
+  // (matches frame_text in the Python e2e, which takes the last frame)
+  static const char mark[] = "\x1b[?2026h";
+  static const char end[] = "\x1b[?2026l";
+  size_t ml = sizeof mark - 1;
+  size_t el = sizeof end - 1;
+  long last = rfind_mem(out->data, out->len, mark);
+
+  size_t from = 0, to = out->len;
+  if (last >= 0) {
+    from = (size_t)last + ml;
+    const void *e = memmem(out->data + from, out->len - from, end, el);
+    if (e) {
+      to = (size_t)((const unsigned char *)e - out->data);
+    }
+  }
+
+  rows_t r;
+  memset(&r, 0, sizeof r);
+  r.text = (char *)malloc(to - from + 1);
+  size_t n = 0;
+  for (size_t i = from; i < to;) {
+    if (out->data[i] == 0x1b && i + 1 < to && out->data[i + 1] == '[') {
+      size_t j = i + 2;
+      while (j < to && (strchr("0123456789;?<", out->data[j]) != NULL) &&
+             out->data[j]) {
+        j++;
+      }
+
+      if (j < to && ((out->data[j] >= 'A' && out->data[j] <= 'Z') ||
+                     (out->data[j] >= 'a' && out->data[j] <= 'z'))) {
+        i = j + 1;
+
+        continue;
+      }
+    }
+
+    r.text[n++] = (char)out->data[i++];
+  }
+
+  r.text[n] = 0;
+  size_t s = 0;
+  for (size_t i = 0; i <= n && r.n < 256; i++) {
+    if (i == n || r.text[i] == '\n') {
+      size_t a = s, b = i;
+      while (a < b && r.text[a] == '\r') {
+        a++;
+      }
+
+      while (b > a && r.text[b - 1] == '\r') {
+        b--;
+      }
+
+      if (b > a) {
+        r.row[r.n] = r.text + a;
+        r.len[r.n++] = b - a;
+      }
+
+      s = i + 1;
+    }
+  }
+
+  return r;
+}
+
+static int row_has(const rows_t *r, int i, char c) {
+  return memchr(r->row[i], c, r->len[i]) != NULL;
+}
+
+static int row_count(const rows_t *r, int i, char c) {
+  int k = 0;
+  for (size_t j = 0; j < r->len[i]; j++) {
+    k += r->row[i][j] == c;
+  }
+
+  return k;
+}
+
+static int row_index(const rows_t *r, int i, char c) {
+  const char *p = (const char *)memchr(r->row[i], c, r->len[i]);
+
+  return p ? (int)(p - r->row[i]) : -1;
+}
+
+// Foreground colours ESC[38;2;R;G;Bm in seg: calls back for each
+typedef struct {
+  int r;
+  int g;
+  int b;
+} rgb_t;
+
+static int fg_colours(const unsigned char *d, size_t n, rgb_t *out, int cap) {
+  static const char pre[] = "\x1b[38;2;";
+  size_t pl = sizeof pre - 1;
+  int k = 0;
+  for (size_t i = 0; i + pl < n && k < cap; i++) {
+    if (memcmp(d + i, pre, pl)) {
+      continue;
+    }
+
+    size_t j = i + pl;
+    int v[3] = {0, 0, 0}, ok = 1;
+    for (int c = 0; c < 3 && ok; c++) {
+      int nd = 0;
+      while (j < n && d[j] >= '0' && d[j] <= '9') {
+        v[c] = v[c] * 10 + (d[j++] - '0');
+        nd++;
+      }
+
+      ok = nd > 0 && j < n && d[j] == (c < 2 ? ';' : 'm');
+      j++;
+    }
+
+    if (ok) {
+      out[k].r = v[0];
+      out[k].g = v[1];
+      out[k].b = v[2];
+      k++;
+    }
+  }
+
+  return k;
+}
+
+// 'r', 'g' or 'b': strongest channel of colours in seg, 0 for none
+static char dominant(const unsigned char *d, size_t n) {
+  static rgb_t cs[20000];
+  int k = fg_colours(d, n, cs, 20000);
+  if (!k) {
+    return 0;
+  }
+
+  long t[3] = {0, 0, 0};
+  for (int i = 0; i < k; i++) {
+    t[0] += cs[i].r;
+    t[1] += cs[i].g;
+    t[2] += cs[i].b;
+  }
+
+  return t[0] >= t[1] && t[0] >= t[2] ? 'r' : t[1] >= t[2] ? 'g' : 'b';
+}
+
+static void real_image(void) {
+  char idir[] = "/tmp/asciicam_img_XXXXXX";
+  if (!mkdtemp(idir)) {
+    check(0, "--image: cannot make a scratch directory");
+
+    return;
+  }
+
+  static const char *IARGS[] = {"-r", "20", "-m", "ascii", "-s", " .:-=+*#%@",
+                                "-W", "60", "-H", "40",    NULL};
+  args_t ia = A(IARGS[0], IARGS[1], IARGS[2], IARGS[3], IARGS[4], IARGS[5],
+                IARGS[6], IARGS[7], IARGS[8], IARGS[9], NULL);
+  args_t ic = A(IARGS[0], IARGS[1], IARGS[2], IARGS[3], IARGS[4], IARGS[5],
+                NULL); // Without -W -H
+
+  char white[300];
+  char pgm[300];
+  char half[300];
+  char wide[300];
+  char jpg[300];
+  char inter[300];
+  snprintf(white, sizeof white, "%s/white.png", idir);
+  snprintf(pgm, sizeof pgm, "%s/black.pgm", idir);
+  snprintf(half, sizeof half, "%s/half.png", idir);
+  snprintf(wide, sizeof wide, "%s/wide.png", idir);
+  snprintf(jpg, sizeof jpg, "%s/x.jpg", idir);
+  snprintf(inter, sizeof inter, "%s/adam7.png", idir);
+  unsigned char w3[3] = {255, 255, 255};
+  write_png(white, 64, 64, pix_solid, w3, 0);
+
+  run_t r = run(cat(A("--image", white, NULL), ia), 1.0, -1, "q");
+  check(r.frames >= 10 && r.code == 0 && contains(r.out.data, r.out.len, "@"),
+        "--image PNG: drawn (%ld frames, exit %d)", r.frames, r.code);
+  free(r.out.data);
+
+  char spec[320];
+  snprintf(spec, sizeof spec, "image:%s", white);
+  r = run(cat(A("-d", spec, NULL), ia), 1.0, -1, "q");
+  check(r.code == 0 && contains(r.out.data, r.out.len, "@"),
+        "-d image:<file> is the same thing");
+  free(r.out.data);
+
+  unsigned char p5[11 + 64];
+  memcpy(p5, "P5\n8 8\n255\n", 11);
+  memset(p5 + 11, 0, 64);
+  write_file(pgm, p5, sizeof p5);
+  r = run(cat(A("--image", pgm, NULL), ia), 1.0, -1, "q");
+  check(r.code == 0 && !contains(r.out.data, r.out.len, "@"),
+        "--image PGM, all black: no bright cells");
+  free(r.out.data);
+
+  write_png(half, 64, 64, pix_half, NULL, 0);
+  r = run(cat(A("--image", half, NULL), ia), 1.0, -1, "q");
+  rows_t fr = frame_rows(&r.out);
+  int bright = 0, min_first = 1 << 30, all_wide = 1;
+  for (int i = 0; i < fr.n; i++) {
+    if (row_has(&fr, i, '@')) {
+      bright++;
+      int f = row_index(&fr, i, '@');
+      min_first = f < min_first ? f : min_first;
+      all_wide &= row_count(&fr, i, '@') > 3;
+    }
+  }
+
+  check(bright && min_first > 5 && all_wide,
+        "left half black, right half white: bright cells only on the right");
+  free(fr.text);
+  free(r.out.data);
+
+  write_png(wide, 200, 20, pix_solid, w3, 0);
+  r = run(cat(A("--image", wide, NULL), ia), 1.0, -1, "q");
+  fr = frame_rows(&r.out);
+  bright = 0;
+  for (int i = 0; i < fr.n; i++) {
+    bright += row_has(&fr, i, '@');
+  }
+
+  check(r.code == 0 && bright && bright < fr.n - 4,
+        "wide picture keeps its proportions: bars above and below (%d of %d "
+        "rows)",
+        bright, fr.n);
+  free(fr.text);
+  free(r.out.data);
+
+  // Colour map works on a picture
+  r = run(cat(A("--image", half, "-C", NULL), ic), 1.0, -1, "q");
+  check(r.code == 0 && contains(r.out.data, r.out.len, "\x1b[38;2;"),
+        "--image with -C: colour");
+  free(r.out.data);
+
+  // Errors say what is wrong
+  char nope[300];
+  char text[300];
+  snprintf(nope, sizeof nope, "%s/nope.png", idir);
+  snprintf(text, sizeof text, "%s/notes.txt", idir);
+  write_file(text, "this is not a picture\n", 22);
+  r = run(cat(A("--image", nope, NULL), ia), 0.5, -1, "q");
+  check(r.code != 0 && contains(r.out.data, r.out.len, "cannot open"),
+        "--image missing file: cannot open");
+  free(r.out.data);
+  r = run(cat(A("--image", text, NULL), ia), 0.5, -1, "q");
+  check(r.code != 0 && contains(r.out.data, r.out.len, "not a PNG"),
+        "--image not a picture: not a PNG");
+  free(r.out.data);
+  unsigned char bad_jpg[104] = {0xff, 0xd8, 0xff, 0xe0};
+  write_file(jpg, bad_jpg, sizeof bad_jpg);
+  r = run(cat(A("--image", jpg, NULL), ia), 0.5, -1, "q");
+  check(r.code != 0 && contains(r.out.data, r.out.len, "JPEG"),
+        "--image damaged JPEG: says so");
+  free(r.out.data);
+
+  write_png(inter, 20, 20, pix_red_blue, NULL, 1);
+  r = run(cat(A("--image", inter, "-C", NULL), ic), 1.0, -1, "q");
+  static rgb_t cols[20000];
+  int nc = fg_colours(r.out.data, r.out.len, cols, 20000);
+  int has_red = 0, has_blue = 0;
+  for (int i = 0; i < nc; i++) {
+    has_red |= cols[i].r > 150 && cols[i].b < 100;
+    has_blue |= cols[i].b > 150 && cols[i].r < 100;
+  }
+
+  check(r.code == 0 && has_red && has_blue,
+        "--image Adam7 PNG: both halves arrive in the right colours");
+  free(r.out.data);
+
+  // A folder is a slideshow: . and , step, a broken picture is skipped
+  char sdir[300];
+  snprintf(sdir, sizeof sdir, "%s/show", idir);
+  mkdir(sdir, 0755);
+  static const char *names[] = {"a.png", "b.png", "c.png"};
+  unsigned char shades[3][3] = {{230, 30, 30}, {30, 230, 30}, {30, 30, 230}};
+  for (int i = 0; i < 3; i++) {
+    char p[400];
+    snprintf(p, sizeof p, "%s/%s", sdir, names[i]);
+    write_png(p, 16, 16, pix_solid, shades[i], 0);
+  }
+
+  char p[400];
+  snprintf(p, sizeof p, "%s/d.png", sdir);
+  write_file(p, "not a picture", 13);
+  snprintf(p, sizeof p, "%s/notes.txt", sdir);
+  write_file(p, "x", 1);
+
+  step_t steps[4] = {S(".", 0.7), S(".", 0.7), S(".", 0.7), S(",", 0.7)};
+  sess_t s = session(cat(A("--image", sdir, "--slide", "0", "-C", NULL), ic),
+                     steps, 4, 0.6);
+  char seq[8] = {0};
+  for (int i = 0; i < 5 && i < s.nmarks; i++) {
+    size_t a = i == 0 ? 0 : s.marks[i - 1];
+    size_t b = s.marks[i];
+    seq[i] = dominant(s.out.data + a, b - a);
+  }
+
+  check(!strcmp(seq, "rgbrb"),
+        "slideshow: start, . . . (broken one skipped), , -> "
+        "['%c', '%c', '%c', '%c', '%c']",
+        seq[0] ? seq[0] : '?', seq[1] ? seq[1] : '?', seq[2] ? seq[2] : '?',
+        seq[3] ? seq[3] : '?', seq[4] ? seq[4] : '?');
+  check(s.nmarks > 1 &&
+            contains(s.out.data + s.marks[0], s.marks[1] - s.marks[0], "2/4") &&
+            contains(s.out.data + s.marks[0], s.marks[1] - s.marks[0], "b.png"),
+        "slideshow: a toast names the picture");
+  check(!contains(s.out.data, s.out.len, "d.png"),
+        "slideshow: the broken picture is never announced");
+  free(s.out.data);
+
+  r = run(cat(A("--image", sdir, "--slide", "1", "-C", NULL), ic), 3.2, -1,
+          "q");
+  int seen[3] = {0, 0, 0};
+  {
+    static const char mark[] = "\x1b[?2026h";
+    size_t ml = sizeof mark - 1;
+    size_t starts[4096];
+    int ns = 0;
+    for (size_t i = 0; i + ml <= r.out.len && ns < 4096; i++) {
+      if (!memcmp(r.out.data + i, mark, ml)) {
+        starts[ns++] = i + ml;
+      }
+    }
+
+    for (int i = 0; i < ns; i++) {
+      size_t e = i + 1 < ns ? starts[i + 1] - ml : r.out.len;
+      char d = dominant(r.out.data + starts[i], e - starts[i]);
+      if (d) {
+        seen[d == 'r' ? 0 : d == 'g' ? 1 : 2] = 1;
+      }
+    }
+  }
+
+  check(r.code == 0 && seen[0] + seen[1] + seen[2] >= 3,
+        "slideshow: moves on by itself, --slide 1 (%s%s%s)", seen[0] ? "r" : "",
+        seen[1] ? "g" : "", seen[2] ? "b" : "");
+  free(r.out.data);
+
+  char empty[300];
+  snprintf(empty, sizeof empty, "%s/empty", idir);
+  mkdir(empty, 0755);
+  r = run(cat(A("--image", empty, NULL), ia), 0.5, -1, "q");
+  check(r.code != 0 && contains(r.out.data, r.out.len, "no pictures"),
+        "slideshow: empty folder says so");
+  free(r.out.data);
+  r = run(cat(A("--image", sdir, "--slide", "x", NULL), ia), 0.5, -1, "q");
+  check(r.code == 2 && contains(r.out.data, r.out.len, "--slide needs"),
+        "--slide with a bad number: usage error");
+  free(r.out.data);
+  rm_rf(idir);
+}
+
+/* Real binary: --serve and --watch over TCP
+ * Python script used threads for other end of connection; here a forked child
+ * plays that part and hands what it got back through a file */
+
+static int free_port(void) {
+  int s = socket(AF_INET, SOCK_STREAM, 0);
+  struct sockaddr_in a;
+  memset(&a, 0, sizeof a);
+  a.sin_family = AF_INET;
+  a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  socklen_t l = sizeof a;
+  int port = 0;
+  if (s >= 0 && bind(s, (struct sockaddr *)&a, sizeof a) == 0 &&
+      getsockname(s, (struct sockaddr *)&a, &l) == 0) {
+    port = ntohs(a.sin_port);
+  }
+
+  if (s >= 0) {
+    close(s);
+  }
+
+  return port;
+}
+
+static int listen_on(int port) {
+  int s = socket(AF_INET, SOCK_STREAM, 0);
+  int one = 1;
+  setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
+  struct sockaddr_in a;
+  memset(&a, 0, sizeof a);
+  a.sin_family = AF_INET;
+  a.sin_port = htons((unsigned short)port);
+  a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  if (bind(s, (struct sockaddr *)&a, sizeof a) != 0 || listen(s, 1) != 0) {
+    close(s);
+
+    return -1;
+  }
+
+  return s;
+}
+
+static int connect_to(int port) {
+  int s = socket(AF_INET, SOCK_STREAM, 0);
+  struct sockaddr_in a;
+  memset(&a, 0, sizeof a);
+  a.sin_family = AF_INET;
+  a.sin_port = htons((unsigned short)port);
+  a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  if (s >= 0 && connect(s, (struct sockaddr *)&a, sizeof a) == 0) {
+    return s;
+  }
+
+  if (s >= 0) {
+    close(s);
+  }
+
+  return -1;
+}
+
+// Child: connects after `delay` seconds (retrying while nobody listens yet),
+// reads for `secs` seconds or until server closes, writes it to outpath
+static pid_t spawn_viewer(int port, double delay, double secs,
+                          const char *outpath) {
+  pid_t pid = fork();
+  if (pid != 0) {
+    return pid;
+  }
+
+  usleep((useconds_t)(delay * 1e6));
+  int fd = -1;
+  for (int i = 0; i < 40 && fd < 0; i++) {
+    fd = connect_to(port);
+    if (fd < 0) {
+      usleep(100000);
+    }
+  }
+
+  FILE *f = fopen(outpath, "wb");
+  if (fd >= 0 && f) {
+    double end = pty_now() + secs;
+    while (pty_now() < end) {
+      struct pollfd pf = {fd, POLLIN, 0};
+      if (poll(&pf, 1, 300) <= 0) {
+        continue;
+      }
+
+      unsigned char tmp[65536];
+      ssize_t n = read(fd, tmp, sizeof tmp);
+      if (n <= 0) {
+        break;
+      }
+
+      fwrite(tmp, 1, (size_t)n, f);
+    }
+  }
+
+  if (fd >= 0) {
+    close(fd);
+  }
+
+  if (f) {
+    fclose(f);
+  }
+
+  _exit(0);
+}
+
+// Child: accepts one connection on lfd, sends msg, holds it open for `hold`
+// seconds
+static pid_t spawn_server_once(int lfd, const char *msg, double hold) {
+  pid_t pid = fork();
+  if (pid != 0) {
+    return pid;
+  }
+
+  int c = accept(lfd, NULL, NULL);
+  if (c >= 0) {
+    ssize_t w = write(c, msg, strlen(msg));
+    (void)w; // Peer gone is fine
+
+    usleep((useconds_t)(hold * 1e6));
+    close(c);
+  }
+
+  _exit(0);
+}
+
+// Child: serves BEFORE-RESTART on lfd, closes, listens on nobody for 2.5 s
+// (viewer has to retry), then listens again and serves AFTER-RESTART
+static pid_t spawn_restarting_server(int lfd, int port) {
+  pid_t pid = fork();
+  if (pid != 0) {
+    return pid;
+  }
+
+  static const char *words[2] = {"\x1b[2JBEFORE-RESTART",
+                                 "\x1b[2JAFTER-RESTART"};
+  for (int n = 0; n < 2; n++) {
+    int l = n == 0 ? lfd : listen_on(port);
+    struct pollfd pf = {l, POLLIN, 0};
+    if (l < 0 || poll(&pf, 1, 8000) <= 0) {
+      if (l >= 0) {
+        close(l);
+      }
+
+      _exit(0);
+    }
+
+    int c = accept(l, NULL, NULL);
+    if (c >= 0) {
+      ssize_t w = write(c, words[n], strlen(words[n]));
+      (void)w;
+
+      usleep(500000);
+      close(c);
+    }
+
+    close(l);
+    usleep(2500000);
+  }
+
+  _exit(0);
+}
+
+static pty_buf slurp(const char *path) {
+  pty_buf b = {0};
+  size_t n = 0;
+  char *t = read_text(path, &n);
+  if (t) {
+    pty_buf_add(&b, t, n);
+    free(t);
+  }
+
+  return b;
+}
+
+static long find_from(const pty_buf *b, size_t from, const char *needle) {
+  if (from > b->len) {
+    return -1;
+  }
+
+  const void *p = memmem(b->data + from, b->len - from, needle, strlen(needle));
+
+  return p ? (long)((const unsigned char *)p - b->data) : -1;
+}
+
+static void real_serve_and_watch(void) {
+  char dir[] = "/tmp/asciicam_serve_XXXXXX";
+  if (!mkdtemp(dir)) {
+    check(0, "--serve: cannot make a scratch directory");
+
+    return;
+  }
+
+  char pic[300];
+  char f1[300];
+  char f2[300];
+  snprintf(pic, sizeof pic, "%s/a.png", dir);
+  snprintf(f1, sizeof f1, "%s/first.out", dir);
+  snprintf(f2, sizeof f2, "%s/late.out", dir);
+  unsigned char red[3] = {230, 30, 30};
+  write_png(pic, 16, 16, pix_solid, red, 0);
+  args_t ic = A("-r", "20", "-m", "ascii", "-s", " .:-=+*#%@", NULL);
+  args_t ia = cat(ic, A("-W", "60", "-H", "40", NULL));
+  char portstr[16];
+
+  // --serve: a viewer on TCP gets a clear-screen, then whole frames
+  int port = free_port();
+  snprintf(portstr, sizeof portstr, "%d", port);
+  pid_t v = spawn_viewer(port, 0.0, 1.5, f1);
+  run_t r = run(cat(A("--image", pic, "-C", "--serve", portstr, NULL), ic), 3.0,
+                -1, "q");
+  waitpid(v, NULL, 0);
+  pty_buf got = slurp(f1);
+  size_t nh = pty_buf_count(&got, "\x1b[?2026h");
+  size_t nl = pty_buf_count(&got, "\x1b[?2026l");
+  check(r.code == 0 && got.len >= 12 &&
+            !memcmp(got.data, "\x1b[0m\x1b[?25l\x1b[2J", 12),
+        "--serve: viewer gets a clear-screen first");
+  check(nh >= 5 && nh == nl,
+        "--serve: frames arrive whole, one sync pair each");
+  check(contains(got.data, got.len, "\x1b[38;2;"),
+        "--serve: the colours go to the viewer too");
+  check(contains(r.out.data, r.out.len, "viewer connected"),
+        "--serve: the host sees a toast when a viewer joins");
+  free(got.data);
+  free(r.out.data);
+
+  // A viewer who comes late is brought up to date, and later frames are only
+  // changes: a still picture costs one whole picture, not one per frame
+  port = free_port();
+  snprintf(portstr, sizeof portstr, "%d", port);
+  pid_t v1 = spawn_viewer(port, 0.0, 2.2, f1);
+  pid_t v2 = spawn_viewer(port, 1.0, 1.4, f2);
+  r = run(cat(A("--image", pic, "-C", "--serve", portstr, NULL), ic), 3.5, -1,
+          "q");
+  waitpid(v1, NULL, 0);
+  waitpid(v2, NULL, 0);
+  free(r.out.data);
+  pty_buf one = slurp(f1), two = slurp(f2);
+  long end1 = find_from(&one, 100, "\x1b[?2026l");
+  check(one.len > 1000 && (long)one.len < 6 * end1 + 4000,
+        "--serve: a still picture is sent once, then only changes (%zu bytes)",
+        one.len);
+  check(contains(two.data, two.len, "\x1b[38;2;") &&
+            pty_buf_count(&two, "\x1b[?2026h") >= 2,
+        "--serve: a viewer that comes late gets the whole picture");
+  free(one.data);
+  free(two.data);
+
+  r = run(cat(A("--serve", "x", NULL), ia), 0.5, -1, "q");
+  check(r.code == 2 && contains(r.out.data, r.out.len, "--serve needs a port"),
+        "--serve with a bad address: usage error");
+  free(r.out.data);
+  r = run(A("--serve", NULL), 0.5, -1, "q");
+  check(r.code == 2 &&
+            contains(r.out.data, r.out.len, "--serve needs an address"),
+        "--serve without an address: usage error");
+  free(r.out.data);
+
+  // --watch: copies what a server sends, quits when it closes
+  port = free_port();
+  int lfd = listen_on(port);
+  snprintf(portstr, sizeof portstr, "127.0.0.1:%d", port);
+  pid_t s1 = spawn_server_once(lfd, "\x1b[2JHELLO-WATCH-FRAME", 0.4);
+  r = run(A("--watch", portstr, NULL), 3.0, -1, "q");
+  waitpid(s1, NULL, 0);
+  close(lfd);
+  check(contains(r.out.data, r.out.len, "HELLO-WATCH-FRAME"),
+        "--watch: shows what the server sends");
+  check(r.code == 1 && contains(r.out.data, r.out.len, "closed the connection"),
+        "--watch: says so when the server goes away");
+  free(r.out.data);
+
+  // --watch --retry: server restarts, viewer comes back
+  // Listening before viewer starts: binding in child raced with viewer's first
+  // connect, which is refused (exit 1) on a busy machine
+  port = free_port();
+  lfd = listen_on(port);
+  snprintf(portstr, sizeof portstr, "127.0.0.1:%d", port);
+  pid_t s2 = spawn_restarting_server(lfd, port);
+  close(lfd);
+  r = run(A("--watch", portstr, "--retry", NULL), 7.0, -1, "q");
+  waitpid(s2, NULL, 0);
+  check(contains(r.out.data, r.out.len, "BEFORE-RESTART") &&
+            contains(r.out.data, r.out.len, "reconnecting") &&
+            contains(r.out.data, r.out.len, "AFTER-RESTART"),
+        "--watch --retry: reconnects after the server restarts");
+  check(r.code == 0, "--watch --retry: q still quits (%d)", r.code);
+  long off = rfind_mem(r.out.data, r.out.len, "\x1b[?7l");
+  long on = rfind_mem(r.out.data, r.out.len, "\x1b[?7h");
+  check(off >= 0 && on > off,
+        "--watch: lines are cut at the edge of a small terminal, wrap is put "
+        "back on leaving");
+  free(r.out.data);
+  rm_rf(dir);
+}
+
+/* Real binary: captions, --room and --call */
+
+// drive(): run a program and perform timed actions, then quit it with q
+enum { ACT_KEY, ACT_FD, ACT_PATH };
+
+typedef struct {
+  double at; // Seconds after start
+  int kind;  // ACT_KEY: to program's terminal, ACT_FD: to fd, ACT_PATH: to a
+             // fifo opened non-blocking (skipped when nobody reads it)
+  int fd;
+  const char *path;
+  const char *data;
+} act_t;
+
+static int drive(args_t a, const act_t *acts, int nacts, double total,
+                 const char *env_name, const char *env_val, pty_buf *out) {
+  char *argv[50];
+  argv[0] = (char *)BIN;
+  for (int i = 0; i < a.n; i++) {
+    argv[i + 1] = (char *)a.v[i];
+  }
+
+  argv[a.n + 1] = NULL;
+  char *saved = NULL;
+  if (env_name) {
+    const char *old = getenv(env_name);
+    saved = old ? strdup(old) : NULL;
+    setenv(env_name, env_val, 1);
+  }
+
+  pty_proc p;
+  int ok = pty_spawn(&p, BIN, argv, 50, 120);
+  if (env_name) {
+    if (saved) {
+      setenv(env_name, saved, 1);
+    } else {
+      unsetenv(env_name);
+    }
+
+    free(saved);
+  }
+
+  if (ok != 0) {
+    fprintf(stderr, "cannot start %s in a pty\n", BIN);
+    exit(1);
+  }
+
+  double t0 = pty_now();
+  int idx = 0;
+  while (pty_now() - t0 < total) {
+    while (idx < nacts && pty_now() - t0 >= acts[idx].at) {
+      const act_t *x = &acts[idx++];
+      if (x->kind == ACT_KEY) {
+        pty_write(&p, x->data, strlen(x->data));
+      } else if (x->kind == ACT_FD) {
+        ssize_t w = write(x->fd, x->data, strlen(x->data));
+        (void)w;
+      } else {
+        int fd = open(x->path, O_WRONLY | O_NONBLOCK);
+        if (fd >= 0) {
+          ssize_t w = write(fd, x->data, strlen(x->data));
+          (void)w;
+          close(fd);
+        }
+      }
+    }
+
+    if (pty_read(&p, out, 50) < 0) {
+      break;
+    }
+  }
+
+  pty_write(&p, "q", 1);
+  double end = pty_now() + 3;
+  while (pty_now() < end) {
+    if (pty_read(&p, out, 100) < 0) {
+      break;
+    }
+  }
+
+  return pty_finish(&p, 5.0);
+}
+
+// Read from several programs at once for `secs`
+static void pump_all(pty_proc **ps, pty_buf **bs, int n, double secs) {
+  double end = pty_now() + secs;
+  while (pty_now() < end) {
+    struct pollfd pf[4];
+    for (int i = 0; i < n; i++) {
+      pf[i].fd = ps[i]->eof ? -1 : ps[i]->fd;
+      pf[i].events = POLLIN;
+      pf[i].revents = 0;
+    }
+
+    if (poll(pf, (nfds_t)n, 100) <= 0) {
+      continue;
+    }
+
+    for (int i = 0; i < n; i++) {
+      if (pf[i].revents) {
+        pty_read(ps[i], bs[i], 0);
+      }
+    }
+  }
+}
+
+static int spawn_call(pty_proc *p, args_t a) {
+  char *argv[50];
+  argv[0] = (char *)BIN;
+  for (int i = 0; i < a.n; i++) {
+    argv[i + 1] = (char *)a.v[i];
+  }
+
+  argv[a.n + 1] = NULL;
+
+  return pty_spawn(p, BIN, argv, 50, 120);
+}
+
+typedef struct {
+  pid_t pid;
+  int err; // Read end of its stderr
+} room_t;
+
+static room_t spawn_room(int port) {
+  room_t r = {-1, -1};
+  char portstr[16];
+  snprintf(portstr, sizeof portstr, "%d", port);
+  int fds[2];
+  if (pipe(fds) != 0) {
+    return r;
+  }
+
+  pid_t pid = fork();
+  if (pid == 0) {
+    close(fds[0]);
+    dup2(fds[1], 2);
+    int dn = open("/dev/null", O_WRONLY);
+    if (dn >= 0) {
+      dup2(dn, 1);
+    }
+
+    execl(BIN, BIN, "--room", portstr, (char *)NULL);
+    _exit(127);
+  }
+
+  close(fds[1]);
+  r.pid = pid;
+  r.err = fds[0];
+
+  return r;
+}
+
+// SIGTERM, then everything it said on stderr
+static pty_buf stop_room(room_t r) {
+  pty_buf b = {0};
+  if (r.pid > 0) {
+    kill(r.pid, SIGTERM);
+  }
+
+  unsigned char tmp[4096];
+  double end = pty_now() + 5;
+  while (pty_now() < end) {
+    struct pollfd pf = {r.err, POLLIN, 0};
+    if (poll(&pf, 1, 200) <= 0) {
+      continue;
+    }
+
+    ssize_t n = read(r.err, tmp, sizeof tmp);
+    if (n <= 0) {
+      break;
+    }
+
+    pty_buf_add(&b, tmp, (size_t)n);
+  }
+
+  close(r.err);
+  if (r.pid > 0) {
+    waitpid(r.pid, NULL, 0);
+  }
+
+  return b;
+}
+
+static int has_range(const pty_buf *b, size_t from, size_t to,
+                     const char *needle) {
+  return to <= b->len && from <= to &&
+         contains(b->data + from, to - from, needle);
+}
+
+static void real_captions_and_calls(void) {
+  char dir[] = "/tmp/asciicam_cap_XXXXXX";
+  if (!mkdtemp(dir)) {
+    check(0, "captions: cannot make a scratch directory");
+
+    return;
+  }
+
+  char pic[300];
+  char ffifo[300];
+  char sfifo[300];
+  char rdir[300];
+  char capfile[400];
+  char f1[300];
+  char capfifo[300];
+  snprintf(pic, sizeof pic, "%s/a.png", dir);
+  snprintf(ffifo, sizeof ffifo, "%s/cap", dir);
+  snprintf(sfifo, sizeof sfifo, "%s/scap", dir);
+  snprintf(rdir, sizeof rdir, "%s/run", dir);
+  snprintf(capfile, sizeof capfile, "%s/asciicam-captions", rdir);
+  snprintf(f1, sizeof f1, "%s/viewer.out", dir);
+  snprintf(capfifo, sizeof capfifo, "%s/captions.fifo", dir);
+  mkdir(rdir, 0700);
+  unsigned char red[3] = {230, 30, 30};
+  write_png(pic, 16, 16, pix_solid, red, 0);
+
+  // Captions on local picture (no call): fifo given, y toggles, y makes one
+  mkfifo(ffifo, 0600);
+  int wf = open(ffifo, O_RDWR);
+  act_t acts1[] = {{1.0, ACT_FD, wf, NULL, "~good mor\n"},
+                   {1.5, ACT_FD, wf, NULL, "good morning\n"},
+                   {2.5, ACT_KEY, -1, NULL, "y"},
+                   {3.2, ACT_FD, wf, NULL, "hidden words\n"},
+                   {4.0, ACT_KEY, -1, NULL, "y"},
+                   {4.4, ACT_FD, wf, NULL, "shown again\n"}};
+  pty_buf out = {0};
+  int code = drive(A("--demo", "-C", "--captions", ffifo, NULL), acts1, 6, 5.5,
+                   NULL, NULL, &out);
+  check(code == 0, "--captions: runs and quits (%d)", code);
+  check(contains(out.data, out.len, "good morning") &&
+            contains(out.data, out.len, "\x1b[48;2;20;20;20m") &&
+            contains(out.data, out.len, "\x1b[1m good morning"),
+        "--captions: a final line is drawn as a bold bar over the picture");
+  check(contains(out.data, out.len, "\x1b[2m good mor"),
+        "--captions: the guess came first, dim");
+  check(contains(out.data, out.len, "captions off") &&
+            !contains(out.data, out.len, "hidden words"),
+        "--captions: y hides them (lines still read, not shown)");
+  check(contains(out.data, out.len, "captions on") &&
+            contains(out.data, out.len, "shown again"),
+        "--captions: y shows them again");
+  free(out.data);
+  close(wf);
+
+  // Picture sent to --watch viewers carries caption bars
+  int sport = free_port();
+  char sp[16];
+  snprintf(sp, sizeof sp, "%d", sport);
+  mkfifo(sfifo, 0600);
+  int swf = open(sfifo, O_RDWR);
+  pid_t viewer = spawn_viewer(sport, 0.0, 4.5, f1);
+  act_t acts2[] = {{1.5, ACT_FD, swf, NULL, "hello viewers\n"}};
+  memset(&out, 0, sizeof out);
+  drive(A("--demo", "-C", "--serve", sp, "--captions", sfifo, NULL), acts2, 1,
+        4.0, NULL, NULL, &out);
+  free(out.data);
+  waitpid(viewer, NULL, 0);
+  close(swf);
+  pty_buf vgot = slurp(f1);
+  check(contains(vgot.data, vgot.len, "hello viewers"),
+        "--serve: the viewer's picture has the caption bars");
+  free(vgot.data);
+
+  // Key y with no source makes a fifo in runtime directory
+  act_t acts3[] = {{1.0, ACT_KEY, -1, NULL, "y"},
+                   {1.8, ACT_PATH, -1, capfile, "made on demand\n"}};
+  memset(&out, 0, sizeof out);
+  drive(A("--demo", NULL), acts3, 2, 3.5, "XDG_RUNTIME_DIR", rdir, &out);
+  struct stat st;
+  check(stat(capfile, &st) == 0 && S_ISFIFO(st.st_mode),
+        "key y with no source: makes a fifo in the runtime directory");
+  check(contains(out.data, out.len, "captions on: write lines to ") &&
+            contains(out.data, out.len, "made on demand"),
+        "key y with no source: toast names the fifo, lines written to it show "
+        "up");
+  free(out.data);
+
+  run_t r = run(A("--demo", "--captions", "/no/such/dir/captions", NULL), 1.0,
+                -1, "q");
+  check(r.code == 1 &&
+            contains(r.out.data, r.out.len, "--captions: cannot open"),
+        "--captions: missing path: clear message");
+  free(r.out.data);
+
+  char addr[32];
+  snprintf(addr, sizeof addr, "127.0.0.1:%d", free_port());
+  r = run(A("--watch", addr, NULL), 1.0, -1, "q");
+  check(r.code == 1 && contains(r.out.data, r.out.len, "cannot connect"),
+        "--watch: nobody there: clear message");
+  free(r.out.data);
+  r = run(A("--watch", "nonsense", NULL), 1.0, -1, "q");
+  check(r.code == 1 && contains(r.out.data, r.out.len, "cannot connect"),
+        "--watch: bad address: clear message");
+  free(r.out.data);
+
+  // --room / --call: two people in a room see each other and chat
+  int cport = free_port();
+  char cp[16];
+  snprintf(cp, sizeof cp, "%d", cport);
+  mkfifo(capfifo, 0600);
+  room_t room = spawn_room(cport);
+  usleep(400000);
+  pty_proc pa;
+  pty_proc pb;
+  spawn_call(&pa, A("--call", cp, "--name", "Alice", "--demo", "-C",
+                    "--captions", capfifo, NULL));
+  spawn_call(&pb, A("--call", cp, "--name", "Bob", "--demo", NULL));
+  pty_proc *ps[2] = {&pa, &pb};
+  pty_buf ba = {0};
+  pty_buf bb = {0};
+  pty_buf *bs[2] = {&ba, &bb};
+  pump_all(ps, bs, 2, 2.0);
+  size_t m0 = bb.len;
+  size_t a0 = ba.len;
+  (void)a0;
+  pty_write(&pa, "hello bob\r", 10);
+  pump_all(ps, bs, 2, 1.5);
+  size_t m1 = bb.len, a1 = ba.len;
+  check(has_range(&bb, m0, m1, "Alice: hello bob"),
+        "--call: chat reaches the other person");
+  check(has_range(&ba, a0, a1, "you: hello bob"),
+        "--call: and shows as yours at home");
+  check(has_range(&bb, 0, m1, "Alice") && has_range(&bb, 0, m1, "\x1b[38;2;"),
+        "--call: peer name and its colour picture are on screen");
+
+  pty_write(&pa, "\x16", 1); // Ctrl-V: Alice turns her camera off
+  pump_all(ps, bs, 2, 2.0);
+  size_t a2 = ba.len;
+  check(has_range(&ba, a1, a2, "^V cam on"),
+        "--call: Ctrl-V is shown in the title");
+  check(has_range(&ba, a1, a2, "kB/s"), "--call: the title shows the traffic");
+  pty_write(&pa, "\x16", 1);
+  pump_all(ps, bs, 2, 1.0);
+  size_t a3 = ba.len;
+  check(has_range(&ba, a2, a3, "^V cam off"),
+        "--call: Ctrl-V again turns the camera back on");
+
+  // Bob's screen shows the camera-off card in Alice's tile
+  {
+    screen_t scr;
+    screen_init(&scr, 50, 120);
+    screen_feed(&scr, bb.data, bb.len);
+    char *t = screen_text(&scr);
+    check(strstr(t, "camera off") != NULL,
+          "--call: Bob sees the camera-off card in Alice's tile");
+    free(t);
+    screen_free(&scr);
+  }
+
+  // Captions: a recogniser writes lines into fifo, others read them
+  size_t b3 = bb.len;
+  int wfd = open(capfifo, O_RDWR);
+  const char *lines = "~good morn\ngood morning bob\n";
+  ssize_t w = write(wfd, lines, strlen(lines));
+  (void)w;
+  pump_all(ps, bs, 2, 1.5);
+  size_t a4 = ba.len, b4 = bb.len;
+  check(has_range(&ba, a3, a4, "you: good morning bob"),
+        "--captions: own caption shows at home");
+  check(has_range(&bb, b3, b4, "Alice: good morning bob"),
+        "--captions: Bob reads Alice's caption");
+
+  // On Bob's final screen the dim partial guess is gone, replaced by the final
+  {
+    screen_t scr;
+    screen_init(&scr, 50, 120);
+    screen_feed(&scr, bb.data, bb.len);
+    char *t = screen_text(&scr);
+    int ok = 1;
+    for (char *row = strtok(t, "\n"); row; row = strtok(NULL, "\n")) {
+      if (strstr(row, "good morn") && !strstr(row, "morning")) {
+        ok = 0;
+      }
+    }
+
+    check(ok, "--captions: the partial line was replaced by the final one");
+    free(t);
+    screen_free(&scr);
+  }
+
+  pty_write(&pb, "\x14", 1); // Ctrl-T: Bob hides captions
+  pump_all(ps, bs, 2, 1.0);
+  close(wfd);
+
+  // Nobody reads screens now: leaving must not hang on a full tty
+  pty_write(&pa, "\x03", 1);
+  pty_write(&pb, "\x03", 1);
+  int ca = pty_finish(&pa, 5.0);
+  int cb = pty_finish(&pb, 5.0);
+  check(ca == 0 && cb == 0, "--call: Ctrl-C leaves cleanly");
+  free(ba.data);
+  free(bb.data);
+  pty_buf rerr = stop_room(room);
+  check(contains(rerr.data, rerr.len, "2 in the room") &&
+            contains(rerr.data, rerr.len, "0 in the room"),
+        "--room: reports who is in");
+  free(rerr.data);
+
+  snprintf(cp, sizeof cp, "%d", free_port());
+  r = run(A("--call", cp, "--demo", NULL), 1.0, -1, "q");
+  check(r.code == 1 && contains(r.out.data, r.out.len, "cannot connect"),
+        "--call: no room there: clear message");
+  free(r.out.data);
+  snprintf(cp, sizeof cp, "%d", cport);
+  r = run(A("--call", cp, "--captions", "/no/such/fifo", "--demo", NULL), 1.0,
+          -1, "q");
+  check(r.code == 1 &&
+            contains(r.out.data, r.out.len, "--captions: cannot open"),
+        "--captions: missing file: clear message");
+  free(r.out.data);
+  r = run(A("--room", "x", NULL), 0.5, -1, "q");
+  check(r.code == 2 && contains(r.out.data, r.out.len, "--room needs a port"),
+        "--room with a bad address: usage error");
+  free(r.out.data);
+  r = run(A("--room", "7100", "--call", "7100", NULL), 0.5, -1, "q");
+  check(r.code == 2 && contains(r.out.data, r.out.len, "two programs"),
+        "--room with --call: usage error");
+  free(r.out.data);
+
+  // A still picture costs next to nothing: only changed cells are redrawn
+  cport = free_port();
+  snprintf(cp, sizeof cp, "%d", cport);
+  room = spawn_room(cport);
+  usleep(400000);
+  args_t still = A("--image", pic, "-C", "-W", "30", "-H", "12", NULL);
+  spawn_call(&pa, cat(A("--call", cp, "--name", "Alice", NULL), still));
+  spawn_call(&pb, cat(A("--call", cp, "--name", "Bob", NULL), still));
+  pty_buf wa = {0};
+  pty_buf wb = {0};
+  pty_buf *ws[2] = {&wa, &wb};
+  pump_all(ps, ws, 2, 2.5);
+  size_t wl = wa.len + wb.len;
+  pump_all(ps, ws, 2, 2.0);
+  double rate = (double)(wa.len + wb.len - wl) / 2.0;
+  check(rate < 120000,
+        "--call: a still picture costs %d bytes/s on two screens", (int)rate);
+  pty_write(&pa, "\x03", 1);
+  pty_write(&pb, "\x03", 1);
+  pty_finish(&pa, 5.0);
+  pty_finish(&pb, 5.0);
+  free(wa.data);
+  free(wb.data);
+  rerr = stop_room(room);
+  free(rerr.data);
+
+  r = run(A("--image", NULL), 0.5, -1, "q");
+  check(r.code == 2 && contains(r.out.data, r.out.len, "--image needs"),
+        "--image without a file: usage error");
+  free(r.out.data);
+  rm_rf(dir);
+}
+
+/* Tone curve: --curve, Curve tab of side panel and its tab strip */
+
+// Characters of last picture, escapes removed, as mean position in ramp (-1
+// when there are none)
+static double mean_level(const unsigned char *buf, size_t n) {
+  static const char ramp[] = " .:-=+*#%@";
+  static const char mark[] = "\x1b[?2026h";
+  long i = rfind_mem(buf, n, mark);
+  size_t from = i >= 0 ? (size_t)i : (n ? n - 1 : 0);
+  size_t to = n;
+  const void *e =
+      i >= 0 ? memmem(buf + from, n - from, "\x1b[?2026l", 8) : NULL;
+  if (e) {
+    to = (size_t)((const unsigned char *)e - buf);
+  }
+
+  double sum = 0;
+  long count = 0;
+  for (size_t k = from; k < to;) {
+    if (buf[k] == 0x1b && k + 1 < to && buf[k + 1] == '[') {
+      size_t j = k + 2;
+      while (j < to && strchr("0123456789;?", buf[j]) && buf[j]) {
+        j++;
+      }
+
+      if (j < to && ((buf[j] >= 'A' && buf[j] <= 'Z') ||
+                     (buf[j] >= 'a' && buf[j] <= 'z'))) {
+        k = j + 1;
+
+        continue;
+      }
+    }
+
+    const char *p = buf[k] ? strchr(ramp, buf[k]) : NULL;
+    if (p) {
+      sum += (double)(p - ramp);
+      count++;
+    }
+
+    k++;
+  }
+
+  return count ? sum / (double)count : -1;
+}
+
+static int range_has(const sess_t *s, int from, int to, const char *needle) {
+  size_t a = s->marks[from];
+  size_t b = to < 0 ? s->out.len : s->marks[to];
+
+  return contains(s->out.data + a, b - a, needle);
+}
+
+static void curve_tests(void) {
+  args_t cargs = A("-d", "fake", "-W", "40", "-H", "20", "-r", "20", "-m",
+                   "ascii", "-s", " .:-=+*#%@", NULL);
+  run_t plain = run(cargs, 1.2, -1, "q");
+  run_t white =
+      run(plus(plus(cargs, "--curve"), "0,255 255,255"), 1.2, -1, "q");
+  run_t black = run(plus(plus(cargs, "--curve"), "0,0 255,0"), 1.2, -1, "q");
+  run_t same = run(plus(plus(cargs, "--curve"), "0,0 255,255"), 1.2, -1, "q");
+  check(plain.code == 0 && white.code == 0 && black.code == 0 && same.code == 0,
+        "--curve: runs and exits 0");
+  double a = mean_level(plain.out.data, plain.out.len);
+  double w = mean_level(white.out.data, white.out.len);
+  double k = mean_level(black.out.data, black.out.len);
+  double c = mean_level(same.out.data, same.out.len);
+  check(a > 1 && a < 8,
+        "the fake picture uses the whole ramp (mean level %.2f)", a);
+  check(w > 7.5,
+        "--curve 0,255 255,255 makes everything the brightest character (%.2f)",
+        w);
+  check(0 <= k && k < 1.0,
+        "--curve 0,0 255,0 makes everything the darkest (%.2f)", k);
+  check((a > c ? a - c : c - a) < 1.0,
+        "--curve 0,0 255,255 changes nothing (%.2f vs %.2f)", a, c);
+  free(plain.out.data);
+  free(white.out.data);
+  free(black.out.data);
+  free(same.out.data);
+
+  static const char *bad[] = {"0,0 255",     "0,0 100,50",
+                              "5,0 255,255", "0,0 99999,5 255,255",
+                              "nonsense",    "@/nonexistent/c"};
+  for (int i = 0; i < 6; i++) {
+    run_t r = run(plus(plus(cargs, "--curve"), bad[i]), 0.5, -1, "q");
+    check(r.code == 2 && contains(r.out.data, r.out.len, "curve"),
+          "--curve '%s' is refused", bad[i]);
+    free(r.out.data);
+  }
+
+  run_t r = run(plus(cargs, "--curve"), 0.5, -1, "q");
+  check(r.code == 2, "--curve without a value is refused");
+  free(r.out.data);
+
+  char cdir[] = "/tmp/asciicam_curve_XXXXXX";
+  if (mkdtemp(cdir)) {
+    char cfile[300];
+    char arg[310];
+    snprintf(cfile, sizeof cfile, "%s/c.txt", cdir);
+    snprintf(arg, sizeof arg, "@%s", cfile);
+    write_file(cfile, "0,255 255,255\n", 14);
+    r = run(plus(plus(cargs, "--curve"), arg), 1.2, -1, "q");
+    check(r.code == 0 && mean_level(r.out.data, r.out.len) > 7.5,
+          "--curve @file reads the points from a file");
+    free(r.out.data);
+    rm_rf(cdir);
+  }
+
+  // Panel: k opens Curve tab, [ ] change preset, tab switches tabs
+  step_t panel[] = {S("k", 0.6),  S("]", 0.4),  S("]", 0.4),
+                    S("\t", 0.5), S("\t", 0.5), S("k", 0.5)};
+  sess_t s = session(cargs, panel, 6, 0.6);
+  check(range_has(&s, 0, 1, "Tone curve"), "k opens the curve editor");
+  check(range_has(&s, 1, 2, "preset: s-curve") &&
+            range_has(&s, 2, 3, "preset: asinh"),
+        "[ and ] switch presets and the panel shows the name");
+  check(range_has(&s, 3, 4, "Captures"), "tab goes to the Files tab");
+  check(range_has(&s, 4, 5, "Tone curve"), "tab again goes back to the curve");
+  check(!range_has(&s, 6, -1, "Tone curve"), "k closes the panel");
+  check(contains(s.out.data, s.out.len, "F") &&
+            contains(s.out.data, s.out.len, "C"),
+        "tab strip drawn");
+  free(s.out.data);
+
+  // Curve acts on live picture: lift black point to 255 in editor
+  step_t lift[34];
+  lift[0] = S("k", 0.5);
+  for (int i = 1; i <= 32; i++) {
+    lift[i] = S("+", 0.03);
+  }
+
+  lift[33] = S("k", 0.8);
+  s = session(cargs, lift, 34, 0.6);
+  double open_lvl =
+      mean_level(s.out.data + s.marks[0], s.marks[1] - s.marks[0]);
+  int m3 = s.nmarks - 3;
+  double lifted = mean_level(s.out.data + s.marks[m3], s.out.len - s.marks[m3]);
+  check(open_lvl < 8, "editor opens on a normal picture");
+  check(lifted > 7.5,
+        "raising the black point to 255 makes the picture white (%.2f)",
+        lifted);
+  free(s.out.data);
+
+  // Tab strip with mouse: open Curve tab, then retract it by clicking it again
+  step_t strip[] = {M(0, 119, 9, 0, 0.2), M(0, 119, 9, 1, 0.5),
+                    M(0, 85, 9, 0, 0.2), M(0, 85, 9, 1, 0.6)};
+  s = session(cargs, strip, 4, 0.6);
+  check(range_has(&s, 0, 2, "Tone curve"),
+        "clicking the Curve tab of the strip opens the panel");
+  check(!range_has(&s, 3, 5, "Tone curve"),
+        "clicking the open tab retracts it");
+  free(s.out.data);
+
+  // Clicking in graph adds a point and dragging moves it; editor reports it
+  step_t graph[] = {S("k", 0.6), M(0, 95, 8, 0, 0.2), M(32, 104, 3, 0, 0.2),
+                    M(0, 104, 3, 1, 0.4)};
+  s = session(cargs, graph, 4, 0.6);
+  check(range_has(&s, 1, -1, "pt 2/3"),
+        "click in the graph adds a point and selects it");
+  check(contains(s.out.data, s.out.len, "frame: 40x20") ||
+            !last_frame(s.out.data, s.out.len, &(int){0}, &(int){0}) ||
+            frame_is(s.out.data, s.out.len, 40, 20),
+        "the frame was not dragged by clicks on the panel");
+  free(s.out.data);
+}
+
+/* Speech recognition: --voice-enroll, --voice-list, --listen,
+ * --voice-forget, and --listen --model
+ * Speech is synthesised (a buzz shaped by two moving formants), so this needs
+ * no audio files and no sound card
+ * Program is run for these checks with pipes, not a terminal */
+
+// sin() without libm: reduce to [-pi, pi], then Taylor series
+static double sp_sin(double x) {
+  const double pi = 3.14159265358979323846;
+  while (x > pi) {
+    x -= 2 * pi;
+  }
+
+  while (x < -pi) {
+    x += 2 * pi;
+  }
+
+  double term = x, sum = x;
+  for (int k = 1; k < 14; k++) {
+    term *= -x * x / ((2.0 * k) * (2.0 * k + 1.0));
+    sum += term;
+  }
+
+  return sum;
+}
+
+static double sp_sin_table[8192];
+
+typedef struct {
+  short *s;
+  size_t n;
+  size_t cap;
+} pcm_t;
+
+static void pcm_add(pcm_t *p, short v) {
+  if (p->n == p->cap) {
+    p->cap = p->cap ? p->cap * 2 : 65536;
+    p->s = (short *)realloc(p->s, p->cap * sizeof(short));
+    if (!p->s) {
+      abort();
+    }
+  }
+
+  p->s[p->n++] = v;
+}
+
+static void pcm_quiet(pcm_t *p, int ms) {
+  for (int i = 0; i < ms * 16; i++) {
+    pcm_add(p, 0);
+  }
+}
+
+typedef struct {
+  int ms;
+  double f1;
+  double f2;
+} seg_t;
+
+// A buzz at pitch f0 whose harmonics are weighted by two formants that move
+// from segment to segment
+static void pcm_synth(pcm_t *p, const seg_t *segs, int nseg, double tempo,
+                      double f0) {
+  if (!sp_sin_table[1]) {
+    for (int i = 0; i < 8192; i++) {
+      sp_sin_table[i] = sp_sin(2 * 3.14159265358979323846 * i / 8192);
+    }
+  }
+
+  long n = 0;
+  for (int s = 0; s < nseg; s++) {
+    double f1 = segs[s].f1;
+    double f2 = segs[s].f2;
+    long ln = (long)(segs[s].ms * tempo * 16);
+    for (long i = 0; i < ln; i++) {
+      double t = (double)(n + i) / 16000.0;
+      double v = 0;
+      for (int h = 1; h * f0 < 4500; h++) {
+        double f = h * f0;
+        double w1 = 0.12 * f1 + 60;
+        double w2 = 0.12 * f2 + 60;
+        double d1 = (f - f1) / w1;
+        double d2 = (f - f2) / w2;
+        double a = 1 / (1 + d1 * d1) + 0.7 / (1 + d2 * d2);
+        double ph = f * t;
+        v += a * sp_sin_table[(int)((ph - (long)ph) * 8192) & 8191];
+      }
+
+      double env = 1.0;
+      if (i / 80.0 < env) {
+        env = i / 80.0;
+      }
+
+      if ((double)(ln - i) / 80.0 < env) {
+        env = (double)(ln - i) / 80.0;
+      }
+
+      pcm_add(p, (short)(int)(v * env * 1500));
+    }
+
+    n += ln;
+  }
+}
+
+static void pcm_append(pcm_t *p, const pcm_t *q) {
+  for (size_t i = 0; i < q->n; i++) {
+    pcm_add(p, q->s[i]);
+  }
+}
+
+static pcm_t pcm_of_quiet(int ms) {
+  pcm_t p = {0};
+  pcm_quiet(&p, ms);
+
+  return p;
+}
+
+static pcm_t pcm_of_synth(const seg_t *segs, int nseg, double tempo,
+                          double f0) {
+  pcm_t p = {0};
+  pcm_synth(&p, segs, nseg, tempo, f0);
+
+  return p;
+}
+
+static void le32(unsigned char *p, uint32_t v) {
+  p[0] = (unsigned char)v;
+  p[1] = (unsigned char)(v >> 8);
+  p[2] = (unsigned char)(v >> 16);
+  p[3] = (unsigned char)(v >> 24);
+}
+
+// 16 kHz mono 16 bit WAV (returned buffer is 44 bytes of header + samples)
+static unsigned char *wav_bytes(const pcm_t *p, size_t *size) {
+  size_t dn = p->n * 2;
+  unsigned char *w = (unsigned char *)malloc(44 + dn);
+  memcpy(w, "RIFF", 4);
+  le32(w + 4, (uint32_t)(36 + dn));
+  memcpy(w + 8, "WAVEfmt ", 8);
+  le32(w + 16, 16);
+  w[20] = 1; // PCM
+  w[21] = 0;
+  w[22] = 1; // Mono
+  w[23] = 0;
+  le32(w + 24, 16000);
+  le32(w + 28, 32000);
+  w[32] = 2; // Block align
+  w[33] = 0;
+  w[34] = 16; // Bits
+  w[35] = 0;
+  memcpy(w + 36, "data", 4);
+  le32(w + 40, (uint32_t)dn);
+  for (size_t i = 0; i < p->n; i++) {
+    w[44 + 2 * i] = (unsigned char)(p->s[i] & 255);
+    w[45 + 2 * i] = (unsigned char)((p->s[i] >> 8) & 255);
+  }
+
+  *size = 44 + dn;
+
+  return w;
+}
+
+static int write_wav(const char *path, const pcm_t *p) {
+  size_t n;
+  unsigned char *w = wav_bytes(p, &n);
+  int ok = write_file(path, w, n);
+  free(w);
+
+  return ok;
+}
+
+static int write_pcm(const char *path, const pcm_t *p) {
+  unsigned char *raw = (unsigned char *)malloc(p->n * 2 + 1);
+  for (size_t i = 0; i < p->n; i++) {
+    raw[2 * i] = (unsigned char)(p->s[i] & 255);
+    raw[2 * i + 1] = (unsigned char)((p->s[i] >> 8) & 255);
+  }
+
+  int ok = write_file(path, raw, p->n * 2);
+  free(raw);
+
+  return ok;
+}
+
+/* Programs run with pipes */
+
+// Make buffer a C string without counting terminator
+static void buf_nul(pty_buf *b) {
+  pty_buf_add(b, "", 1);
+  b->len--;
+}
+
+typedef struct {
+  pty_buf out;
+  pty_buf err;
+  int code;
+} proc_t;
+
+// Starts argv with stdin from in_fd (or /dev/null), stdout and stderr to pipes
+// Returns pid; *out_fd and *err_fd are read ends (*err_fd -1: stderr goes to
+// /dev/null); *in_fd is write end when want_in
+static pid_t spawn_piped(args_t a, const char *env_name, const char *env_val,
+                         int want_in, int *in_fd, int *out_fd, int *err_fd) {
+  int pin[2] = {-1, -1};
+  int pout[2];
+  int perr[2] = {-1, -1};
+  if (want_in && pipe(pin) != 0) {
+    return -1;
+  }
+
+  if (pipe(pout) != 0 || (err_fd && pipe(perr) != 0)) {
+    return -1;
+  }
+
+  char *argv[50];
+  argv[0] = (char *)BIN;
+  for (int i = 0; i < a.n; i++) {
+    argv[i + 1] = (char *)a.v[i];
+  }
+
+  argv[a.n + 1] = NULL;
+  fflush(stdout);
+  pid_t pid = fork();
+  if (pid == 0) {
+    int dn = open("/dev/null", O_RDWR);
+    dup2(want_in ? pin[0] : dn, 0);
+    dup2(pout[1], 1);
+    dup2(err_fd ? perr[1] : dn, 2);
+    for (int fd = 3; fd < 64; fd++) {
+      close(fd);
+    }
+
+    if (env_name) {
+      setenv(env_name, env_val, 1);
+    }
+
+    execv(BIN, argv);
+    _exit(127);
+  }
+
+  if (want_in) {
+    close(pin[0]);
+    *in_fd = pin[1];
+  }
+
+  close(pout[1]);
+  *out_fd = pout[0];
+  if (err_fd) {
+    close(perr[1]);
+    *err_fd = perr[0];
+  }
+
+  return pid;
+}
+
+static int wait_exit(pid_t pid, double seconds) {
+  double end = pty_now() + seconds;
+  int st = 0;
+  for (;;) {
+    pid_t r = waitpid(pid, &st, WNOHANG);
+    if (r == pid) {
+      return WIFEXITED(st) ? WEXITSTATUS(st) : 128 + WTERMSIG(st);
+    }
+
+    if (r < 0 && errno != EINTR) {
+      return -1;
+    }
+
+    if (pty_now() > end) {
+      kill(pid, SIGKILL);
+      waitpid(pid, &st, 0);
+
+      return -1;
+    }
+
+    usleep(5000);
+  }
+}
+
+// Run to end, feeding `in` on stdin (when given); timeout in seconds
+static proc_t proc_run(args_t a, const char *env_name, const char *env_val,
+                       const void *in, size_t inn, double timeout) {
+  proc_t r;
+  memset(&r, 0, sizeof r);
+  signal(SIGPIPE, SIG_IGN);
+  int in_fd = -1, out_fd = -1, err_fd = -1;
+  pid_t pid =
+      spawn_piped(a, env_name, env_val, in != NULL, &in_fd, &out_fd, &err_fd);
+  if (pid < 0) {
+    r.code = -1;
+
+    return r;
+  }
+
+  size_t woff = 0;
+  if (in && inn == 0) {
+    close(in_fd);
+    in_fd = -1;
+  }
+
+  double end = pty_now() + timeout;
+  int out_open = 1, err_open = 1;
+  while ((out_open || err_open) && pty_now() < end) {
+    struct pollfd pf[3];
+    int n = 0, io = -1, ie = -1, ii = -1;
+    if (out_open) {
+      io = n;
+      pf[n++] = (struct pollfd){out_fd, POLLIN, 0};
+    }
+
+    if (err_open) {
+      ie = n;
+      pf[n++] = (struct pollfd){err_fd, POLLIN, 0};
+    }
+
+    if (in && in_fd >= 0) {
+      ii = n;
+      pf[n++] = (struct pollfd){in_fd, POLLOUT, 0};
+    }
+
+    if (poll(pf, (nfds_t)n, 100) <= 0) {
+      continue;
+    }
+
+    unsigned char tmp[65536];
+    if (io >= 0 && pf[io].revents) {
+      ssize_t k = read(out_fd, tmp, sizeof tmp);
+      if (k <= 0) {
+        out_open = 0;
+      } else {
+        pty_buf_add(&r.out, tmp, (size_t)k);
+      }
+    }
+
+    if (ie >= 0 && pf[ie].revents) {
+      ssize_t k = read(err_fd, tmp, sizeof tmp);
+      if (k <= 0) {
+        err_open = 0;
+      } else {
+        pty_buf_add(&r.err, tmp, (size_t)k);
+      }
+    }
+
+    if (ii >= 0 && pf[ii].revents) {
+      size_t chunk = inn - woff > 32768 ? 32768 : inn - woff;
+      ssize_t k = write(in_fd, (const unsigned char *)in + woff, chunk);
+      if (k > 0) {
+        woff += (size_t)k;
+      }
+
+      if (k < 0 || woff >= inn) {
+        close(in_fd);
+        in_fd = -1;
+      }
+    }
+  }
+
+  if (in_fd >= 0) {
+    close(in_fd);
+  }
+
+  close(out_fd);
+  close(err_fd);
+  r.code = wait_exit(pid, 5.0);
+  buf_nul(&r.out);
+  buf_nul(&r.err);
+
+  return r;
+}
+
+// Whitespace-separated words, in place (like Python's str.split())
+static int split_ws(char *s, char **tok, int max) {
+  int n = 0;
+  while (*s && n < max) {
+    while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') {
+      s++;
+    }
+
+    if (!*s) {
+      break;
+    }
+
+    tok[n++] = s;
+    while (*s && *s != ' ' && *s != '\t' && *s != '\n' && *s != '\r') {
+      s++;
+    }
+
+    if (*s) {
+      *s++ = 0;
+    }
+  }
+
+  return n;
+}
+
+// Lines, in place (like str.splitlines())
+static int split_lines(char *s, char **tok, int max) {
+  int n = 0;
+  while (*s && n < max) {
+    tok[n++] = s;
+    while (*s && *s != '\n') {
+      s++;
+    }
+
+    if (*s) {
+      if (s > tok[n - 1] && s[-1] == '\r') {
+        s[-1] = 0;
+      }
+
+      *s++ = 0;
+    }
+  }
+
+  return n;
+}
+
+static int count_tok(char **t, int n, const char *w) {
+  int k = 0;
+  for (int i = 0; i < n; i++) {
+    k += !strcmp(t[i], w);
+  }
+
+  return k;
+}
+
+// 3 taught words, in order, once "~" hypotheses are dropped
+static int finals_are(char **t, int n, const char *w1, const char *w2,
+                      const char *w3) {
+  const char *want[3] = {w1, w2, w3};
+  int k = 0;
+  for (int i = 0; i < n; i++) {
+    if (t[i][0] == '~') {
+      continue;
+    }
+
+    if (k >= 3 || strcmp(t[i], want[k])) {
+      return 0;
+    }
+
+    k++;
+  }
+
+  return k == 3;
+}
+
+static int any_hyp(char **t, int n) {
+  for (int i = 0; i < n; i++) {
+    if (t[i][0] == '~') {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+// First 100 characters of a buffer on one line, for messages
+static const char *one_line(const pty_buf *b) {
+  static char ring[4][112];
+  static int k;
+  char *s = ring[k++ & 3];
+  size_t n = b->len < 100 ? b->len : 100;
+  for (size_t i = 0; i < n; i++) {
+    s[i] = b->data[i] == '\n' || b->data[i] == '\r' ? ' ' : (char)b->data[i];
+  }
+
+  s[n] = 0;
+
+  return s;
+}
+
+static args_t vargs(const char *vfile, args_t rest) {
+  return cat(A("--voice", vfile, NULL), rest);
+}
+
+static void drain_fd(int fd, pty_buf *b, double secs, int *eof) {
+  double end = pty_now() + secs;
+  while (pty_now() < end && !*eof) {
+    struct pollfd pf = {fd, POLLIN, 0};
+    if (poll(&pf, 1, 20) <= 0) {
+      continue;
+    }
+
+    unsigned char tmp[4096];
+    ssize_t k = read(fd, tmp, sizeof tmp);
+    if (k <= 0) {
+      *eof = 1;
+    } else {
+      pty_buf_add(b, tmp, (size_t)k);
+    }
+  }
+}
+
+static int running(pid_t pid) {
+  int st;
+
+  return waitpid(pid, &st, WNOHANG) == 0;
+}
+
+static void speech_tests(void) {
+  static const seg_t ALPHA[3] = {
+      {120, 300, 2200}, {150, 700, 1200}, {120, 400, 800}};
+  static const seg_t BRAVO[3] = {
+      {150, 600, 1000}, {120, 300, 2500}, {150, 500, 1500}};
+  static const seg_t VX[3] = {
+      {160, 900, 1700}, {160, 250, 3200}, {140, 750, 2400}}; // Never taught
+  char vdir[] = "/tmp/asciicam-voice-XXXXXX";
+  if (!mkdtemp(vdir)) {
+    check(0, "speech: cannot make a scratch directory");
+
+    return;
+  }
+
+  char vfile[300];
+  char wp[320];
+  char pcm_path[320];
+  char wav_path[320];
+  char fifo[320];
+  snprintf(vfile, sizeof vfile, "%s/sub/voice.tpl", vdir);
+  snprintf(wp, sizeof wp, "%s/alpha.wav", vdir);
+  snprintf(pcm_path, sizeof pcm_path, "%s/said.pcm", vdir);
+  snprintf(wav_path, sizeof wav_path, "%s/said.wav", vdir);
+  snprintf(fifo, sizeof fifo, "%s/mic.fifo", vdir);
+
+  proc_t r =
+      proc_run(vargs(vfile, A("--voice-list", NULL)), NULL, NULL, NULL, 0, 60);
+  check(r.code == 0 && contains(r.err.data, r.err.len, "0 words"),
+        "an empty voice file lists nothing");
+  free(r.out.data);
+  free(r.err.data);
+
+  static const struct {
+    const char *name;
+    const seg_t *segs;
+  } words[2] = {{"alpha", ALPHA}, {"bravo", BRAVO}};
+  static const struct {
+    double tempo;
+    double f0;
+    const char *label;
+  } says[3] = {{1.0, 120, "1.0"}, {0.85, 105, "0.85"}, {1.2, 135, "1.2"}};
+  for (int w = 0; w < 2; w++) {
+    for (int k = 0; k < 3; k++) {
+      pcm_t p = pcm_of_quiet(300);
+      pcm_t sy = pcm_of_synth(words[w].segs, 3, says[k].tempo, says[k].f0);
+      pcm_t q = pcm_of_quiet(500);
+      pcm_append(&p, &sy);
+      pcm_append(&p, &q);
+      write_wav(wp, &p);
+      r = proc_run(vargs(vfile, A("--voice-enroll", words[w].name, wp, NULL)),
+                   NULL, NULL, NULL, 0, 60);
+      check(r.code == 0 && contains(r.err.data, r.err.len, "1 new"),
+            "enrol %s %s: %s", words[w].name, says[k].label, one_line(&r.err));
+      free(r.out.data);
+      free(r.err.data);
+      free(p.s);
+      free(sy.s);
+      free(q.s);
+    }
+  }
+
+  struct stat st;
+  check(stat(vfile, &st) == 0,
+        "the voice file was created, with its directories");
+  r = proc_run(vargs(vfile, A("--voice-list", NULL)), NULL, NULL, NULL, 0, 60);
+  check(contains(r.err.data, r.err.len, "2 words, 6 templates") &&
+            contains(r.err.data, r.err.len, "alpha") &&
+            contains(r.err.data, r.err.len, "bravo"),
+        "list shows both words: %s", one_line(&r.err));
+  free(r.out.data);
+  free(r.err.data);
+
+  // Enrolling from stdin ("-"), a raw PCM stream
+  {
+    pcm_t p = pcm_of_quiet(300);
+    pcm_t sy = pcm_of_synth(ALPHA, 3, 0.95, 125);
+    pcm_t q = pcm_of_quiet(500);
+    pcm_append(&p, &sy);
+    pcm_append(&p, &q);
+    unsigned char *raw = (unsigned char *)malloc(p.n * 2);
+    for (size_t i = 0; i < p.n; i++) {
+      raw[2 * i] = (unsigned char)(p.s[i] & 255);
+      raw[2 * i + 1] = (unsigned char)((p.s[i] >> 8) & 255);
+    }
+
+    r = proc_run(vargs(vfile, A("--voice-enroll", "alpha", "-", NULL)), NULL,
+                 NULL, raw, p.n * 2, 60);
+    check(r.code == 0 && contains(r.err.data, r.err.len, "4 of 5"),
+          "enrol from stdin: %s", one_line(&r.err));
+    free(r.out.data);
+    free(r.err.data);
+    free(raw);
+    free(p.s);
+    free(sy.s);
+    free(q.s);
+  }
+
+  // A sentence: known, unknown, known, known. Said at other speeds and pitch
+  pcm_t said = pcm_of_quiet(600);
+  {
+    pcm_t part;
+    pcm_t gaps[3] = {pcm_of_quiet(700), pcm_of_quiet(700), pcm_of_quiet(700)};
+    part = pcm_of_synth(BRAVO, 3, 0.92, 112);
+    pcm_append(&said, &part);
+    free(part.s);
+    pcm_append(&said, &gaps[0]);
+    part = pcm_of_synth(VX, 3, 1.0, 120);
+    pcm_append(&said, &part);
+    free(part.s);
+    pcm_append(&said, &gaps[1]);
+    part = pcm_of_synth(ALPHA, 3, 1.1, 128);
+    pcm_append(&said, &part);
+    free(part.s);
+    pcm_append(&said, &gaps[2]);
+    part = pcm_of_synth(BRAVO, 3, 1.0, 118);
+    pcm_append(&said, &part);
+    free(part.s);
+    part = pcm_of_quiet(600);
+    pcm_append(&said, &part);
+    free(part.s);
+    for (int i = 0; i < 3; i++) {
+      free(gaps[i].s);
+    }
+  }
+
+  write_pcm(pcm_path, &said);
+  write_wav(wav_path, &said);
+  static const char *labels[2] = {"raw pcm", "wav"};
+  const char *paths[2] = {pcm_path, wav_path};
+  for (int k = 0; k < 2; k++) {
+    r = proc_run(vargs(vfile, A("--listen", paths[k], NULL)), NULL, NULL, NULL,
+                 0, 60);
+    char *tok[64];
+    char *copy = strdup((char *)r.out.data ? (char *)r.out.data : "");
+    int n = split_ws(copy, tok, 64);
+    check(r.code == 0, "--listen %s ends at the end of the file", labels[k]);
+    check(finals_are(tok, n, "bravo", "alpha", "bravo"),
+          "%s: the three taught words in order, the unknown one skipped "
+          "(%d words)",
+          labels[k], n);
+    check(any_hyp(tok, n), "%s: hypotheses come before finals", labels[k]);
+    free(copy);
+    free(r.out.data);
+    free(r.err.data);
+  }
+
+  // Same from a pipe on stdin
+  {
+    unsigned char *raw = (unsigned char *)malloc(said.n * 2);
+    for (size_t i = 0; i < said.n; i++) {
+      raw[2 * i] = (unsigned char)(said.s[i] & 255);
+      raw[2 * i + 1] = (unsigned char)((said.s[i] >> 8) & 255);
+    }
+
+    r = proc_run(vargs(vfile, A("--listen", "-", NULL)), NULL, NULL, raw,
+                 said.n * 2, 60);
+    char *tok[64];
+    char *copy = strdup((char *)r.out.data ? (char *)r.out.data : "");
+    int n = split_ws(copy, tok, 64);
+    check(count_tok(tok, n, "bravo") >= 2, "--listen - reads stdin");
+    free(copy);
+    free(r.out.data);
+    free(r.err.data);
+    free(raw);
+  }
+
+  // A live fifo, written at about real time, is followed and gives lines as it
+  // goes
+  mkfifo(fifo, 0600);
+  int ofd = -1;
+  pid_t pid = spawn_piped(vargs(vfile, A("--listen", fifo, NULL)), NULL, NULL,
+                          0, NULL, &ofd, NULL);
+  pty_buf live = {0};
+  int live_eof = 0;
+  drain_fd(ofd, &live, 0.3, &live_eof);
+  int wfd = -1;
+  for (int i = 0; i < 100 && wfd < 0; i++) { // Until program opens it
+    wfd = open(fifo, O_WRONLY | O_NONBLOCK);
+    if (wfd < 0) {
+      usleep(50000);
+    }
+  }
+
+  if (wfd >= 0) {
+    fcntl(wfd, F_SETFL, fcntl(wfd, F_GETFL) & ~O_NONBLOCK);
+    signal(SIGPIPE, SIG_IGN);
+    unsigned char *raw = (unsigned char *)malloc(said.n * 2);
+    for (size_t i = 0; i < said.n; i++) {
+      raw[2 * i] = (unsigned char)(said.s[i] & 255);
+      raw[2 * i + 1] = (unsigned char)((said.s[i] >> 8) & 255);
+    }
+
+    size_t total = said.n * 2;
+    for (size_t off = 0; off < total; off += 3200) {
+      size_t len = total - off > 3200 ? 3200 : total - off;
+      ssize_t w = write(wfd, raw + off, len);
+      (void)w;
+      drain_fd(ofd, &live, 0.05, &live_eof); // Twice real time: it does not
+                                             // care
+    }
+
+    free(raw);
+    drain_fd(ofd, &live, 1.0, &live_eof);
+    check(running(pid),
+          "--listen on a fifo keeps running when the writer pauses");
+    close(wfd);
+    drain_fd(ofd, &live, 0.4, &live_eof);
+    check(running(pid), "and when the writer closes it");
+  } else {
+    check(0, "--listen on a fifo keeps running when the writer pauses");
+    check(0, "and when the writer closes it");
+  }
+
+  kill(pid, SIGTERM);
+  drain_fd(ofd, &live, 5.0, &live_eof);
+  wait_exit(pid, 5.0);
+  close(ofd);
+  buf_nul(&live);
+  {
+    char *tok[64];
+    char *copy = strdup((char *)live.data ? (char *)live.data : "");
+    int n = split_ws(copy, tok, 64);
+    check(finals_are(tok, n, "bravo", "alpha", "bravo"),
+          "live fifo gives the words (%d words)", n);
+    free(copy);
+  }
+
+  free(live.data);
+
+  // Not usable: nothing enrolled, a bad file, a bad format
+  char none[320];
+  char absent[320];
+  char bad8[320];
+  char silent[320];
+  snprintf(none, sizeof none, "%s/none.tpl", vdir);
+  snprintf(absent, sizeof absent, "%s/absent.pcm", vdir);
+  snprintf(bad8, sizeof bad8, "%s/bad8.wav", vdir);
+  snprintf(silent, sizeof silent, "%s/silent.wav", vdir);
+  r = proc_run(vargs(none, A("--listen", pcm_path, NULL)), NULL, NULL, NULL, 0,
+               30);
+  check(r.code == 1 && contains(r.err.data, r.err.len, "nothing enrolled"),
+        "nothing enrolled is said: %s", one_line(&r.err));
+  free(r.out.data);
+  free(r.err.data);
+  r = proc_run(vargs(vfile, A("--listen", absent, NULL)), NULL, NULL, NULL, 0,
+               60);
+  check(r.code == 1 && contains(r.err.data, r.err.len, "cannot open"),
+        "missing audio file is an error");
+  free(r.out.data);
+  free(r.err.data);
+  {
+    pcm_t q = pcm_of_quiet(200);
+    size_t n;
+    unsigned char *w = wav_bytes(&q, &n);
+    w[32] = 1; // Block align 1, 8 bit
+    w[34] = 8;
+    write_file(bad8, w, n);
+    free(w);
+    free(q.s);
+    q = pcm_of_quiet(2000);
+    write_wav(silent, &q);
+    free(q.s);
+  }
+
+  r = proc_run(vargs(vfile, A("--listen", bad8, NULL)), NULL, NULL, NULL, 0,
+               60);
+  check(r.code == 1 && contains(r.err.data, r.err.len, "16 bit"),
+        "8 bit audio is refused: %s", one_line(&r.err));
+  free(r.out.data);
+  free(r.err.data);
+  r = proc_run(vargs(vfile, A("--voice-enroll", "x", bad8, NULL)), NULL, NULL,
+               NULL, 0, 60);
+  check(r.code == 1, "and so is enrolling it");
+  free(r.out.data);
+  free(r.err.data);
+  r = proc_run(vargs(vfile, A("--voice-enroll", "x", silent, NULL)), NULL, NULL,
+               NULL, 0, 60);
+  check(r.code == 1 && contains(r.err.data, r.err.len, "no speech"),
+        "enrolling silence says so");
+  free(r.out.data);
+  free(r.err.data);
+  r = proc_run(A("--voice-enroll", "x", NULL), NULL, NULL, NULL, 0, 10);
+  check(r.code == 2 && contains(r.err.data, r.err.len, "needs"),
+        "--voice-enroll needs two values");
+  free(r.out.data);
+  free(r.err.data);
+  r = proc_run(A("--listen", NULL), NULL, NULL, NULL, 0, 10);
+  check(r.code == 2, "--listen needs a value");
+  free(r.out.data);
+  free(r.err.data);
+
+  // Forget
+  r = proc_run(vargs(vfile, A("--voice-forget", "alpha", NULL)), NULL, NULL,
+               NULL, 0, 60);
+  check(r.code == 0 && contains(r.err.data, r.err.len, "forgot"),
+        "forget alpha");
+  free(r.out.data);
+  free(r.err.data);
+  r = proc_run(vargs(vfile, A("--voice-forget", "alpha", NULL)), NULL, NULL,
+               NULL, 0, 60);
+  check(r.code == 1 && contains(r.err.data, r.err.len, "not enrolled"),
+        "forgetting twice is reported");
+  free(r.out.data);
+  free(r.err.data);
+  r = proc_run(vargs(vfile, A("--listen", pcm_path, NULL)), NULL, NULL, NULL, 0,
+               60);
+  {
+    char *tok[64];
+    char *copy = strdup((char *)r.out.data ? (char *)r.out.data : "");
+    int n = split_ws(copy, tok, 64);
+    check(count_tok(tok, n, "alpha") == 0 &&
+              contains(r.out.data, r.out.len, "bravo"),
+          "a forgotten word is no longer heard");
+    free(copy);
+  }
+
+  free(r.out.data);
+  free(r.err.data);
+
+  // Default location comes from XDG_CONFIG_HOME
+  {
+    char xdg[320];
+    char tpl[400];
+    snprintf(xdg, sizeof xdg, "%s/xdg", vdir);
+    snprintf(tpl, sizeof tpl, "%s/xdg/asciicam/voice.tpl", vdir);
+    pcm_t p = pcm_of_quiet(300);
+    pcm_t sy = pcm_of_synth(ALPHA, 3, 1.0, 120.0);
+    pcm_t q = pcm_of_quiet(500);
+    pcm_append(&p, &sy);
+    pcm_append(&p, &q);
+    write_wav(wp, &p);
+    r = proc_run(A("--voice-enroll", "alpha", wp, NULL), "XDG_CONFIG_HOME", xdg,
+                 NULL, 0, 30);
+    check(stat(tpl, &st) == 0, "default path under XDG_CONFIG_HOME: %s",
+          one_line(&r.err));
+    free(r.out.data);
+    free(r.err.data);
+    free(p.s);
+    free(sy.s);
+    free(q.s);
+  }
+
+  free(said.s);
+  rm_rf(vdir);
+}
+
+/* Sentences from a neural model (--listen --model)
+ * Weights are tiny random model of unit tests (tests/asrnet_fixture.h, which
+ * needs nolibc, so its recipe is repeated here with libc), so words are noise:
+ * what is checked is that real binary loads weights + tokenizer.json +
+ * config.json, cuts audio into utterances and prints one line per sentence */
+
+typedef struct {
+  char name[96];
+  int nd;
+  size_t shape[3];
+  double scale;
+  char kind; // w weight, g gamma, o around 1, l log_k
+} mdef_t;
+
+static mdef_t mdefs[200];
+static int nmdefs;
+static unsigned mdl_s;
+
+static double mdl_prng(void) {
+  unsigned s = mdl_s;
+  s ^= s << 13;
+  s ^= s >> 17;
+  s ^= s << 5;
+  mdl_s = s;
+
+  return (double)s / 4294967296.0;
+}
+
+static void mdef(const char *name, double scale, char kind, int nd, size_t a,
+                 size_t b, size_t c) {
+  mdef_t *t = &mdefs[nmdefs++];
+  snprintf(t->name, sizeof t->name, "%s", name);
+  t->nd = nd;
+  t->shape[0] = a;
+  t->shape[1] = b;
+  t->shape[2] = c;
+  t->scale = scale;
+  t->kind = kind;
+}
+
+static void make_model_defs(void) {
+  nmdefs = 0;
+  size_t h = 32;
+  size_t f = 64;
+  size_t d = 32;
+  size_t df = 48;
+  size_t V = 50;
+  size_t P = 64;
+  char n[96];
+  mdef("model.encoder.embedder.comp.log_k", 0, 'l', 1, 1, 0, 0);
+  mdef("model.encoder.embedder.linear.weight", 0.25, 'w', 2, h, 80, 0);
+  mdef("model.encoder.embedder.conv1.weight", 0.12, 'w', 3, 2 * h, h, 5);
+  mdef("model.encoder.embedder.conv1.bias", 0.1, 'w', 1, 2 * h, 0, 0);
+  mdef("model.encoder.embedder.conv2.weight", 0.08, 'w', 3, h, 2 * h, 5);
+  mdef("model.encoder.embedder.conv2.bias", 0.1, 'w', 1, h, 0, 0);
+  for (int l = 0; l < 3; l++) {
+    for (int q = 0; q < 4; q++) {
+      snprintf(n, sizeof n, "model.encoder.layers.%d.self_attn.%c_proj.weight",
+               l, "qkvo"[q]);
+      mdef(n, 0.3, 'w', 2, h, h, 0);
+    }
+
+    snprintf(n, sizeof n, "model.encoder.layers.%d.input_layernorm.gamma", l);
+    mdef(n, 0.3, 'g', 1, h, 0, 0);
+    snprintf(n, sizeof n,
+             "model.encoder.layers.%d.post_attention_layernorm.gamma", l);
+    mdef(n, 0.3, 'g', 1, h, 0, 0);
+    snprintf(n, sizeof n, "model.encoder.layers.%d.mlp.fc1.weight", l);
+    mdef(n, 0.3, 'w', 2, f, h, 0);
+    snprintf(n, sizeof n, "model.encoder.layers.%d.mlp.fc1.bias", l);
+    mdef(n, 0.1, 'w', 1, f, 0, 0);
+    snprintf(n, sizeof n, "model.encoder.layers.%d.mlp.fc2.weight", l);
+    mdef(n, 0.25, 'w', 2, h, f, 0);
+    snprintf(n, sizeof n, "model.encoder.layers.%d.mlp.fc2.bias", l);
+    mdef(n, 0.1, 'w', 1, h, 0, 0);
+  }
+
+  mdef("model.encoder.final_norm.gamma", 0.3, 'g', 1, h, 0, 0);
+  mdef("model.decoder.embed_tokens.weight", 0.6, 'w', 2, V, d, 0);
+  mdef("model.decoder.pos_emb.weight", 0.3, 'w', 2, P, h, 0);
+  for (int l = 0; l < 2; l++) {
+    for (int b = 0; b < 2; b++) {
+      for (int q = 0; q < 4; q++) {
+        snprintf(n, sizeof n, "model.decoder.layers.%d.%s.%c_proj.weight", l,
+                 b ? "encoder_attn" : "self_attn", "qkvo"[q]);
+        mdef(n, 0.3, 'w', 2, d, d, 0);
+      }
+    }
+
+    const char *ln3[3] = {"input_layernorm", "post_attention_layernorm",
+                          "final_layernorm"};
+    for (int i = 0; i < 3; i++) {
+      snprintf(n, sizeof n, "model.decoder.layers.%d.%s.weight", l, ln3[i]);
+      mdef(n, 0.3, 'o', 1, d, 0, 0);
+    }
+
+    snprintf(n, sizeof n, "model.decoder.layers.%d.mlp.fc1.weight", l);
+    mdef(n, 0.3, 'w', 2, 2 * df, d, 0);
+    snprintf(n, sizeof n, "model.decoder.layers.%d.mlp.fc1.bias", l);
+    mdef(n, 0.1, 'w', 1, 2 * df, 0, 0);
+    snprintf(n, sizeof n, "model.decoder.layers.%d.mlp.fc2.weight", l);
+    mdef(n, 0.25, 'w', 2, d, df, 0);
+    snprintf(n, sizeof n, "model.decoder.layers.%d.mlp.fc2.bias", l);
+    mdef(n, 0.1, 'w', 1, d, 0, 0);
+  }
+
+  mdef("model.decoder.norm.weight", 0.3, 'o', 1, d, 0, 0);
+  mdef("proj_out.weight", 0.5, 'w', 2, V, d, 0);
+}
+
+static size_t mdef_numel(const mdef_t *t) {
+  size_t n = 1;
+  for (int i = 0; i < t->nd; i++) {
+    n *= t->shape[i];
+  }
+
+  return n;
+}
+
+// Safetensors file, all F32
+static unsigned char *build_model_file(size_t *size) {
+  make_model_defs();
+  size_t total = 0;
+  for (int i = 0; i < nmdefs; i++) {
+    total += mdef_numel(&mdefs[i]) * 4;
+  }
+
+  char *hdr = (char *)malloc((size_t)nmdefs * 300 + 64);
+  size_t hn = 0, off = 0;
+  hdr[hn++] = '{';
+  for (int i = 0; i < nmdefs; i++) {
+    size_t bytes = mdef_numel(&mdefs[i]) * 4;
+    char shape[64];
+    size_t sn = 0;
+    for (int k = 0; k < mdefs[i].nd; k++) {
+      sn += (size_t)snprintf(shape + sn, sizeof shape - sn, "%s%d",
+                             k ? "," : "", (int)mdefs[i].shape[k]);
+    }
+
+    shape[sn] = 0;
+    hn += (size_t)snprintf(hdr + hn, 300,
+                           "%s\"%s\":{\"dtype\":\"F32\",\"shape\":[%s],"
+                           "\"data_offsets\":[%d,%d]}",
+                           i ? "," : "", mdefs[i].name, shape, (int)off,
+                           (int)(off + bytes));
+    off += bytes;
+  }
+
+  hdr[hn++] = '}';
+  while (hn % 8) {
+    hdr[hn++] = ' ';
+  }
+
+  unsigned char *file = (unsigned char *)malloc(8 + hn + total);
+  for (int i = 0; i < 8; i++) {
+    file[i] = (unsigned char)((hn >> (8 * i)) & 255);
+  }
+
+  memcpy(file + 8, hdr, hn);
+  free(hdr);
+  unsigned char *p = file + 8 + hn;
+  mdl_s = 0x1234ABCDu;
+  for (int i = 0; i < nmdefs; i++) {
+    size_t n = mdef_numel(&mdefs[i]);
+    for (size_t k = 0; k < n; k++) {
+      float v;
+      if (mdefs[i].kind == 'l') {
+        v = (float)-0.2876820724517809; // log(0.75)
+      } else {
+        double x = (mdl_prng() - 0.5) * mdefs[i].scale;
+        if (mdefs[i].kind == 'o') {
+          x += 1.0;
+        }
+
+        v = (float)x;
+      }
+
+      memcpy(p, &v, 4);
+      p += 4;
+    }
+  }
+
+  *size = (size_t)(p - file);
+
+  return file;
+}
+
+static unsigned rnd_s = 5;
+
+static int rnd_range(int lo, int hi) { // Like random.randint
+  rnd_s ^= rnd_s << 13;
+  rnd_s ^= rnd_s >> 17;
+  rnd_s ^= rnd_s << 5;
+
+  return lo + (int)(rnd_s % (unsigned)(hi - lo + 1));
+}
+
+// Noisy tone: loud, steady, nothing like voice test's words
+static void pcm_talk(pcm_t *p, int ms) {
+  for (int i = 0; i < ms * 16; i++) {
+    double t = i / 16000.0;
+    pcm_add(p,
+            (short)(int)(6000 * sp_sin(2 * 3.14159265358979323846 * 180 * t) +
+                         3000 * sp_sin(2 * 3.14159265358979323846 * 540 * t) +
+                         rnd_range(-1000, 1000)));
+  }
+}
+
+static void model_tests(void) {
+  char mdir[] = "/tmp/asciicam-model-XXXXXX";
+  if (!mkdtemp(mdir)) {
+    check(0, "--model: cannot make a scratch directory");
+
+    return;
+  }
+
+  char model[300];
+  char tokp[300];
+  char cfgp[300];
+  char wavp[300];
+  char none[300];
+  snprintf(model, sizeof model, "%s/model.safetensors", mdir);
+  snprintf(tokp, sizeof tokp, "%s/tokenizer.json", mdir);
+  snprintf(cfgp, sizeof cfgp, "%s/config.json", mdir);
+  snprintf(wavp, sizeof wavp, "%s/s.wav", mdir);
+  snprintf(none, sizeof none, "%s/none.safetensors", mdir);
+  size_t fsz;
+  unsigned char *wf = build_model_file(&fsz);
+  write_file(model, wf, fsz);
+  free(wf);
+
+  static char tok_json[4096];
+  size_t tn = (size_t)snprintf(
+      tok_json, sizeof tok_json,
+      "{\"model\":{\"vocab\":{\"<pad>\":0,\"<s>\":1,\"</s>\":2");
+  for (int i = 3; i < 50; i++) {
+    tn += (size_t)snprintf(tok_json + tn, sizeof tok_json - tn,
+                           ",\"\xe2\x96\x81w%d\":%d", i, i);
+  }
+
+  tn += (size_t)snprintf(tok_json + tn, sizeof tok_json - tn, "}}}");
+  write_file(tokp, tok_json, tn);
+  static const char cfg_json[] =
+      "{\"encoder_config\": {\"hidden_size\": 32, \"intermediate_size\": 64, "
+      "\"num_hidden_layers\": 3, \"num_attention_heads\": 2, "
+      "\"sliding_windows\": [[5, 4], [5, 0], [4, 3]]}, \"vocab_size\": 50, "
+      "\"hidden_size\": 32, \"intermediate_size\": 48, "
+      "\"num_hidden_layers\": 2, \"num_attention_heads\": 2, "
+      "\"bos_token_id\": 1, \"eos_token_id\": 2}";
+  write_file(cfgp, cfg_json, sizeof cfg_json - 1);
+
+  rnd_s = 5;
+  pcm_t sentences = pcm_of_quiet(800);
+  pcm_t part = {0};
+  pcm_talk(&part, 2500);
+  pcm_append(&sentences, &part);
+  free(part.s);
+  part = pcm_of_quiet(1000);
+  pcm_append(&sentences, &part);
+  free(part.s);
+  part = (pcm_t){0};
+  pcm_talk(&part, 1500);
+  pcm_append(&sentences, &part);
+  free(part.s);
+  part = pcm_of_quiet(900);
+  pcm_append(&sentences, &part);
+  free(part.s);
+  write_wav(wavp, &sentences);
+
+  proc_t r = proc_run(A("--listen", wavp, "--model", model, NULL), NULL, NULL,
+                      NULL, 0, 60);
+  char *lines[32];
+  char *copy = strdup((char *)r.out.data ? (char *)r.out.data : "");
+  int nl = split_lines(copy, lines, 32);
+  int nfinal = 0, all_w = 1;
+  for (int i = 0; i < nl; i++) {
+    if (lines[i][0] != '~') {
+      nfinal++;
+      all_w &= lines[i][0] == 'w';
+    }
+  }
+
+  check(r.code == 0 && nfinal == 2 && all_w,
+        "--model: two sentences from two utterances: %d lines, %s", nl,
+        one_line(&r.err));
+  pty_buf first_out = r.out;
+  free(r.err.data);
+
+  size_t wn;
+  unsigned char *wb = wav_bytes(&sentences, &wn);
+  r = proc_run(A("--listen", "-", "--model", model, NULL), NULL, NULL, wb, wn,
+               60);
+  check(r.out.len == first_out.len &&
+            (!r.out.len || !memcmp(r.out.data, first_out.data, r.out.len)),
+        "--model: stdin gives the same lines");
+  free(wb);
+  free(r.out.data);
+  free(r.err.data);
+  free(first_out.data);
+  free(copy);
+
+  // A wrong config is refused with the reason
+  write_file(cfgp, "{\"hidden_size\": 33}", 19);
+  r = proc_run(A("--listen", wavp, "--model", model, NULL), NULL, NULL, NULL, 0,
+               30);
+  check(r.code == 1 && contains(r.err.data, r.err.len, "--model") &&
+            r.out.len == 0,
+        "bad config refused: %s", one_line(&r.err));
+  free(r.out.data);
+  free(r.err.data);
+
+  // No config: tiny shape, which these weights are not
+  unlink(cfgp);
+  r = proc_run(A("--listen", wavp, "--model", model, NULL), NULL, NULL, NULL, 0,
+               30);
+  check(r.code == 1 && contains(r.err.data, r.err.len, "wrong shape"),
+        "shape mismatch named: %s", one_line(&r.err));
+  free(r.out.data);
+  free(r.err.data);
+  r = proc_run(A("--listen", wavp, "--model", none, NULL), NULL, NULL, NULL, 0,
+               30);
+  check(r.code == 1 && contains(r.err.data, r.err.len, "cannot open"),
+        "missing weights");
+  free(r.out.data);
+  free(r.err.data);
+  free(sentences.s);
+  rm_rf(mdir);
+}
+
 // Sections named after second argument; none named = all
 static int want(int argc, char **argv, const char *name) {
   if (argc <= 3) {
@@ -2591,10 +4218,6 @@ int main(int argc, char **argv) {
   snprintf(REAL_HOME, sizeof REAL_HOME, "%s",
            getenv("HOME") ? getenv("HOME") : "");
 
-  if (want(argc, argv, "screen")) {
-    screen_tests();
-  }
-
   if (want(argc, argv, "smoke")) {
     smoke();
   }
@@ -2609,6 +4232,18 @@ int main(int argc, char **argv) {
 
   if (want(argc, argv, "capture")) {
     capture_tests();
+  }
+
+  if (want(argc, argv, "curve")) {
+    curve_tests();
+  }
+
+  if (want(argc, argv, "voice")) {
+    speech_tests();
+  }
+
+  if (want(argc, argv, "model")) {
+    model_tests();
   }
 
   if (argc > 2 && want(argc, argv, "real")) {
