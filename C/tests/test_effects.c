@@ -30,6 +30,7 @@
 #include "../filters/matrix_rain.c"
 #include "../filters/motion.c"
 #include "../filters/neon_edge.c"
+#include "../filters/nightvision.c"
 #include "../filters/pixel_sort.c"
 #include "../filters/pixelate.c"
 #include "../filters/posterize.c"
@@ -97,6 +98,7 @@ static const effect_t effects[] = {
     {"matrix_rain", matrix_rain_process, 1},
     {"motion", motion_process, 1},
     {"neon_edge", neon_edge_process, 1},
+    {"nightvision", nightvision_process, 1},
     {"pixel_sort", pixel_sort_process, 1},
     {"posterize", posterize_process, 1},
     {"pixelate", pixelate_process, 1},
@@ -1062,6 +1064,44 @@ static void test_bloom(void) {
         "half strength gives half the glow (216)", n);
 }
 
+// Nightvision: dark gets lifted, lens darkens corners, colour is green
+static void test_nightvision(void) {
+  const char *n = "nightvision";
+  enum { W = 160, H = 120 };
+  static uint8_t g[W * H];
+  nl_memset(g, 40, sizeof(g));
+  run_param("nightvision", g, W, H, 255);
+  int centre = 0;
+  int corner = 0;
+  for (int y = 50; y < 70; y++) {
+    for (int x = 70; x < 90; x++) {
+      centre += g[y * W + x];
+    }
+  }
+
+  for (int y = 0; y < 10; y++) {
+    for (int x = 0; x < 10; x++) {
+      corner += g[y * W + x];
+    }
+  }
+
+  CHECK(centre / 400 > 85, "a dark scene (40) is lifted hard in the centre", n);
+  CHECK(corner / 100 < centre / 400 / 2, "the lens darkens the corners", n);
+
+  uint8_t a[W * H], b[W * H];
+  nl_memset(a, 128, sizeof(a));
+  nl_memset(b, 128, sizeof(b));
+  run_param("nightvision", a, W, H, 255);
+  run_param("nightvision", b, W, H, 255);
+  CHECK(differs(a, b, sizeof(a)), "grain differs from frame to frame", n);
+
+  uint8_t px[3] = {100, 100, 100};
+  int full = 255;
+  nightvision_rgb(px, 1, 1, &full);
+  CHECK(px[1] == 100 && px[0] < 30 && px[2] < 40,
+        "colour hook paints phosphor green", "nightvision_rgb");
+}
+
 static void test_posterize_pixelate_emboss(void) {
   // Posterize: two tones at 255, a handful at default, steps never reorder
   uint8_t ramp[256];
@@ -1157,12 +1197,13 @@ static void test_rgb_hooks(void) {
                {"sepia_rgb", sepia_rgb},
                {"solarize_rgb", solarize_rgb},
                {"posterize_rgb", posterize_rgb},
+               {"nightvision_rgb", nightvision_rgb},
                {"chromatic_rgb", chromatic_rgb}};
 
   for (size_t k = 0; k < sizeof(hooks) / sizeof(hooks[0]); k++) {
     const char *name = hooks[k].name;
 
-    // bad frames are left alone
+    // Bad frames are left alone
     uint8_t px[12] = {10, 20, 30, 40, 50, 60, 70, 80, 90, 1, 2, 3};
     uint8_t keep[12];
     nl_memcpy(keep, px, sizeof(px));
@@ -1279,6 +1320,7 @@ int main(void) {
   test_posterize_pixelate_emboss();
   test_equalize();
   test_bloom();
+  test_nightvision();
   test_rgb_hooks();
 
   char buf[96];

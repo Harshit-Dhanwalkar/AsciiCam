@@ -611,9 +611,10 @@ static int distinct_frame_heads(const pty_buf *b) {
   return distinct;
 }
 
-// Mean (R - B) over foreground colour escapes ESC[38;2;R;G;Bm
+// Mean (R - B), or with green_excess mean (G - max(R, B)), over foreground
+// colour escapes ESC[38;2;R;G;Bm
 // Returns 0 when there are none
-static int warmth(const pty_buf *b, double *out) {
+static int colour_mean(const pty_buf *b, double *out, int green_excess) {
   static const char pre[] = "\x1b[38;2;";
   size_t pl = sizeof pre - 1;
   double sum = 0;
@@ -638,7 +639,8 @@ static int warmth(const pty_buf *b, double *out) {
     }
 
     if (ok) {
-      sum += v[0] - v[2];
+      int hi = v[0] > v[2] ? v[0] : v[2];
+      sum += green_excess ? v[1] - hi : v[0] - v[2];
       count++;
     }
   }
@@ -650,6 +652,10 @@ static int warmth(const pty_buf *b, double *out) {
   *out = sum / (double)count;
 
   return 1;
+}
+
+static int warmth(const pty_buf *b, double *out) {
+  return colour_mean(b, out, 0);
 }
 
 static const char *num_str(int ok, double v) {
@@ -695,7 +701,7 @@ static void real_demo_and_plugins(const char *real_abs) {
       "neon_edge", "pixel_sort", "ripple",       "sepia",       "thermal",
       "trails",    "tv_static",  "vhs",          "vignette",    "halftone",
       "sharpen",   "solarize",   "posterize",    "pixelate",    "emboss",
-      "equalize",  "bloom"};
+      "equalize",  "bloom",      "nightvision"};
   char dir[4096];
   snprintf(dir, sizeof dir, "%s", real_abs);
   char *slash = strrchr(dir, '/');
@@ -738,6 +744,19 @@ static void real_demo_and_plugins(const char *real_abs) {
     check(r.frames >= 8 && r.code == 0 && pass,
           "plugin %s repaints colour pictures (warmth %s -> %s, %ld frames)",
           hooks[i], num_str(have0, w0), num_str(have, w), r.frames);
+    free(r.out.data);
+  }
+
+  // Nightvision paints picture phosphor green: green clearly above red and blue
+  {
+    char so[4200];
+    snprintf(so, sizeof so, "%s/nightvision.so", dir);
+    r = run(A("--demo", "-r", "20", "-C", "-p", so, NULL), 1.2, -1, "q");
+    double g = 0;
+    int have = colour_mean(&r.out, &g, 1);
+    check(r.frames >= 8 && r.code == 0 && have && g > 15,
+          "plugin nightvision paints colour pictures green (%s, %ld frames)",
+          num_str(have, g), r.frames);
     free(r.out.data);
   }
 
