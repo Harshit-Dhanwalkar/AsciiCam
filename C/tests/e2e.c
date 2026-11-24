@@ -382,7 +382,7 @@ static sess_t session(args_t a, const step_t *steps, int nsteps,
     usleep(20000);
   }
 
-  pty_finish(&p, 0.0); // kills it if it is still there
+  pty_finish(&p, 0.0); // Kills it if it is still there
 
   return s;
 }
@@ -1742,21 +1742,18 @@ typedef struct {
 } rows_t;
 
 static rows_t frame_rows(const pty_buf *out) {
-  // Last frame: from the last sync-begin to the sync-end that follows it
-  // (matches frame_text in the Python e2e, which takes the last frame)
   static const char mark[] = "\x1b[?2026h";
-  static const char end[] = "\x1b[?2026l";
   size_t ml = sizeof mark - 1;
-  size_t el = sizeof end - 1;
   long last = rfind_mem(out->data, out->len, mark);
+  long prev = -1;
+  if (last >= 0) {
+    prev = rfind_mem(out->data, (size_t)last, mark);
+  }
 
   size_t from = 0, to = out->len;
-  if (last >= 0) {
-    from = (size_t)last + ml;
-    const void *e = memmem(out->data + from, out->len - from, end, el);
-    if (e) {
-      to = (size_t)((const unsigned char *)e - out->data);
-    }
+  if (last >= 0 && prev >= 0) { // Two or more starts: whole frame between
+    from = (size_t)prev + ml;
+    to = (size_t)last;
   }
 
   rows_t r;
@@ -2721,13 +2718,10 @@ static void real_captions_and_calls(void) {
   check(has_range(&ba, a1, a2, "^V cam on"),
         "--call: Ctrl-V is shown in the title");
   check(has_range(&ba, a1, a2, "kB/s"), "--call: the title shows the traffic");
-  pty_write(&pa, "\x16", 1);
-  pump_all(ps, bs, 2, 1.0);
-  size_t a3 = ba.len;
-  check(has_range(&ba, a2, a3, "^V cam off"),
-        "--call: Ctrl-V again turns the camera back on");
 
-  // Bob's screen shows the camera-off card in Alice's tile
+  // Bob's screen shows camera-off card in Alice's tile
+  // Checked before Alice turns her camera back on, so card is still
+  // on Bob's screen
   {
     screen_t scr;
     screen_init(&scr, 50, 120);
@@ -2738,6 +2732,12 @@ static void real_captions_and_calls(void) {
     free(t);
     screen_free(&scr);
   }
+
+  pty_write(&pa, "\x16", 1);
+  pump_all(ps, bs, 2, 1.0);
+  size_t a3 = ba.len;
+  check(has_range(&ba, a2, a3, "^V cam off"),
+        "--call: Ctrl-V again turns the camera back on");
 
   // Captions: a recogniser writes lines into fifo, others read them
   size_t b3 = bb.len;
@@ -2752,7 +2752,7 @@ static void real_captions_and_calls(void) {
   check(has_range(&bb, b3, b4, "Alice: good morning bob"),
         "--captions: Bob reads Alice's caption");
 
-  // On Bob's final screen the dim partial guess is gone, replaced by the final
+  // On Bob's final screen dim partial guess is gone, replaced by final
   {
     screen_t scr;
     screen_init(&scr, 50, 120);
@@ -4152,7 +4152,7 @@ static void model_tests(void) {
   free(first_out.data);
   free(copy);
 
-  // A wrong config is refused with the reason
+  // A wrong config is refused with reason
   write_file(cfgp, "{\"hidden_size\": 33}", 19);
   r = proc_run(A("--listen", wavp, "--model", model, NULL), NULL, NULL, NULL, 0,
                30);
