@@ -15,6 +15,7 @@
 
 #include "../lib/nolibc.h"
 
+#include "../filters/bloom.c"
 #include "../filters/chromatic.c"
 #include "../filters/crt.c"
 #include "../filters/dither_bayer.c"
@@ -81,6 +82,7 @@ typedef struct {
 } effect_t;
 
 static const effect_t effects[] = {
+    {"bloom", bloom_process, 1},
     {"chromatic", chromatic_process, 1},
     {"crt", crt_process, 1},
     {"dither_bayer", dither_bayer_process, 0},
@@ -957,7 +959,7 @@ static void test_solarize_sharpen_halftone(void) {
         "even black leaves the cell corners white", "halftone");
 }
 
-// equalize: a dim, flat-ish picture gets whole range, order is kept
+// Equalize: a dim, flat-ish picture gets whole range, order is kept
 static void test_equalize(void) {
   const char *n = "equalize";
   enum { W = 160, H = 120 };
@@ -1003,7 +1005,7 @@ static void test_equalize(void) {
 
   CHECK(hlo > 40 && hlo < 100, "half blend is partway", n);
 
-  // nothing to spread: one brightness is left alone
+  // Nothing to spread: one brightness is left alone
   nl_memset(g, 77, sizeof(g));
   run_param("equalize", g, W, H, 255);
   int same = 1;
@@ -1012,6 +1014,52 @@ static void test_equalize(void) {
   }
 
   CHECK(same, "flat frame stays flat", n);
+}
+
+// Bloom: light bleeds out of a bright spot, dark and mid tones are left alone
+static void test_bloom(void) {
+  const char *n = "bloom";
+  enum { W = 160, H = 120 };
+  static uint8_t g[W * H];
+  nl_memset(g, 0, sizeof(g));
+  for (int y = 55; y < 65; y++) {
+    for (int x = 75; x < 85; x++) {
+      g[y * W + x] = 255;
+    }
+  }
+
+  run_param("bloom", g, W, H, 255);
+  CHECK(g[60 * W + 80] == 255, "the bright spot stays at full brightness", n);
+  CHECK(g[60 * W + 88] > 0 && g[52 * W + 80] > 0,
+        "pixels beside and above the spot pick up glow", n);
+  CHECK(g[60 * W + 88] < g[60 * W + 86] || g[60 * W + 86] == 255,
+        "glow fades with distance", n);
+  CHECK(g[60 * W + 140] == 0 && g[5 * W + 5] == 0,
+        "far away stays black (the glow has a limited reach)", n);
+
+  nl_memset(g, 100, sizeof(g)); // below mid-grey: no highlights at all
+  run_param("bloom", g, W, H, 255);
+  int same = 1;
+  for (int i = 0; i < W * H; i++) {
+    same &= g[i] == 100;
+  }
+
+  CHECK(same, "a frame without highlights is unchanged", n);
+
+  // Uniform 200: highlight 146 everywhere, so blur is 146 right up to edges and
+  // screen blend gives exactly 255 - 55 * (255 - glow) / 255
+  nl_memset(g, 200, sizeof(g));
+  run_param("bloom", g, W, H, 255);
+  int full = 1;
+  for (int i = 0; i < W * H; i++) {
+    full &= g[i] == 232;
+  }
+
+  CHECK(full, "uniform 200 at full strength is 232 everywhere, edges too", n);
+  nl_memset(g, 200, sizeof(g));
+  run_param("bloom", g, W, H, 128);
+  CHECK(g[0] == 216 && g[60 * W + 80] == 216 && g[H * W - 1] == 216,
+        "half strength gives half the glow (216)", n);
 }
 
 static void test_posterize_pixelate_emboss(void) {
@@ -1230,6 +1278,7 @@ int main(void) {
   test_solarize_sharpen_halftone();
   test_posterize_pixelate_emboss();
   test_equalize();
+  test_bloom();
   test_rgb_hooks();
 
   char buf[96];
