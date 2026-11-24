@@ -38,6 +38,7 @@
 #include "../filters/sepia.c"
 #include "../filters/sharpen.c"
 #include "../filters/solarize.c"
+#include "../filters/swirl.c"
 #include "../filters/thermal.c"
 #include "../filters/trails.c"
 #include "../filters/tv_static.c"
@@ -106,6 +107,7 @@ static const effect_t effects[] = {
     {"sepia", sepia_process, 1},
     {"sharpen", sharpen_process, 1},
     {"solarize", solarize_process, 1},
+    {"swirl", swirl_process, 1},
     {"thermal", thermal_process, 1},
     {"trails", trails_process, 1},
     {"tv_static", tv_static_process, 1},
@@ -1064,6 +1066,98 @@ static void test_bloom(void) {
         "half strength gives half the glow (216)", n);
 }
 
+// Swirl: pixels only move; corners and exact centre stay
+static void test_swirl(void) {
+  const char *n = "swirl";
+  enum { W = 101, H = 81 };
+  static uint8_t g[W * H], ref[W * H];
+  for (int i = 0; i < W * H; i++) {
+    ref[i] = (uint8_t)(i * 7 % 251);
+  }
+
+  nl_memcpy(g, ref, sizeof(g));
+  run_param("swirl", g, W, H, 255);
+  CHECK(g[0] == ref[0] && g[W - 1] == ref[W - 1] &&
+            g[(H - 1) * W] == ref[(H - 1) * W] &&
+            g[H * W - 1] == ref[H * W - 1],
+        "corners are outside the circle and stay", n);
+  CHECK(g[(H / 2) * W + W / 2] == ref[(H / 2) * W + W / 2],
+        "the centre does not move", n);
+  int moved = 0;
+  for (int i = 0; i < W * H; i++) {
+    moved += g[i] != ref[i];
+  }
+
+  CHECK(moved > W * H / 4, "a good part of the picture is wound", n);
+  uint8_t present[256] = {0};
+  for (int i = 0; i < W * H; i++) {
+    present[ref[i]] = 1;
+  }
+
+  int invented = 0;
+  for (int i = 0; i < W * H; i++) {
+    invented += !present[g[i]];
+  }
+
+  CHECK(invented == 0, "no brightness appears that was not in the picture", n);
+
+  // Winding is a rotation about centre: a picture made of rings (same
+  // brightness at one distance) is hardly changed by it. Compare only where
+  // source pixel stays well inside frame
+  static uint8_t ring[W * H], wound[W * H];
+  for (int y = 0; y < H; y++) {
+    for (int x = 0; x < W; x++) {
+      int dx = x - W / 2;
+      int dy = y - H / 2;
+      ring[y * W + x] = (uint8_t)(fx_isqrt(dx * dx + dy * dy) * 6);
+    }
+  }
+
+  nl_memcpy(wound, ring, sizeof(ring));
+  run_param("swirl", wound, W, H, 255);
+  int off = 0;
+  int total = 0;
+  for (int y = 0; y < H; y++) {
+    for (int x = 0; x < W; x++) {
+      int dx = x - W / 2;
+      int dy = y - H / 2;
+      if (dx * dx + dy * dy < 36 * 36) {
+        total++;
+        off += fx_abs(wound[y * W + x] - ring[y * W + x]) > 14;
+      }
+    }
+  }
+
+  CHECK(off * 100 < total * 3, "rings stay rings: it is a rotation", n);
+
+  // Twist fades towards rim: next to rim few pixels move, nearer centre most do
+  uint32_t seed = 5;
+  for (int i = 0; i < W * H; i++) {
+    ref[i] = (uint8_t)fx_rand_n(&seed, 256);
+  }
+
+  nl_memcpy(g, ref, sizeof(g));
+  run_param("swirl", g, W, H, 255);
+  int rim = 0, rim_n = 0, mid = 0, mid_n = 0;
+  for (int y = 0; y < H; y++) {
+    for (int x = 0; x < W; x++) {
+      int dx = x - W / 2;
+      int dy = y - H / 2;
+      int d2 = dx * dx + dy * dy; // Radius of circle is 40
+      if (d2 >= 38 * 38 && d2 < 40 * 40) {
+        rim_n++;
+        rim += g[y * W + x] != ref[y * W + x];
+      } else if (d2 >= 8 * 8 && d2 < 20 * 20) {
+        mid_n++;
+        mid += g[y * W + x] != ref[y * W + x];
+      }
+    }
+  }
+
+  CHECK(rim * 100 < rim_n * 50 && mid * 100 > mid_n * 80,
+        "twist fades out towards the rim", n);
+}
+
 // Nightvision: dark gets lifted, lens darkens corners, colour is green
 static void test_nightvision(void) {
   const char *n = "nightvision";
@@ -1193,12 +1287,10 @@ static void test_rgb_hooks(void) {
   static const struct {
     const char *name;
     rgb_fn fn;
-  } hooks[] = {{"thermal_rgb", thermal_rgb},
-               {"sepia_rgb", sepia_rgb},
-               {"solarize_rgb", solarize_rgb},
-               {"posterize_rgb", posterize_rgb},
-               {"nightvision_rgb", nightvision_rgb},
-               {"chromatic_rgb", chromatic_rgb}};
+  } hooks[] = {
+      {"thermal_rgb", thermal_rgb},         {"sepia_rgb", sepia_rgb},
+      {"solarize_rgb", solarize_rgb},       {"posterize_rgb", posterize_rgb},
+      {"nightvision_rgb", nightvision_rgb}, {"chromatic_rgb", chromatic_rgb}};
 
   for (size_t k = 0; k < sizeof(hooks) / sizeof(hooks[0]); k++) {
     const char *name = hooks[k].name;
@@ -1320,6 +1412,7 @@ int main(void) {
   test_posterize_pixelate_emboss();
   test_equalize();
   test_bloom();
+  test_swirl();
   test_nightvision();
   test_rgb_hooks();
 

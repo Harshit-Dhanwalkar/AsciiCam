@@ -96,7 +96,7 @@ static const char *plugin_name[] = {
     "ripple",       "sepia",       "thermal",   "trails",    "tv_static",
     "vhs",          "vignette",    "halftone",  "sharpen",   "solarize",
     "posterize",    "pixelate",    "emboss",    "equalize",  "bloom",
-    "nightvision"};
+    "swirl",        "nightvision"};
 
 #define COUNT(a) (sizeof(a) / sizeof(*a))
 
