@@ -6,6 +6,11 @@
  *
  * Runs program in a pseudo-terminal against software camera
  * (tests/fake_capture.c) and checks what it draws
+ *
+ * macOS has no software camera build: give real binary twice and name sections
+ * that need no fake camera, `.nb e2e` does there:
+ *   build/tests/e2e build/asciicam build/asciicam voice model real
+ * (WARN: Windows has no pseudo-terminal, so no e2e)
  */
 
 #ifndef _GNU_SOURCE
@@ -28,6 +33,13 @@
 
 #if defined(__linux__)
 #include "../include/plugin_build.h" // PB_SCRIPT: How app builds a plugin
+#endif
+
+// Plugin file extension of this platform (build.c SO_EXT)
+#if defined(__APPLE__)
+#define E2E_SO_EXT "dylib"
+#else
+#define E2E_SO_EXT "so"
 #endif
 
 static const char *BIN; // Program with software camera
@@ -707,7 +719,7 @@ static void real_demo_and_plugins(const char *real_abs) {
   free(r.out.data);
 
   // Every effect plugin loads through real loader and keeps picture moving
-  // (plugin lookups are relative to binary: build/<name>.so)
+  // (plugin lookups are relative to binary: build/<name>.so, .dylib on macOS)
   static const char *plugins[] = {
       "chromatic", "crt",        "dither_bayer", "dither_fs",   "fisheye",
       "framediff", "glitch",     "kaleidoscope", "matrix_rain", "motion",
@@ -724,7 +736,7 @@ static void real_demo_and_plugins(const char *real_abs) {
 
   for (size_t i = 0; i < sizeof plugins / sizeof plugins[0]; i++) {
     char so[4200];
-    snprintf(so, sizeof so, "%s/%s.so", dir, plugins[i]);
+    snprintf(so, sizeof so, "%s/%s." E2E_SO_EXT, dir, plugins[i]);
     struct stat st;
     if (stat(so, &st) != 0) {
       check(0, "plugin %s: %s was built", plugins[i], so);
@@ -748,7 +760,7 @@ static void real_demo_and_plugins(const char *real_abs) {
   static const char *hooks[] = {"sepia", "thermal"};
   for (int i = 0; i < 2; i++) {
     char so[4200];
-    snprintf(so, sizeof so, "%s/%s.so", dir, hooks[i]);
+    snprintf(so, sizeof so, "%s/%s." E2E_SO_EXT, dir, hooks[i]);
     r = run(A("--demo", "-r", "20", "-C", "-p", so, NULL), 1.2, -1, "q");
     double w = 0;
     int have = warmth(&r.out, &w);
@@ -763,7 +775,7 @@ static void real_demo_and_plugins(const char *real_abs) {
   // Nightvision paints picture phosphor green: green clearly above red and blue
   {
     char so[4200];
-    snprintf(so, sizeof so, "%s/nightvision.so", dir);
+    snprintf(so, sizeof so, "%s/nightvision." E2E_SO_EXT, dir);
     r = run(A("--demo", "-r", "20", "-C", "-p", so, NULL), 1.2, -1, "q");
     double g = 0;
     int have = colour_mean(&r.out, &g, 1);
@@ -778,7 +790,7 @@ static void real_demo_and_plugins(const char *real_abs) {
   static const char *sb[] = {"glitch", "vhs", "ripple"};
   for (int i = 0; i < 3; i++) {
     char so[4200];
-    snprintf(so, sizeof so, "%s/%s.so", dir, sb[i]);
+    snprintf(so, sizeof so, "%s/%s." E2E_SO_EXT, dir, sb[i]);
     r = run(A("--demo", "-r", "20", "--sandbox", "-p", so, NULL), 1.2, -1, "q");
     check(r.frames >= 8 && r.code == 0 &&
               !contains(r.out.data, r.out.len, "switched off"),
@@ -788,7 +800,7 @@ static void real_demo_and_plugins(const char *real_abs) {
   }
   for (int i = 0; i < 2; i++) {
     char so[4200];
-    snprintf(so, sizeof so, "%s/%s.so", dir, hooks[i]);
+    snprintf(so, sizeof so, "%s/%s." E2E_SO_EXT, dir, hooks[i]);
     r = run(A("--demo", "-r", "20", "-C", "--sandbox", "-p", so, NULL), 1.5, -1,
             "q");
     double w = 0;
@@ -803,8 +815,8 @@ static void real_demo_and_plugins(const char *real_abs) {
   {
     char so1[4200];
     char so2[4200];
-    snprintf(so1, sizeof so1, "%s/glitch.so", dir);
-    snprintf(so2, sizeof so2, "%s/vignette.so", dir);
+    snprintf(so1, sizeof so1, "%s/glitch." E2E_SO_EXT, dir);
+    snprintf(so2, sizeof so2, "%s/vignette." E2E_SO_EXT, dir);
     r = run(A("--demo", "-r", "20", "--sandbox", "-p", so1, "-p", so2, NULL),
             1.2, -1, "q");
     check(r.frames >= 8 && r.code == 0,
@@ -820,7 +832,7 @@ static void real_demo_and_plugins(const char *real_abs) {
   // changing
   for (size_t i = 0; i < sizeof plugins / sizeof plugins[0]; i++) {
     char so[4200];
-    snprintf(so, sizeof so, "%s/%s.so", dir, plugins[i]);
+    snprintf(so, sizeof so, "%s/%s." E2E_SO_EXT, dir, plugins[i]);
     r = run(A("--sandbox", "--demo", "-r", "20", "-C", "-p", so, NULL), 1.2, -1,
             "q");
     check(r.frames >= 8 && r.code == 0 &&

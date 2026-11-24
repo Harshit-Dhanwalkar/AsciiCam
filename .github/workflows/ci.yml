@@ -59,7 +59,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential linux-libc-dev libv4l-dev ccache
+            build-essential linux-libc-dev ccache
 
       - name: Cache Homebrew downloads
         if: matrix.platform == 'macos'
@@ -245,6 +245,17 @@ jobs:
             -o /tmp/t_catalog
           /tmp/t_catalog
 
+      - name: End-to-end, parts that need no software camera (macOS)
+        if: matrix.platform == 'macos'
+        continue-on-error: true
+        working-directory: C
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/tests
+          ${{ matrix.cc }} -O1 -Wall -Wextra -pthread -o build/tests/e2e tests/e2e.c
+          build/tests/e2e build/asciicam build/asciicam voice model real
+
       - name: Plugin catalog tests (Windows)
         if: matrix.platform == 'windows'
         continue-on-error: true
@@ -287,7 +298,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential linux-libc-dev libv4l-dev \
+            build-essential linux-libc-dev \
             libasan8 libubsan1
 
       - name: Build with ASan+UBSan
@@ -314,7 +325,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential linux-libc-dev libv4l-dev \
+            build-essential linux-libc-dev \
             cppcheck clang clang-tidy
           pip install compiledb
 
