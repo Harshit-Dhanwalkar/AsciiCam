@@ -781,13 +781,40 @@ static int run_tests(void) {
   return 1;
 }
 
+#if WINDOWS
 static int run_e2e(const char **sections, int nsections) {
   (void)sections;
   (void)nsections;
-  nb_log("e2e is Linux only");
+  nb_log("e2e drives program through a pseudo-terminal: not on Windows");
 
   return 1;
 }
+#else
+// macOS: the software camera is a Linux build, so only the checks that need
+// the program itself run: speech, and everything the real binary does with
+// --demo, --image, --play, --serve, --room and plugins
+static int run_e2e(const char **sections, int nsections) {
+  (void)sections;
+  (void)nsections;
+  if (!build_all()) {
+    return 0;
+  }
+
+  nb_mkdir(BUILD "/tests");
+  nb_cmd ec = {0};
+  nb_cmd_add(&ec, cc, "-O1", "-Wall", "-Wextra", "-pthread", "-o",
+             BUILD "/tests/e2e", "tests/e2e.c");
+  if (!nb_run(&ec)) {
+    return 0;
+  }
+
+  nb_cmd er = {0};
+  nb_cmd_add(&er, BUILD "/tests/e2e", BUILD "/asciicam", BUILD "/asciicam",
+             "voice", "model", "real");
+
+  return nb_run(&er);
+}
+#endif
 #endif
 
 #if !WINDOWS

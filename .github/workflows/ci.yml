@@ -245,6 +245,17 @@ jobs:
             -o /tmp/t_catalog
           /tmp/t_catalog
 
+      - name: End-to-end, parts that need no software camera (macOS)
+        if: matrix.platform == 'macos'
+        continue-on-error: true
+        working-directory: C
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/tests
+          ${{ matrix.cc }} -O1 -Wall -Wextra -pthread -o build/tests/e2e tests/e2e.c
+          build/tests/e2e build/asciicam build/asciicam voice model real
+
       - name: Plugin catalog tests (Windows)
         if: matrix.platform == 'windows'
         continue-on-error: true

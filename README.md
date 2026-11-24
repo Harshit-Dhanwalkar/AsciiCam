@@ -811,7 +811,7 @@ cd C
 cc -o nb build.c
 ./nb -j8                  # binary + plugins, only what changed
 ./nb test                 # every unit test, fuzzers included
-./nb e2e                  # main loop against a software camera, driven through a pty
+./nb e2e                  # main loop against a software camera, driven through a pty (macOS: camera-free parts only)
 ./nb install-sdk PREFIX=/usr DESTDIR=...   # also headers + plugin sources
 ./nb clean                # ./nb info prints the flags in use
 ```
