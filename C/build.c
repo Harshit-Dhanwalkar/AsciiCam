@@ -478,6 +478,78 @@ static int run_tests(void) {
         "build/threshold.so 2000 1 build/tests/fuzz_elf.tmp"}},
       {"mouse", "-O0", "", "tests/test_mouse.c src/mouse.c", {NULL}},
       {"demo", "-O2", "", "tests/test_demo.c src/capture_demo.c", {NULL}},
+      {"slides_O0", "-O0", "", "tests/test_slides.c src/slides.c", {NULL}},
+      {"slides_O2", "-O2", "", "tests/test_slides.c src/slides.c", {NULL}},
+      {"netview_O0", "-O0", "", "tests/test_netview.c src/netview.c", {NULL}},
+      {"netview_O2", "-O2", "", "tests/test_netview.c src/netview.c", {NULL}},
+      {"cellcodec_O0",
+       "-O0",
+       "",
+       "tests/test_cellcodec.c src/cellcodec.c src/netenc.c",
+       {NULL}},
+      {"cellcodec_O2",
+       "-O2",
+       "",
+       "tests/test_cellcodec.c src/cellcodec.c src/netenc.c",
+       {NULL}},
+      {"speech_O0", "-O0", "", "tests/test_speech.c src/speech.c", {NULL}},
+      {"speech_O2", "-O2", "", "tests/test_speech.c src/speech.c", {NULL}},
+      {"math_O0", "-O0", "", "tests/test_math.c", {NULL}},
+      {"math_O2", "-O2", "", "tests/test_math.c", {NULL}},
+      {"asrnet_O0",
+       "-O0",
+       "",
+       "tests/test_asrnet.c src/nn.c src/safetensors.c src/asrnet.c "
+       "src/asrcfg.c",
+       {NULL}},
+      {"asrnet_O2",
+       "-O2",
+       "",
+       "tests/test_asrnet.c src/nn.c src/safetensors.c src/asrnet.c "
+       "src/asrcfg.c",
+       {NULL}},
+      {"tokdec_O0", "-O0", "", "tests/test_tokdec.c src/tokdec.c", {NULL}},
+      {"tokdec_O2", "-O2", "", "tests/test_tokdec.c src/tokdec.c", {NULL}},
+      {"asrcfg_O0",
+       "-O0",
+       "",
+       "tests/test_asrcfg.c src/asrcfg.c src/asrnet.c src/nn.c "
+       "src/safetensors.c",
+       {NULL}},
+      {"asrcfg_O2",
+       "-O2",
+       "",
+       "tests/test_asrcfg.c src/asrcfg.c src/asrnet.c src/nn.c "
+       "src/safetensors.c",
+       {NULL}},
+      {"asr_O0",
+       "-O0",
+       "",
+       "tests/test_asr.c src/asr.c src/speech.c src/nn.c "
+       "src/safetensors.c src/asrnet.c src/asrcfg.c src/tokdec.c",
+       {NULL}},
+      {"asr_O2",
+       "-O2",
+       "",
+       "tests/test_asr.c src/asr.c src/speech.c src/nn.c "
+       "src/safetensors.c src/asrnet.c src/asrcfg.c src/tokdec.c",
+       {NULL}},
+      {"mic_O0", "-O0", "", "tests/test_mic.c src/mic.c", {NULL}},
+      {"mic_O2", "-O2", "", "tests/test_mic.c src/mic.c", {NULL}},
+      {"capsrc_O0", "-O0", "", "tests/test_capsrc.c src/capsrc.c", {NULL}},
+      {"capsrc_O2", "-O2", "", "tests/test_capsrc.c src/capsrc.c", {NULL}},
+      {"call_O0",
+       "-O0",
+       "",
+       "tests/test_call.c src/call.c src/room.c src/callproto.c "
+       "src/cellcodec.c src/netenc.c src/netview.c",
+       {NULL}},
+      {"call_O2",
+       "-O2",
+       "",
+       "tests/test_call.c src/call.c src/room.c src/callproto.c "
+       "src/cellcodec.c src/netenc.c src/netview.c",
+       {NULL}},
       {"image_O0",
        "-O0",
        "",
@@ -657,7 +729,7 @@ static int run_tests(void) {
 }
 
 // Main loop linked against a software camera, driven through a pty
-static int run_e2e(void) {
+static int run_e2e(const char **sections, int nsections) {
   nb_mkdir(BUILD "/tests");
   const char *bin = BUILD "/tests/asciicam_fake";
   nb_cmd c = {0};
@@ -694,13 +766,11 @@ static int run_e2e(void) {
 
   nb_cmd er = {0};
   nb_cmd_add(&er, BUILD "/tests/e2e", bin, BUILD "/asciicam");
-  int ok_c = nb_run(&er);
+  for (int i = 0; i < nsections; i++) {
+    nb_push(&er, sections[i]);
+  }
 
-  nb_cmd py = {0};
-  nb_cmd_add(&py, "python3", "tests/e2e_capture.py", bin, BUILD "/asciicam");
-  int ok_py = nb_run(&py);
-
-  return ok_c && ok_py;
+  return nb_run(&er);
 }
 #else
 static int run_tests(void) {
@@ -709,7 +779,9 @@ static int run_tests(void) {
   return 1;
 }
 
-static int run_e2e(void) {
+static int run_e2e(const char **sections, int nsections) {
+  (void)sections;
+  (void)nsections;
   nb_log("e2e is Linux only");
 
   return 1;
@@ -758,6 +830,11 @@ int main(int argc, char **argv) {
   // Windows MinGW-w64 gcc
   NB_REBUILD_SELF(argc, argv, WINDOWS ? "gcc" : "cc");
   const char *target = "all";
+  int target_set = 0;
+  // Extra non-option args after target (e.g. e2e section names:
+  // ./nb e2e curve voice)
+  const char *extra[32];
+  int nextra = 0;
   for (int i = 1; i < argc; i++) {
     if (!strncmp(argv[i], "-j", 2) && argv[i][2]) {
       jobs = atoi(argv[i] + 2);
@@ -769,8 +846,11 @@ int main(int argc, char **argv) {
       destdir = argv[i] + 8;
     } else if (!strncmp(argv[i], "SECS=", 5)) {
       secs = argv[i] + 5;
-    } else {
+    } else if (!target_set) {
       target = argv[i];
+      target_set = 1;
+    } else if (nextra < 32) {
+      extra[nextra++] = argv[i];
     }
   }
 
@@ -782,7 +862,7 @@ int main(int argc, char **argv) {
   } else if (!strcmp(target, "test")) {
     ok = build_all() && run_tests(); // Tests read build/asciicam
   } else if (!strcmp(target, "e2e")) {
-    ok = run_e2e();
+    ok = run_e2e(extra, nextra);
   } else if (!strcmp(target, "bandwidth")) {
     ok = run_bandwidth();
   } else if (!strcmp(target, "info")) {

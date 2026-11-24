@@ -711,7 +711,7 @@ and a 8 kHz recording lacks the high frequencies the templates have. Words it do
 not know, and other people's voices, are not output. A final shows about 0.3 s after
 you stop speaking; `--listen` without `--call` prints to stdout, so it also feeds `--captions`.
 Tests: `tests/test_speech.c` (synthesised vowel-like words, spoken slower, faster and at
-another pitch, plus noise, clicks and silence) and the speech part of `tests/e2e_capture.py`.
+another pitch, plus noise, clicks and silence) and the speech part of `tests/e2e.c`.
 Code: `src/speech.c`, `src/voice_cli.c`.
 
 Like `--serve`, the relay has **no password and no encryption** and listens on
