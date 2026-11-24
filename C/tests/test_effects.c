@@ -15,10 +15,13 @@
 
 #include "../lib/nolibc.h"
 
+#include "../filters/bloom.c"
 #include "../filters/chromatic.c"
 #include "../filters/crt.c"
 #include "../filters/dither_bayer.c"
 #include "../filters/dither_fs.c"
+#include "../filters/emboss.c"
+#include "../filters/equalize.c"
 #include "../filters/fisheye.c"
 #include "../filters/framediff.c"
 #include "../filters/glitch.c"
@@ -27,11 +30,15 @@
 #include "../filters/matrix_rain.c"
 #include "../filters/motion.c"
 #include "../filters/neon_edge.c"
+#include "../filters/nightvision.c"
 #include "../filters/pixel_sort.c"
+#include "../filters/pixelate.c"
+#include "../filters/posterize.c"
 #include "../filters/ripple.c"
 #include "../filters/sepia.c"
 #include "../filters/sharpen.c"
 #include "../filters/solarize.c"
+#include "../filters/swirl.c"
 #include "../filters/thermal.c"
 #include "../filters/trails.c"
 #include "../filters/tv_static.c"
@@ -77,10 +84,13 @@ typedef struct {
 } effect_t;
 
 static const effect_t effects[] = {
+    {"bloom", bloom_process, 1},
     {"chromatic", chromatic_process, 1},
     {"crt", crt_process, 1},
     {"dither_bayer", dither_bayer_process, 0},
     {"dither_fs", dither_fs_process, 0},
+    {"emboss", emboss_process, 1},
+    {"equalize", equalize_process, 1},
     {"fisheye", fisheye_process, 1},
     {"framediff", framediff_process, 1},
     {"glitch", glitch_process, 1},
@@ -89,11 +99,15 @@ static const effect_t effects[] = {
     {"matrix_rain", matrix_rain_process, 1},
     {"motion", motion_process, 1},
     {"neon_edge", neon_edge_process, 1},
+    {"nightvision", nightvision_process, 1},
     {"pixel_sort", pixel_sort_process, 1},
+    {"posterize", posterize_process, 1},
+    {"pixelate", pixelate_process, 1},
     {"ripple", ripple_process, 1},
     {"sepia", sepia_process, 1},
     {"sharpen", sharpen_process, 1},
     {"solarize", solarize_process, 1},
+    {"swirl", swirl_process, 1},
     {"thermal", thermal_process, 1},
     {"trails", trails_process, 1},
     {"tv_static", tv_static_process, 1},
@@ -949,19 +963,339 @@ static void test_solarize_sharpen_halftone(void) {
         "even black leaves the cell corners white", "halftone");
 }
 
+// Equalize: a dim, flat-ish picture gets whole range, order is kept
+static void test_equalize(void) {
+  const char *n = "equalize";
+  enum { W = 160, H = 120 };
+  static uint8_t g[W * H];
+  static uint8_t ref[W * H];
+  uint32_t seed = 99;
+  for (int i = 0; i < W * H; i++) {
+    g[i] = (uint8_t)(100 + fx_rand_n(&seed, 41)); // 100 .. 140
+  }
+
+  nl_memcpy(ref, g, sizeof(g));
+  run_param("equalize", g, W, H, 255);
+  int lo = 255;
+  int hi = 0;
+  for (int i = 0; i < W * H; i++) {
+    lo = g[i] < lo ? g[i] : lo;
+    hi = g[i] > hi ? g[i] : hi;
+  }
+
+  CHECK(lo <= 2 && hi >= 253, "full equalisation spreads 100..140 over 0..255",
+        n);
+  int monotone = 1;
+  for (int a = 0; a < W * H && monotone; a += 7) {
+    for (int b = 0; b < W * H; b += 13) {
+      if (ref[a] < ref[b] && g[a] > g[b]) {
+        monotone = 0;
+        break;
+      }
+    }
+  }
+
+  CHECK(monotone, "darker input never comes out brighter than lighter input",
+        n);
+
+  // Half blend lands between picture and full result
+  static uint8_t half[W * H];
+  nl_memcpy(half, ref, sizeof(ref));
+  run_param("equalize", half, W, H, 128);
+  int hlo = 255;
+  for (int i = 0; i < W * H; i++) {
+    hlo = half[i] < hlo ? half[i] : hlo;
+  }
+
+  CHECK(hlo > 40 && hlo < 100, "half blend is partway", n);
+
+  // Nothing to spread: one brightness is left alone
+  nl_memset(g, 77, sizeof(g));
+  run_param("equalize", g, W, H, 255);
+  int same = 1;
+  for (int i = 0; i < W * H; i++) {
+    same &= g[i] == 77;
+  }
+
+  CHECK(same, "flat frame stays flat", n);
+}
+
+// Bloom: light bleeds out of a bright spot, dark and mid tones are left alone
+static void test_bloom(void) {
+  const char *n = "bloom";
+  enum { W = 160, H = 120 };
+  static uint8_t g[W * H];
+  nl_memset(g, 0, sizeof(g));
+  for (int y = 55; y < 65; y++) {
+    for (int x = 75; x < 85; x++) {
+      g[y * W + x] = 255;
+    }
+  }
+
+  run_param("bloom", g, W, H, 255);
+  CHECK(g[60 * W + 80] == 255, "the bright spot stays at full brightness", n);
+  CHECK(g[60 * W + 88] > 0 && g[52 * W + 80] > 0,
+        "pixels beside and above the spot pick up glow", n);
+  CHECK(g[60 * W + 88] < g[60 * W + 86] || g[60 * W + 86] == 255,
+        "glow fades with distance", n);
+  CHECK(g[60 * W + 140] == 0 && g[5 * W + 5] == 0,
+        "far away stays black (the glow has a limited reach)", n);
+
+  nl_memset(g, 100, sizeof(g)); // below mid-grey: no highlights at all
+  run_param("bloom", g, W, H, 255);
+  int same = 1;
+  for (int i = 0; i < W * H; i++) {
+    same &= g[i] == 100;
+  }
+
+  CHECK(same, "a frame without highlights is unchanged", n);
+
+  // Uniform 200: highlight 146 everywhere, so blur is 146 right up to edges and
+  // screen blend gives exactly 255 - 55 * (255 - glow) / 255
+  nl_memset(g, 200, sizeof(g));
+  run_param("bloom", g, W, H, 255);
+  int full = 1;
+  for (int i = 0; i < W * H; i++) {
+    full &= g[i] == 232;
+  }
+
+  CHECK(full, "uniform 200 at full strength is 232 everywhere, edges too", n);
+  nl_memset(g, 200, sizeof(g));
+  run_param("bloom", g, W, H, 128);
+  CHECK(g[0] == 216 && g[60 * W + 80] == 216 && g[H * W - 1] == 216,
+        "half strength gives half the glow (216)", n);
+}
+
+// Swirl: pixels only move; corners and exact centre stay
+static void test_swirl(void) {
+  const char *n = "swirl";
+  enum { W = 101, H = 81 };
+  static uint8_t g[W * H], ref[W * H];
+  for (int i = 0; i < W * H; i++) {
+    ref[i] = (uint8_t)(i * 7 % 251);
+  }
+
+  nl_memcpy(g, ref, sizeof(g));
+  run_param("swirl", g, W, H, 255);
+  CHECK(g[0] == ref[0] && g[W - 1] == ref[W - 1] &&
+            g[(H - 1) * W] == ref[(H - 1) * W] &&
+            g[H * W - 1] == ref[H * W - 1],
+        "corners are outside the circle and stay", n);
+  CHECK(g[(H / 2) * W + W / 2] == ref[(H / 2) * W + W / 2],
+        "the centre does not move", n);
+  int moved = 0;
+  for (int i = 0; i < W * H; i++) {
+    moved += g[i] != ref[i];
+  }
+
+  CHECK(moved > W * H / 4, "a good part of the picture is wound", n);
+  uint8_t present[256] = {0};
+  for (int i = 0; i < W * H; i++) {
+    present[ref[i]] = 1;
+  }
+
+  int invented = 0;
+  for (int i = 0; i < W * H; i++) {
+    invented += !present[g[i]];
+  }
+
+  CHECK(invented == 0, "no brightness appears that was not in the picture", n);
+
+  // Winding is a rotation about centre: a picture made of rings (same
+  // brightness at one distance) is hardly changed by it. Compare only where
+  // source pixel stays well inside frame
+  static uint8_t ring[W * H], wound[W * H];
+  for (int y = 0; y < H; y++) {
+    for (int x = 0; x < W; x++) {
+      int dx = x - W / 2;
+      int dy = y - H / 2;
+      ring[y * W + x] = (uint8_t)(fx_isqrt(dx * dx + dy * dy) * 6);
+    }
+  }
+
+  nl_memcpy(wound, ring, sizeof(ring));
+  run_param("swirl", wound, W, H, 255);
+  int off = 0;
+  int total = 0;
+  for (int y = 0; y < H; y++) {
+    for (int x = 0; x < W; x++) {
+      int dx = x - W / 2;
+      int dy = y - H / 2;
+      if (dx * dx + dy * dy < 36 * 36) {
+        total++;
+        off += fx_abs(wound[y * W + x] - ring[y * W + x]) > 14;
+      }
+    }
+  }
+
+  CHECK(off * 100 < total * 3, "rings stay rings: it is a rotation", n);
+
+  // Twist fades towards rim: next to rim few pixels move, nearer centre most do
+  uint32_t seed = 5;
+  for (int i = 0; i < W * H; i++) {
+    ref[i] = (uint8_t)fx_rand_n(&seed, 256);
+  }
+
+  nl_memcpy(g, ref, sizeof(g));
+  run_param("swirl", g, W, H, 255);
+  int rim = 0, rim_n = 0, mid = 0, mid_n = 0;
+  for (int y = 0; y < H; y++) {
+    for (int x = 0; x < W; x++) {
+      int dx = x - W / 2;
+      int dy = y - H / 2;
+      int d2 = dx * dx + dy * dy; // Radius of circle is 40
+      if (d2 >= 38 * 38 && d2 < 40 * 40) {
+        rim_n++;
+        rim += g[y * W + x] != ref[y * W + x];
+      } else if (d2 >= 8 * 8 && d2 < 20 * 20) {
+        mid_n++;
+        mid += g[y * W + x] != ref[y * W + x];
+      }
+    }
+  }
+
+  CHECK(rim * 100 < rim_n * 50 && mid * 100 > mid_n * 80,
+        "twist fades out towards the rim", n);
+}
+
+// Nightvision: dark gets lifted, lens darkens corners, colour is green
+static void test_nightvision(void) {
+  const char *n = "nightvision";
+  enum { W = 160, H = 120 };
+  static uint8_t g[W * H];
+  nl_memset(g, 40, sizeof(g));
+  run_param("nightvision", g, W, H, 255);
+  int centre = 0;
+  int corner = 0;
+  for (int y = 50; y < 70; y++) {
+    for (int x = 70; x < 90; x++) {
+      centre += g[y * W + x];
+    }
+  }
+
+  for (int y = 0; y < 10; y++) {
+    for (int x = 0; x < 10; x++) {
+      corner += g[y * W + x];
+    }
+  }
+
+  CHECK(centre / 400 > 85, "a dark scene (40) is lifted hard in the centre", n);
+  CHECK(corner / 100 < centre / 400 / 2, "the lens darkens the corners", n);
+
+  uint8_t a[W * H], b[W * H];
+  nl_memset(a, 128, sizeof(a));
+  nl_memset(b, 128, sizeof(b));
+  run_param("nightvision", a, W, H, 255);
+  run_param("nightvision", b, W, H, 255);
+  CHECK(differs(a, b, sizeof(a)), "grain differs from frame to frame", n);
+
+  uint8_t px[3] = {100, 100, 100};
+  int full = 255;
+  nightvision_rgb(px, 1, 1, &full);
+  CHECK(px[1] == 100 && px[0] < 30 && px[2] < 40,
+        "colour hook paints phosphor green", "nightvision_rgb");
+}
+
+static void test_posterize_pixelate_emboss(void) {
+  // Posterize: two tones at 255, a handful at default, steps never reorder
+  uint8_t ramp[256];
+  for (int i = 0; i < 256; i++) {
+    ramp[i] = (uint8_t)i;
+  }
+
+  run_param("posterize", ramp, 256, 1, 255);
+  int two = 1;
+  for (int i = 0; i < 256; i++) {
+    two &= ramp[i] == (i < 128 ? 0 : 255);
+  }
+
+  CHECK(two, "255 leaves only black and white", "posterize");
+  for (int i = 0; i < 256; i++) {
+    ramp[i] = (uint8_t)i;
+  }
+
+  run_param("posterize", ramp, 256, 1, 128);
+  int distinct = 1, sorted = 1;
+  for (int i = 1; i < 256; i++) {
+    distinct += ramp[i] != ramp[i - 1];
+    sorted &= ramp[i] >= ramp[i - 1];
+  }
+
+  CHECK(distinct == 9 && sorted && ramp[0] == 0 && ramp[255] == 255,
+        "default gives nine ordered tones, ends kept", "posterize");
+  uint8_t px[6] = {10, 200, 130, 255, 0, 60};
+  int full = 255;
+  posterize_rgb(px, 2, 1, &full);
+  CHECK(px[0] == 0 && px[1] == 255 && px[2] == 255 && px[3] == 255 &&
+            px[4] == 0 && px[5] == 0,
+        "colour hook cuts every channel", "posterize_rgb");
+
+  // Pixelate: blocks of one value, equal to the block average
+  uint8_t g[40 * 40];
+  for (int y = 0; y < 40; y++) {
+    for (int x = 0; x < 40; x++) {
+      g[y * 40 + x] = (uint8_t)(x * 6);
+    }
+  }
+
+  run_param("pixelate", g, 40, 40, 128); // 10 pixel blocks
+  int flat = 1;
+  for (int y = 0; y < 40; y++) {
+    for (int x = 0; x < 40; x++) {
+      flat &= g[y * 40 + x] == g[(y / 10 * 10) * 40 + x / 10 * 10];
+    }
+  }
+
+  CHECK(flat, "every block is one value", "pixelate");
+  CHECK(g[5] == 27 && g[15] == 87 && g[39 * 40 + 35] == 207,
+        "block value is the average", "pixelate");
+  uint8_t odd[7 * 5]; // Blocks cut off by the edge
+  nl_memset(odd, 90, sizeof(odd));
+  run_param("pixelate", odd, 7, 5, 255);
+  int same = 1;
+  for (size_t i = 0; i < sizeof(odd); i++) {
+    same &= odd[i] == 90;
+  }
+
+  CHECK(same, "partial blocks at the edge are averaged too", "pixelate");
+
+  // Emboss: flat is mid grey, an edge lights on one side and shades the other
+  uint8_t step[40 * 10];
+  for (int y = 0; y < 10; y++) {
+    for (int x = 0; x < 40; x++) {
+      step[y * 40 + x] = x < 20 ? 80 : 160;
+    }
+  }
+
+  run_param("emboss", step, 40, 10, 128);
+  CHECK(step[5 * 40 + 5] == 128 && step[5 * 40 + 35] == 128,
+        "flat areas turn mid grey", "emboss");
+  CHECK(step[5 * 40 + 19] > 170 && step[5 * 40 + 20] > 170,
+        "a rising edge is lit", "emboss");
+  for (int y = 0; y < 10; y++) {
+    for (int x = 0; x < 40; x++) {
+      step[y * 40 + x] = x < 20 ? 160 : 80;
+    }
+  }
+
+  run_param("emboss", step, 40, 10, 128);
+  CHECK(step[5 * 40 + 19] < 86 && step[5 * 40 + 20] < 86,
+        "a falling edge is in shade", "emboss");
+}
+
 static void test_rgb_hooks(void) {
   static const struct {
     const char *name;
     rgb_fn fn;
-  } hooks[] = {{"thermal_rgb", thermal_rgb},
-               {"sepia_rgb", sepia_rgb},
-               {"solarize_rgb", solarize_rgb},
-               {"chromatic_rgb", chromatic_rgb}};
+  } hooks[] = {
+      {"thermal_rgb", thermal_rgb},         {"sepia_rgb", sepia_rgb},
+      {"solarize_rgb", solarize_rgb},       {"posterize_rgb", posterize_rgb},
+      {"nightvision_rgb", nightvision_rgb}, {"chromatic_rgb", chromatic_rgb}};
 
   for (size_t k = 0; k < sizeof(hooks) / sizeof(hooks[0]); k++) {
     const char *name = hooks[k].name;
 
-    // bad frames are left alone
+    // Bad frames are left alone
     uint8_t px[12] = {10, 20, 30, 40, 50, 60, 70, 80, 90, 1, 2, 3};
     uint8_t keep[12];
     nl_memcpy(keep, px, sizeof(px));
@@ -1075,6 +1409,11 @@ int main(void) {
   test_sort_and_glitch();
   test_rain_crt_neon();
   test_solarize_sharpen_halftone();
+  test_posterize_pixelate_emboss();
+  test_equalize();
+  test_bloom();
+  test_swirl();
+  test_nightvision();
   test_rgb_hooks();
 
   char buf[96];
