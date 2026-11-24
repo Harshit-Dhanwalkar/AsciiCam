@@ -20,6 +20,7 @@
 #include "../filters/dither_bayer.c"
 #include "../filters/dither_fs.c"
 #include "../filters/emboss.c"
+#include "../filters/equalize.c"
 #include "../filters/fisheye.c"
 #include "../filters/framediff.c"
 #include "../filters/glitch.c"
@@ -85,6 +86,7 @@ static const effect_t effects[] = {
     {"dither_bayer", dither_bayer_process, 0},
     {"dither_fs", dither_fs_process, 0},
     {"emboss", emboss_process, 1},
+    {"equalize", equalize_process, 1},
     {"fisheye", fisheye_process, 1},
     {"framediff", framediff_process, 1},
     {"glitch", glitch_process, 1},
@@ -955,8 +957,65 @@ static void test_solarize_sharpen_halftone(void) {
         "even black leaves the cell corners white", "halftone");
 }
 
+// equalize: a dim, flat-ish picture gets whole range, order is kept
+static void test_equalize(void) {
+  const char *n = "equalize";
+  enum { W = 160, H = 120 };
+  static uint8_t g[W * H];
+  static uint8_t ref[W * H];
+  uint32_t seed = 99;
+  for (int i = 0; i < W * H; i++) {
+    g[i] = (uint8_t)(100 + fx_rand_n(&seed, 41)); // 100 .. 140
+  }
+
+  nl_memcpy(ref, g, sizeof(g));
+  run_param("equalize", g, W, H, 255);
+  int lo = 255;
+  int hi = 0;
+  for (int i = 0; i < W * H; i++) {
+    lo = g[i] < lo ? g[i] : lo;
+    hi = g[i] > hi ? g[i] : hi;
+  }
+
+  CHECK(lo <= 2 && hi >= 253, "full equalisation spreads 100..140 over 0..255",
+        n);
+  int monotone = 1;
+  for (int a = 0; a < W * H && monotone; a += 7) {
+    for (int b = 0; b < W * H; b += 13) {
+      if (ref[a] < ref[b] && g[a] > g[b]) {
+        monotone = 0;
+        break;
+      }
+    }
+  }
+
+  CHECK(monotone, "darker input never comes out brighter than lighter input",
+        n);
+
+  // Half blend lands between picture and full result
+  static uint8_t half[W * H];
+  nl_memcpy(half, ref, sizeof(ref));
+  run_param("equalize", half, W, H, 128);
+  int hlo = 255;
+  for (int i = 0; i < W * H; i++) {
+    hlo = half[i] < hlo ? half[i] : hlo;
+  }
+
+  CHECK(hlo > 40 && hlo < 100, "half blend is partway", n);
+
+  // nothing to spread: one brightness is left alone
+  nl_memset(g, 77, sizeof(g));
+  run_param("equalize", g, W, H, 255);
+  int same = 1;
+  for (int i = 0; i < W * H; i++) {
+    same &= g[i] == 77;
+  }
+
+  CHECK(same, "flat frame stays flat", n);
+}
+
 static void test_posterize_pixelate_emboss(void) {
-  // Posterize: two tones at 255, a handful at the default, steps never reorder
+  // Posterize: two tones at 255, a handful at default, steps never reorder
   uint8_t ramp[256];
   for (int i = 0; i < 256; i++) {
     ramp[i] = (uint8_t)i;
@@ -1169,6 +1228,8 @@ int main(void) {
   test_sort_and_glitch();
   test_rain_crt_neon();
   test_solarize_sharpen_halftone();
+  test_posterize_pixelate_emboss();
+  test_equalize();
   test_rgb_hooks();
 
   char buf[96];
