@@ -303,7 +303,7 @@ without it load and run exactly as before, and the interface version
 | Digital | `glitch` (bursts), `pixel_sort`, `matrix_rain`, `dither_bayer`, `dither_fs` (levels set by the parameter)                      |
 | Motion  | `trails` (ghosting), `framediff` (highlight what moved), `motion` (detector: frames what moves, meter at the bottom)           |
 | Shape   | `neon_edge`, `ripple`, `fisheye`, `kaleidoscope` (2/4/8-fold), `thermal` (heat bands)                                          |
-| Tone    | `solarize` (flips tones above a threshold), `sharpen` (unsharp mask), `posterize` (fewer tones)                                |
+| Tone    | `solarize` (flips tones above a threshold), `sharpen` (unsharp mask), `posterize` (fewer tones), `emboss` (relief)             |
 | Blocks  | `halftone` (print dots), `pixelate` (big pixels); the parameter sets the cell size                                             |
 
 Shared helpers (bounds check, parameter clamp, integer sine and square root, PRNG)

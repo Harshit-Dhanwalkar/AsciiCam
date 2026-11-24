@@ -19,6 +19,7 @@
 #include "../filters/crt.c"
 #include "../filters/dither_bayer.c"
 #include "../filters/dither_fs.c"
+#include "../filters/emboss.c"
 #include "../filters/fisheye.c"
 #include "../filters/framediff.c"
 #include "../filters/glitch.c"
@@ -83,6 +84,7 @@ static const effect_t effects[] = {
     {"crt", crt_process, 1},
     {"dither_bayer", dither_bayer_process, 0},
     {"dither_fs", dither_fs_process, 0},
+    {"emboss", emboss_process, 1},
     {"fisheye", fisheye_process, 1},
     {"framediff", framediff_process, 1},
     {"glitch", glitch_process, 1},
@@ -951,6 +953,93 @@ static void test_solarize_sharpen_halftone(void) {
         "mid grey covers about half the cell", "halftone");
   CHECK(dark_count[0] < 64 && black_corner == 255,
         "even black leaves the cell corners white", "halftone");
+}
+
+static void test_posterize_pixelate_emboss(void) {
+  // Posterize: two tones at 255, a handful at the default, steps never reorder
+  uint8_t ramp[256];
+  for (int i = 0; i < 256; i++) {
+    ramp[i] = (uint8_t)i;
+  }
+
+  run_param("posterize", ramp, 256, 1, 255);
+  int two = 1;
+  for (int i = 0; i < 256; i++) {
+    two &= ramp[i] == (i < 128 ? 0 : 255);
+  }
+
+  CHECK(two, "255 leaves only black and white", "posterize");
+  for (int i = 0; i < 256; i++) {
+    ramp[i] = (uint8_t)i;
+  }
+
+  run_param("posterize", ramp, 256, 1, 128);
+  int distinct = 1, sorted = 1;
+  for (int i = 1; i < 256; i++) {
+    distinct += ramp[i] != ramp[i - 1];
+    sorted &= ramp[i] >= ramp[i - 1];
+  }
+
+  CHECK(distinct == 9 && sorted && ramp[0] == 0 && ramp[255] == 255,
+        "default gives nine ordered tones, ends kept", "posterize");
+  uint8_t px[6] = {10, 200, 130, 255, 0, 60};
+  int full = 255;
+  posterize_rgb(px, 2, 1, &full);
+  CHECK(px[0] == 0 && px[1] == 255 && px[2] == 255 && px[3] == 255 &&
+            px[4] == 0 && px[5] == 0,
+        "colour hook cuts every channel", "posterize_rgb");
+
+  // Pixelate: blocks of one value, equal to the block average
+  uint8_t g[40 * 40];
+  for (int y = 0; y < 40; y++) {
+    for (int x = 0; x < 40; x++) {
+      g[y * 40 + x] = (uint8_t)(x * 6);
+    }
+  }
+
+  run_param("pixelate", g, 40, 40, 128); // 10 pixel blocks
+  int flat = 1;
+  for (int y = 0; y < 40; y++) {
+    for (int x = 0; x < 40; x++) {
+      flat &= g[y * 40 + x] == g[(y / 10 * 10) * 40 + x / 10 * 10];
+    }
+  }
+
+  CHECK(flat, "every block is one value", "pixelate");
+  CHECK(g[5] == 27 && g[15] == 87 && g[39 * 40 + 35] == 207,
+        "block value is the average", "pixelate");
+  uint8_t odd[7 * 5]; // Blocks cut off by the edge
+  nl_memset(odd, 90, sizeof(odd));
+  run_param("pixelate", odd, 7, 5, 255);
+  int same = 1;
+  for (size_t i = 0; i < sizeof(odd); i++) {
+    same &= odd[i] == 90;
+  }
+
+  CHECK(same, "partial blocks at the edge are averaged too", "pixelate");
+
+  // Emboss: flat is mid grey, an edge lights on one side and shades the other
+  uint8_t step[40 * 10];
+  for (int y = 0; y < 10; y++) {
+    for (int x = 0; x < 40; x++) {
+      step[y * 40 + x] = x < 20 ? 80 : 160;
+    }
+  }
+
+  run_param("emboss", step, 40, 10, 128);
+  CHECK(step[5 * 40 + 5] == 128 && step[5 * 40 + 35] == 128,
+        "flat areas turn mid grey", "emboss");
+  CHECK(step[5 * 40 + 19] > 170 && step[5 * 40 + 20] > 170,
+        "a rising edge is lit", "emboss");
+  for (int y = 0; y < 10; y++) {
+    for (int x = 0; x < 40; x++) {
+      step[y * 40 + x] = x < 20 ? 160 : 80;
+    }
+  }
+
+  run_param("emboss", step, 40, 10, 128);
+  CHECK(step[5 * 40 + 19] < 86 && step[5 * 40 + 20] < 86,
+        "a falling edge is in shade", "emboss");
 }
 
 static void test_rgb_hooks(void) {
