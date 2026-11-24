@@ -694,7 +694,7 @@ static void real_demo_and_plugins(const char *real_abs) {
       "framediff", "glitch",     "kaleidoscope", "matrix_rain", "motion",
       "neon_edge", "pixel_sort", "ripple",       "sepia",       "thermal",
       "trails",    "tv_static",  "vhs",          "vignette",    "halftone",
-      "sharpen",   "solarize"};
+      "sharpen",   "solarize",   "posterize"};
   char dir[4096];
   snprintf(dir, sizeof dir, "%s", real_abs);
   char *slash = strrchr(dir, '/');

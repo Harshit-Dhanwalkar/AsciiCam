@@ -28,6 +28,7 @@
 #include "../filters/motion.c"
 #include "../filters/neon_edge.c"
 #include "../filters/pixel_sort.c"
+#include "../filters/posterize.c"
 #include "../filters/ripple.c"
 #include "../filters/sepia.c"
 #include "../filters/sharpen.c"
@@ -90,6 +91,7 @@ static const effect_t effects[] = {
     {"motion", motion_process, 1},
     {"neon_edge", neon_edge_process, 1},
     {"pixel_sort", pixel_sort_process, 1},
+    {"posterize", posterize_process, 1},
     {"ripple", ripple_process, 1},
     {"sepia", sepia_process, 1},
     {"sharpen", sharpen_process, 1},
