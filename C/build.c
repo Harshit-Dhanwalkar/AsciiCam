@@ -94,7 +94,7 @@ static const char *plugin_name[] = {
     "dither_bayer", "dither_fs",   "fisheye",   "framediff", "glitch",
     "kaleidoscope", "matrix_rain", "motion",    "neon_edge", "pixel_sort",
     "ripple",       "sepia",       "thermal",   "trails",    "tv_static",
-    "vhs",          "vignette"};
+    "vhs",          "vignette",    "halftone",  "sharpen",   "solarize"};
 
 #define COUNT(a) (sizeof(a) / sizeof(*a))
 

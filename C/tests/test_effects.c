@@ -22,6 +22,7 @@
 #include "../filters/fisheye.c"
 #include "../filters/framediff.c"
 #include "../filters/glitch.c"
+#include "../filters/halftone.c"
 #include "../filters/kaleidoscope.c"
 #include "../filters/matrix_rain.c"
 #include "../filters/motion.c"
@@ -29,6 +30,8 @@
 #include "../filters/pixel_sort.c"
 #include "../filters/ripple.c"
 #include "../filters/sepia.c"
+#include "../filters/sharpen.c"
+#include "../filters/solarize.c"
 #include "../filters/thermal.c"
 #include "../filters/trails.c"
 #include "../filters/tv_static.c"
@@ -81,6 +84,7 @@ static const effect_t effects[] = {
     {"fisheye", fisheye_process, 1},
     {"framediff", framediff_process, 1},
     {"glitch", glitch_process, 1},
+    {"halftone", halftone_process, 1},
     {"kaleidoscope", kaleidoscope_process, 1},
     {"matrix_rain", matrix_rain_process, 1},
     {"motion", motion_process, 1},
@@ -88,6 +92,8 @@ static const effect_t effects[] = {
     {"pixel_sort", pixel_sort_process, 1},
     {"ripple", ripple_process, 1},
     {"sepia", sepia_process, 1},
+    {"sharpen", sharpen_process, 1},
+    {"solarize", solarize_process, 1},
     {"thermal", thermal_process, 1},
     {"trails", trails_process, 1},
     {"tv_static", tv_static_process, 1},
@@ -853,12 +859,103 @@ static void test_rain_crt_neon(void) {
 // Colour hooks (plugin_rgb_process): guards, parameter 0, and what each does
 typedef void (*rgb_fn)(uint8_t *, int, int, void *);
 
+static void test_solarize_sharpen_halftone(void) {
+  // Solarize: tones at or above 256 - p flip, rest stay
+  uint8_t ramp[256];
+  for (int i = 0; i < 256; i++) {
+    ramp[i] = (uint8_t)i;
+  }
+
+  run_param("solarize", ramp, 256, 1, 128);
+  CHECK(ramp[100] == 100 && ramp[127] == 127 && ramp[128] == 127 &&
+            ramp[200] == 55 && ramp[255] == 0,
+        "upper half of tones flips at 128", "solarize");
+  for (int i = 0; i < 256; i++) {
+    ramp[i] = (uint8_t)i;
+  }
+
+  run_param("solarize", ramp, 256, 1, 255);
+  CHECK(ramp[0] == 0 && ramp[1] == 254 && ramp[10] == 245,
+        "everything but black flips at 255", "solarize");
+  uint8_t px[6] = {50, 200, 128, 255, 0, 127};
+  int mid = 128;
+  solarize_rgb(px, 2, 1, &mid);
+  CHECK(px[0] == 50 && px[1] == 55 && px[2] == 127 && px[3] == 0 &&
+            px[4] == 0 && px[5] == 127,
+        "colour hook flips every channel above the threshold", "solarize_rgb");
+
+  // sharpen: a step edge gets an overshoot on both sides, flat areas stay
+  uint8_t step[40 * 10];
+  for (int y = 0; y < 10; y++) {
+    for (int x = 0; x < 40; x++) {
+      step[y * 40 + x] = x < 20 ? 80 : 160;
+    }
+  }
+
+  run_param("sharpen", step, 40, 10, 255);
+  CHECK(step[5 * 40 + 19] < 80 && step[5 * 40 + 20] > 160,
+        "edge overshoots on both sides", "sharpen");
+  CHECK(step[5 * 40 + 5] == 80 && step[5 * 40 + 35] == 160 &&
+            step[0 * 40 + 5] == 80 && step[9 * 40 + 35] == 160,
+        "flat areas, borders included, are unchanged", "sharpen");
+  uint8_t flat[16 * 16];
+  nl_memset(flat, 100, sizeof(flat));
+  run_param("sharpen", flat, 16, 16, 200);
+  int same = 1;
+  for (size_t i = 0; i < sizeof(flat); i++) {
+    same &= flat[i] == 100;
+  }
+
+  CHECK(same, "a flat picture stays flat", "sharpen");
+
+  // Halftone: only black and white dots, bigger where picture is darker
+  uint8_t ht[40 * 40];
+  nl_memset(ht, 255, sizeof(ht));
+  run_param("halftone", ht, 40, 40, 128);
+  same = 1;
+  for (size_t i = 0; i < sizeof(ht); i++) {
+    same &= ht[i] == 255;
+  }
+
+  CHECK(same, "white stays white", "halftone");
+  int dark_count[3];
+  uint8_t black_corner = 0;
+  static const uint8_t levels[3] = {0, 128, 200};
+  for (int k = 0; k < 3; k++) {
+    nl_memset(ht, levels[k], sizeof(ht));
+    run_param("halftone", ht, 40, 40, 128);
+    int only_two = 1, dark = 0;
+    for (int y = 0; y < 8; y++) { // First cell, 8 x 8 at this parameter
+      for (int x = 0; x < 8; x++) {
+        uint8_t v = ht[y * 40 + x];
+        only_two &= v == 0 || v == 255;
+        dark += v == 0;
+      }
+    }
+
+    dark_count[k] = dark;
+    if (k == 0) {
+      black_corner = ht[0];
+    }
+
+    CHECK(only_two, "output is dots: black or white only", "halftone");
+  }
+
+  CHECK(dark_count[0] > dark_count[1] && dark_count[1] > dark_count[2],
+        "darker picture, bigger dots", "halftone");
+  CHECK(dark_count[1] >= 24 && dark_count[1] <= 40,
+        "mid grey covers about half the cell", "halftone");
+  CHECK(dark_count[0] < 64 && black_corner == 255,
+        "even black leaves the cell corners white", "halftone");
+}
+
 static void test_rgb_hooks(void) {
   static const struct {
     const char *name;
     rgb_fn fn;
   } hooks[] = {{"thermal_rgb", thermal_rgb},
                {"sepia_rgb", sepia_rgb},
+               {"solarize_rgb", solarize_rgb},
                {"chromatic_rgb", chromatic_rgb}};
 
   for (size_t k = 0; k < sizeof(hooks) / sizeof(hooks[0]); k++) {
@@ -977,6 +1074,7 @@ int main(void) {
   test_noise_effects();
   test_sort_and_glitch();
   test_rain_crt_neon();
+  test_solarize_sharpen_halftone();
   test_rgb_hooks();
 
   char buf[96];
