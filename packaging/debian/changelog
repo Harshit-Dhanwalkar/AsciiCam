@@ -1,20 +1,20 @@
-asciicam (0.3.0-1) unstable; urgency=medium
+asciicam (0.3.1-1) unstable; urgency=medium
 
-  * New upstream release.
-  * Add a neural speech-to-text engine (asrnet): --model <weights>
-    with --listen now transcribes full sentences from a real neural
-    model instead of matching enrolled word templates (weights are a
-    plain safetensors file; vocabulary from tokenizer.json beside it).
-  * Add --mic <device>: capture audio straight from an ALSA microphone
-    for --listen, instead of only a file, fifo or stdin.
-  * Add --asr-debug: with --model, print the decoder's raw and
-    repeat-trimmed token ids to stderr, for diagnosing transcription
-    issues.
-  * Fix a repeated short word or phrase (e.g. "hi, hi, hi.") being
-    over-trimmed to two repeats; genuinely repeated short speech is now
-    kept, while the decoder getting stuck in a loop is still cut.
-  * Performance: the neural network's matrix-multiply picks an AVX2
-    implementation at runtime on CPUs that support it, falling back to
-    the portable SSE path elsewhere.
+  * Add ten effect plugins: solarize, sharpen, halftone, posterize,
+    pixelate, emboss, equalize, bloom, swirl and nightvision. The
+    README lists 29 effects and what each one's parameter does.
+  * Every plugin is also linked into the Linux binary and can be loaded
+    from memory as "ramfs:<name>".
+  * --sandbox runs each plugin in a locked-down child process (Linux).
+    A plugin that makes a forbidden system call is switched off with a
+    message, and the program keeps running.
+  * Native Windows build with MinGW-w64, without make (nb.exe), with
+    console raw mode, VT output and terminal resize.
+  * Faster: YUYV to RGB conversion uses SSE4.1, and the picture
+    downscale uses SSE2 kernels.
+  * Fix integer overflow in the effect filters.
+  * The build program ./nb builds from source on Linux, macOS and
+    Windows. Its e2e test runs the camera-free checks on macOS.
+  * The test suite is now plain C. The Python test scripts are gone.
 
- -- Harshit Dhanwalkar <harshitpd1729@gmail.com>  Thu, 19 Nov 2026 13:27:00 +0530
+ -- Harshit Dhanwalkar <harshitpd1729@gmail.com>  Wed, 25 Nov 2026 13:30:00 +0530
