@@ -2,9 +2,6 @@
 
 #include "nolibc.h"
 
-#include "nl_types.h"
-#include "nl_v4l2.h"
-
 #include "ascii.h"
 #include "capture.h"
 #include "demo.h"

@@ -9,7 +9,6 @@
 #include "nolibc.h"
 
 #include "asrnet.h"
-#include "nl_math.h"
 #include "nn.h"
 
 #include <stdint.h>
