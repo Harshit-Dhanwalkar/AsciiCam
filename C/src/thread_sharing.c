@@ -35,7 +35,7 @@ static void *capture_thread(void *arg) {
     if (rc > 0) {
       fx_write_abort(&p->fx);
 
-      continue; // corrupt frame dropped, its buffer is already requeued
+      continue; // Corrupt frame dropped, its buffer is already requeued
     }
 
     // Raw frame must be copied before buffer goes back to driver:

@@ -1,10 +1,6 @@
 #include "nolibc.h"
 
 #include "plugins.h"
-
-#include "nl_defer.h"
-#include "nl_dlfcn.h"
-#include "nl_inotify.h"
 #include "plugin_embedded.h"
 
 // Windows opens files in text mode by default, which would mangle a DLL copied
