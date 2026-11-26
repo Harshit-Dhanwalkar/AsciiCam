@@ -337,6 +337,8 @@ test: all
 	$(CC) -O2 $(TEST_FLAGS) -DNL_SUMSPAN_NO_ASM tests/test_nl_sumspan.c $(TEST_LIBS) -o $(TESTDIR)/sumspan_c
 	$(CC) -O0 $(TEST_FLAGS) tests/test_nl_sgr.c $(TEST_LIBS) -o $(TESTDIR)/sgr_O0
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_sgr.c $(TEST_LIBS) -o $(TESTDIR)/sgr_O2
+	$(CC) -O0 $(TEST_FLAGS) tests/test_nl_prof.c $(TEST_LIBS) -o $(TESTDIR)/prof_O0
+	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_prof.c $(TEST_LIBS) -o $(TESTDIR)/prof_O2
 	$(CC) $(TEST_FLAGS) tests/test_nl_slice.c $(TEST_LIBS) -o $(TESTDIR)/slice
 	$(CC) -O2 $(TEST_FLAGS) tests/test_nl_slice.c $(TEST_LIBS) -o $(TESTDIR)/slice_O2
 	$(CC) $(TEST_FLAGS) tests/test_nl_dlfcn.c $(LIBDIR)/nl_dlfcn.c $(TEST_LIBS) -o $(TESTDIR)/dlfcn
@@ -427,6 +429,8 @@ test: all
 	$(TESTDIR)/sumspan_c
 	$(TESTDIR)/sgr_O0
 	$(TESTDIR)/sgr_O2
+	$(TESTDIR)/prof_O0
+	$(TESTDIR)/prof_O2
 	$(TESTDIR)/copy_file
 	$(TESTDIR)/dlfcn build
 	$(TESTDIR)/dlopen_mem $(BUILDDIR)/invert.so
