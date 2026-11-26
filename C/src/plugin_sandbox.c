@@ -6,10 +6,6 @@ int plugin_sandbox_enabled = 0;
 int plugin_sandbox_timeout_ms = 1000;
 
 #if defined(__LINUX_NOLIBC__) && defined(__x86_64__)
-
-#include "nl_alloc.h"
-#include "nl_seccomp.h"
-
 // Reset every catchable signal to SIG_DFL and clear blocked-set
 static void plugin_sandbox_reset_signals(void) {
   struct {

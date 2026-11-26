@@ -1,5 +1,6 @@
-#include "tokdec.h"
 #include "nolibc.h"
+
+#include "tokdec.h"
 
 static void fail(char *err, size_t size, const char *msg) {
   if (err && size) {

@@ -6,10 +6,6 @@
 
 #include "nolibc.h"
 
-#include "nl_gc.h"
-#include "nl_inotify.h"
-#include "nl_types.h"
-
 // Emits assembly kernel of nl_sumspan_u8 into this unit (x86-64 Linux)
 #define NL_SUMSPAN_IMPL
 #include "nl_sgr.h"

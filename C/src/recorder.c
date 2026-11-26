@@ -17,9 +17,6 @@
 #endif
 
 #include "nolibc.h"
-
-#include "nl_checked.h"
-#include "nl_crc.h"
 #include "recorder.h"
 
 #ifndef O_BINARY

@@ -237,6 +237,9 @@ static void print_usage(const char *prog) {
       "                @file                                                 \n"
       "  --net <kbps>  slow-link mode: send only changed pixels,             \n"
       "                <kbps> kbit/s (0 = lossless changes only)             \n"
+      "  --prof        print per-stage timing (avg, p50, p99, max) on exit   \n"
+      "  --bench <n>   render n frames flat out (no frame limiter), print    \n"
+      "                --prof table and quit                                 \n"
       "  --vcam <dev>  also send the picture to a virtual camera, for Meet,  \n"
       "                Teams, Zoom (v4l2loopback device, /dev/video10)       \n"
       "  --vcam-size <WxH>  virtual camera size (default 1280x720)           \n"
@@ -1044,7 +1047,69 @@ static const char WRAP_OFF[] = "\033[?7l";
 static const char WRAP_ON[] = "\033[?7h";
 
 // Main
-// A non-negative decimal number not larger than max, or -1
+// Stages of one frame, as charged by --prof / --bench
+enum {
+  PS_CAPTURE, // Keys, hot reload, waiting for and taking camera frame
+  PS_PLUGINS, // Luma plugins
+  PS_CONVERT, // YUYV -> RGB and colour plugins
+  PS_RENDER,  // grayscale_to_ascii
+  PS_OUTPUT,  // Overlays, net/serve/vcam/rec, terminal write
+  PS_SLEEP,   // Frame limiter
+  PS_COUNT
+};
+
+static const char *const prof_names[PS_COUNT] = {
+    "capture", "plugins", "convert", "render", "output", "sleep"};
+
+static uint64_t prof_now_ns(void) {
+  struct timespec t = {0, 0};
+  if (clock_gettime(CLOCK_MONOTONIC, &t) != 0) {
+    return 0;
+  }
+
+  return (uint64_t)t.tv_sec * 1000000000ULL + (uint64_t)t.tv_nsec;
+}
+
+// Microseconds with one decimal, e.g. 1234 ns -> "1.2"
+static void prof_us(char *dst, size_t cap, uint64_t ns) {
+  uint64_t tenth = (ns + 50) / 100; // tenths of a microsecond
+  nl_snprintf(dst, cap, "%llu.%llu", (unsigned long long)(tenth / 10),
+              (unsigned long long)(tenth % 10));
+}
+
+static void prof_report(const nl_prof_t *p) {
+  uint64_t frames = p->st[PS_OUTPUT].count;
+  uint64_t total = 0;
+  for (int i = 0; i < PS_COUNT; i++) {
+    total += p->st[i].sum;
+  }
+
+  fprintf(stderr, "\nframes: %llu\n", (unsigned long long)frames);
+  fprintf(stderr, "%-8s %9s %9s %9s %9s %6s   (microseconds)\n", "stage", "avg",
+          "p50", "p99", "max", "share");
+  for (int i = 0; i < PS_COUNT; i++) {
+    const nl_prof_stage_t *s = &p->st[i];
+    if (s->count == 0) {
+      continue;
+    }
+
+    char a[24], m[24], q[24], x[24];
+    prof_us(a, sizeof(a), s->sum / s->count);
+    prof_us(m, sizeof(m), nl_prof_quantile(s, 1, 2));
+    prof_us(q, sizeof(q), nl_prof_quantile(s, 99, 100));
+    prof_us(x, sizeof(x), s->max);
+    unsigned share = total ? (unsigned)(s->sum * 1000 / total) : 0;
+    fprintf(stderr, "%-8s %9s %9s %9s %9s %3u.%u%%\n", prof_names[i], a, m, q,
+            x, share / 10, share % 10);
+  }
+
+  if (frames > 0 && total > 0) {
+    unsigned long long fps10 = frames * 10000000000ULL / total;
+    fprintf(stderr, "throughput: %llu.%llu frames/s over %llu ms\n", fps10 / 10,
+            fps10 % 10, (unsigned long long)(total / 1000000));
+  }
+}
+
 static long parse_count(const char *s, long max) {
   if (!s || *s == '\0') {
     return -1;
@@ -1222,6 +1287,46 @@ int main(int argc, char *argv[]) {
     }
 
     net_kbps = (int)v;
+    for (int k = i; k + 2 < argc; k++) {
+      argv[k] = argv[k + 2];
+    }
+
+    argc -= 2;
+    argv[argc] = NULL;
+    i--;
+  }
+
+  // --prof: per-stage timing table on exit; --bench <n>: n frames with no
+  // frame limiter, then same table (taken out of argv like --net)
+  int prof_on = 0;
+  long bench_frames = 0;
+  for (int i = 1; i < argc; i++) {
+    if (nl_strcmp(argv[i], "--prof") == 0) {
+      prof_on = 1;
+      for (int k = i; k + 1 < argc; k++) {
+        argv[k] = argv[k + 1];
+      }
+
+      argc--;
+      argv[argc] = NULL;
+      i--;
+
+      continue;
+    }
+
+    if (nl_strcmp(argv[i], "--bench") != 0) {
+      continue;
+    }
+
+    long v = i + 1 < argc ? parse_count(argv[i + 1], 1000000) : -1;
+    if (v < 1) {
+      fprintf(stderr, "--bench needs a number of frames (1 or more)\n");
+
+      return 2;
+    }
+
+    bench_frames = v;
+    prof_on = 1;
     for (int k = i; k + 2 < argc; k++) {
       argv[k] = argv[k + 2];
     }
@@ -2360,8 +2465,22 @@ int main(int argc, char *argv[]) {
 
   last_frame_time = frame_start;
 
+  nl_prof_t prof;
+  nl_prof_init(&prof);
+#define PROF(stage)                                                            \
+  do {                                                                         \
+    if (prof_on) {                                                             \
+      nl_prof_mark(&prof, (stage), prof_now_ns());                             \
+    }                                                                          \
+  } while (0)
+
   // Main loop
   while (keep_running) {
+    if (prof_on) {
+      // Also covers frames that bail out early with `continue`
+      nl_prof_restart(&prof, prof_now_ns());
+    }
+
     struct timespec now = {0};
     if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
       // Skip this frame; timing would be garbage
@@ -3113,6 +3232,8 @@ int main(int argc, char *argv[]) {
       }
     }
 
+    PROF(PS_CAPTURE);
+
     if (slides_take_changed()) {
       TOAST("%d/%d  %s", slides_index() + 1, slides_count(),
             slides_name(slides_index()));
@@ -3161,6 +3282,8 @@ int main(int argc, char *argv[]) {
       }
     }
 
+    PROF(PS_PLUGINS);
+
     // Calculate proper subpixel dimensions
     int subpixel_w;
     int subpixel_h;
@@ -3197,6 +3320,7 @@ int main(int argc, char *argv[]) {
 
     int len = grayscale_to_ascii(frame, rgb, cam.width, cam.height, subpixel_w,
                                  subpixel_h, out_buf, out_size, &opts);
+    PROF(PS_RENDER);
     if (len > (int)out_size) {
       fprintf(stderr, "WARNING: len=%d > out_size=%zu\n", len, out_size);
     }
@@ -3461,14 +3585,27 @@ int main(int argc, char *argv[]) {
       break;
     }
 
-    timing_sleep(&frame_start);
+    PROF(PS_OUTPUT);
+    if (bench_frames > 0) {
+      if ((long)prof.st[PS_OUTPUT].count >= bench_frames) {
+        break;
+      }
+    } else {
+      timing_sleep(&frame_start);
+      PROF(PS_SLEEP);
+    }
   }
+#undef PROF
 
   // Cleanup
   mouse_disable();
   term_restore();
 
   fprintf(stderr, "Stopped.\n");
+
+  if (prof_on) {
+    prof_report(&prof);
+  }
 
   if (vcam_on) {
     fprintf(stderr, "Virtual camera: %u frames sent to %s\n",

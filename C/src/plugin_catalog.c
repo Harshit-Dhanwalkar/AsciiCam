@@ -32,7 +32,6 @@
 
 #include "nolibc.h"
 
-#include "nl_hash.h"
 #include "plugin_build.h"
 #include "plugin_catalog.h"
 #include "plugin_embedded.h"
