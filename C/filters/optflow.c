@@ -3,33 +3,51 @@
 #include "fx.h"
 #include "plugins.h"
 
-/* optflow - which way things move: Lucas-Kanade optical flow on a grid
+/* optflow - which way things move: coarse-to-fine Lucas-Kanade on a grid
  *
  * Picture is cut in 16 x 16 pixel cells. For each cell, brightness gradients
  * of this frame and previous one give a 2 x 2 least-squares system whose
  * solution is cell's motion (u, v) in pixels per frame
  * A cell is trusted only when it has texture in both directions (its smaller
- * eigenvalue is large enough); flat walls and sky stay silent, since there
- * aperture problem makes answer meaningless
+ * eigenvalue is large enough); flat walls and single edges stay silent, since
+ * there aperture problem makes answer meaningless
+ *
+ * Single-scale LK is accurate only for about 2 px per frame, so flow is
+ * estimated on a 3-level pyramid (full, half, quarter resolution), coarse
+ * first
+ * Each finer level starts from coarser flow, rounded to whole pixels and used
+ * to shift previous frame; remaining sub-pixel residual is solved as usual
+ * Motion of about 8 px per frame at full size is then within reach
  *
  * Flow is drawn as a short white stroke from each moving cell, pointing where
- * it goes; rest of picture is dimmed. Arithmetic is integer fixed point (flow
- * in 1/16 pixel) with int64 accumulators: no floating point, no libm, nothing
- * allocated
+ * it goes; rest of picture is dimmed
+ * Arithmetic is integer fixed point (flow
+ * in 1/16 pixel) with int64 accumulators: no floating point (flow in 1/16 pixel
+ * of the level it belongs to) with int64 accumulators: no floating point, no
+ * libm, nothing allocated
  *
  * Parameter: 0 off .. 255 strongest dimming and longest strokes (128 default)
  */
 
 #define OF_CELL 16
+#define OF_LEVELS 3
 #define OF_MAX_CELLS 16384
-#define OF_SUBPX 16     // flow units per pixel
-#define OF_MAX_FLOW 128 // +-8 px per frame; faster motion is clamped
-#define OF_MIN_MOVE 8   // strokes only for at least half a pixel of motion
+#define OF_SUBPX 16       // flow units per pixel
+#define OF_MAX_RESID 128  // sub-pixel residual per level: +-8 px
+#define OF_MAX_TOTAL 2048 // total flow per level: +-128 px at that level
+#define OF_MIN_MOVE 8     // strokes only for at least half a pixel of motion
 
+// Level sizes: ceil(w / 2^l) x ceil(h / 2^l)
+// Bounds hold for any frame that fx_ok() accepts (w*h <= FX_MAX_PIXELS, sides
+// <= FX_MAX_SIDE)
+static uint8_t of_p1[1 << 19], of_c1[1 << 19];
+static uint8_t of_p2[1 << 18], of_c2[1 << 18];
 static uint8_t of_prev[FX_MAX_PIXELS];
-static int of_w, of_h, of_cw, of_ch;
-static int16_t of_fu[OF_MAX_CELLS], of_fv[OF_MAX_CELLS];
-static uint8_t of_ok[OF_MAX_CELLS];
+static int of_w, of_h;
+static int16_t of_lu[OF_LEVELS][OF_MAX_CELLS], of_lv[OF_LEVELS][OF_MAX_CELLS];
+static uint8_t of_lok[OF_LEVELS][OF_MAX_CELLS];
+static int of_lw[OF_LEVELS], of_lh[OF_LEVELS], of_lcw[OF_LEVELS],
+    of_lch[OF_LEVELS];
 
 static int of_at(const uint8_t *img, int w, int h, int x, int y) {
   x = fx_clamp(x, 0, w - 1);
@@ -38,29 +56,78 @@ static int of_at(const uint8_t *img, int w, int h, int x, int y) {
   return img[(size_t)y * (size_t)w + (size_t)x];
 }
 
-/* Flow of every cell from prev -> cur.
- * Let gx, gy be central differences summed over both frames (each is 2 x
- * brightness gradient, times 2 frames) and gt = 4 * (cur - prev)
- * Then gx*u + gy*v + gt = 0 is brightness constancy equation scaled by 4
- * everywhere, so solution is true flow */
-static void of_estimate(const uint8_t *prev, const uint8_t *cur, int w, int h) {
-  for (int cy = 0; cy < of_ch; cy++) {
-    for (int cx = 0; cx < of_cw; cx++) {
-      int i = cy * of_cw + cx;
+static int of_ceil_shift(int v, int l) { return (v + (1 << l) - 1) >> l; }
+
+// Half-size image by 2 x 2 mean (rounded). Odd sizes repeat the last column
+static void of_halve(const uint8_t *src, int sw, int sh, uint8_t *dst) {
+  int dw = (sw + 1) / 2, dh = (sh + 1) / 2;
+  for (int y = 0; y < dh; y++) {
+    for (int x = 0; x < dw; x++) {
+      int s = of_at(src, sw, sh, 2 * x, 2 * y) +
+              of_at(src, sw, sh, 2 * x + 1, 2 * y) +
+              of_at(src, sw, sh, 2 * x, 2 * y + 1) +
+              of_at(src, sw, sh, 2 * x + 1, 2 * y + 1);
+      dst[(size_t)y * (size_t)dw + (size_t)x] = (uint8_t)((s + 2) / 4);
+    }
+  }
+}
+
+// Whole pixels nearest to a flow value in 1/16 pixel (round half away)
+static int of_round_px(int g) {
+  return g >= 0 ? (g + OF_SUBPX / 2) / OF_SUBPX
+                : -((-g + OF_SUBPX / 2) / OF_SUBPX);
+}
+
+/* Flow of every cell of one level, prev -> cur.
+ * Parent (coarser) flow, if given, is doubled and rounded to whole pixels;
+ * prev is read at that offset, so the solution is the residual only. Gradients
+ * are summed over the two (shifted) frames: gx, gy are 2 x the brightness
+ * gradient times 2 frames, gt = 4 * (cur - shifted prev). Then gx*u + gy*v +
+ * gt = 0 is the constancy equation scaled by 4, and the solution is the flow */
+static void of_level(const uint8_t *prev, const uint8_t *cur, int w, int h,
+                     int l, const int16_t *pu, const int16_t *pv,
+                     const uint8_t *pok) {
+  int cw = of_lcw[l];
+  int ch = of_lch[l];
+  int pcw = l + 1 < OF_LEVELS ? of_lcw[l + 1] : 0;
+  for (int cy = 0; cy < ch; cy++) {
+    for (int cx = 0; cx < cw; cx++) {
+      int i = cy * cw + cx;
+      int gu = 0;
+      int gv = 0;
+      if (pu != NULL) {
+        int pi = (cy / 2) * pcw + cx / 2;
+        if (pok[pi]) {
+          gu = pu[pi] * 2;
+          gv = pv[pi] * 2;
+        }
+      }
+      int sx = of_round_px(gu);
+      int sy = of_round_px(gv);
+
       int x0 = cx * OF_CELL;
       int y0 = cy * OF_CELL;
       int x1 = fx_clamp(x0 + OF_CELL, 0, w);
       int y1 = fx_clamp(y0 + OF_CELL, 0, h);
 
-      int64_t sxx = 0, syy = 0, sxy = 0, sxt = 0, syt = 0;
+      int64_t sxx = 0;
+      int64_t syy = 0;
+      int64_t sxy = 0;
+      int64_t sxt = 0;
+      int64_t syt = 0;
       int64_t npix = 0;
       for (int y = y0; y < y1; y++) {
         for (int x = x0; x < x1; x++) {
+          // Warped prev: cur(x) ~ prev(x - s), so the flow convention holds
+          int px = x - sx;
+          int py = y - sy;
           int gx = of_at(cur, w, h, x + 1, y) - of_at(cur, w, h, x - 1, y) +
-                   of_at(prev, w, h, x + 1, y) - of_at(prev, w, h, x - 1, y);
+                   of_at(prev, w, h, px + 1, py) -
+                   of_at(prev, w, h, px - 1, py);
           int gy = of_at(cur, w, h, x, y + 1) - of_at(cur, w, h, x, y - 1) +
-                   of_at(prev, w, h, x, y + 1) - of_at(prev, w, h, x, y - 1);
-          int gt = 4 * (of_at(cur, w, h, x, y) - of_at(prev, w, h, x, y));
+                   of_at(prev, w, h, px, py + 1) -
+                   of_at(prev, w, h, px, py - 1);
+          int gt = 4 * (of_at(cur, w, h, x, y) - of_at(prev, w, h, px, py));
 
           sxx += (int64_t)gx * gx;
           syy += (int64_t)gy * gy;
@@ -71,9 +138,9 @@ static void of_estimate(const uint8_t *prev, const uint8_t *cur, int w, int h) {
         }
       }
 
-      of_ok[i] = 0;
-      of_fu[i] = 0;
-      of_fv[i] = 0;
+      of_lok[l][i] = 0;
+      of_lu[l][i] = 0;
+      of_lv[l][i] = 0;
 
       int64_t det = sxx * syy - sxy * sxy;
       int64_t tr = sxx + syy;
@@ -81,20 +148,56 @@ static void of_estimate(const uint8_t *prev, const uint8_t *cur, int w, int h) {
         continue;
       }
 
-      // Smaller eigenvalue is about det / tr. Need it to average at least 4
-      // per pixel in gx units (gradient of about one brightness level along
-      // each axis), otherwise cell is flat or a single edge
+      // Smaller eigenvalue is about det / tr
+      // Need it to average at least 4 per pixel in gx units (gradient of about
+      // one brightness level along each axis), otherwise cell is flat or a
+      // single edge
       if (det / tr < 4 * npix) {
         continue;
       }
 
       // Cramer's rule for [sxx sxy; sxy syy] [u; v] = -[sxt; syt]
-      int64_t u = -(syy * sxt - sxy * syt) * OF_SUBPX / det;
-      int64_t v = -(sxx * syt - sxy * sxt) * OF_SUBPX / det;
+      int64_t ur = -(syy * sxt - sxy * syt) * OF_SUBPX / det;
+      int64_t vr = -(sxx * syt - sxy * sxt) * OF_SUBPX / det;
+      ur = fx_clamp((int)ur, -OF_MAX_RESID, OF_MAX_RESID);
+      vr = fx_clamp((int)vr, -OF_MAX_RESID, OF_MAX_RESID);
 
-      of_fu[i] = (int16_t)fx_clamp((int)u, -OF_MAX_FLOW, OF_MAX_FLOW);
-      of_fv[i] = (int16_t)fx_clamp((int)v, -OF_MAX_FLOW, OF_MAX_FLOW);
-      of_ok[i] = 1;
+      int tu = sx * OF_SUBPX + (int)ur;
+      int tv = sy * OF_SUBPX + (int)vr;
+      of_lu[l][i] = (int16_t)fx_clamp(tu, -OF_MAX_TOTAL, OF_MAX_TOTAL);
+      of_lv[l][i] = (int16_t)fx_clamp(tv, -OF_MAX_TOTAL, OF_MAX_TOTAL);
+      of_lok[l][i] = 1;
+    }
+  }
+}
+
+// Full flow pyramid from prev (level 0 = prev) to cur (level 0 = cur), coarse
+// level first. Result: level 0 in of_lu[0], of_lv[0], of_lok[0]
+static void of_flow(const uint8_t *prev, const uint8_t *cur, int w, int h) {
+  const uint8_t *pp[OF_LEVELS] = {prev, of_p1, of_p2};
+  const uint8_t *pc[OF_LEVELS] = {cur, of_c1, of_c2};
+  uint8_t *w1p = of_p1;
+  uint8_t *w1c = of_c1;
+  uint8_t *w2p = of_p2;
+  uint8_t *w2c = of_c2;
+
+  for (int l = 0; l < OF_LEVELS; l++) {
+    of_lw[l] = of_ceil_shift(w, l);
+    of_lh[l] = of_ceil_shift(h, l);
+    of_lcw[l] = (of_lw[l] + OF_CELL - 1) / OF_CELL;
+    of_lch[l] = (of_lh[l] + OF_CELL - 1) / OF_CELL;
+  }
+  of_halve(prev, w, h, w1p);
+  of_halve(cur, w, h, w1c);
+  of_halve(w1p, of_lw[1], of_lh[1], w2p);
+  of_halve(w1c, of_lw[1], of_lh[1], w2c);
+
+  for (int l = OF_LEVELS - 1; l >= 0; l--) {
+    if (l == OF_LEVELS - 1) {
+      of_level(pp[l], pc[l], of_lw[l], of_lh[l], l, NULL, NULL, NULL);
+    } else {
+      of_level(pp[l], pc[l], of_lw[l], of_lh[l], l, of_lu[l + 1], of_lv[l + 1],
+               of_lok[l + 1]);
     }
   }
 }
@@ -147,11 +250,8 @@ void optflow_process(uint8_t *gray, int w, int h, void *ctx) {
   if (first) {
     of_w = w;
     of_h = h;
-    of_cw = cw;
-    of_ch = ch;
-    nl_memset(of_ok, 0, sizeof(of_ok));
   } else {
-    of_estimate(of_prev, gray, w, h);
+    of_flow(of_prev, gray, w, h);
   }
 
   // Keep untouched frame as next "previous"; drawing below must not leak into
@@ -170,12 +270,12 @@ void optflow_process(uint8_t *gray, int w, int h, void *ctx) {
   for (int cy = 0; cy < ch; cy++) {
     for (int cx = 0; cx < cw; cx++) {
       int i = cy * cw + cx;
-      if (!of_ok[i]) {
+      if (!of_lok[0][i]) {
         continue;
       }
 
-      int fu = of_fu[i];
-      int fv = of_fv[i];
+      int fu = of_lu[0][i];
+      int fv = of_lv[0][i];
       if (fx_abs(fu) + fx_abs(fv) < OF_MIN_MOVE) {
         continue;
       }

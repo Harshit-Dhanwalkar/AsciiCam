@@ -1,12 +1,13 @@
 /*
  * tests/test_optflow.c - filters/optflow.c against a known synthetic motion
  *
- * A smooth texture is shifted by an exact (dx, dy) between two frames; each
- * trusted interior cell must match it within half a pixel
- * Limit: this is a single-scale estimator, so it is accurate for motion of
- * about 2 px per frame or less; faster motion needs a coarse-to-fine pyramid
- * (not here yet) Controls: a static scene must give zero flow, a flat wall must
- * give no trusted cell at all and opposite shift must give opposite flow
+ * A smooth texture is shifted by an exact (dx, dy) between two frames. Each
+ * trusted interior cell must match the true motion within half a pixel. The
+ * shifts go up to 6 px, which single-scale Lucas-Kanade cannot follow; the
+ * pyramid is what makes them pass.
+ * Controls: a static scene must give zero flow, a flat wall must give no
+ * trusted cell at all, a pure edge must give none either, and the opposite
+ * shift must give the opposite flow
  * Then plugin as a whole: pass-through at parameter 0, and a moving scene
  * changes picture while a still one does not
  */
@@ -31,9 +32,11 @@ static int pass_n, fail_n;
   } while (0)
 
 enum { W = 96, H = 80 };
-static uint8_t scene_prev[W * H], scene_cur[W * H], tmp_out[W * H];
+static uint8_t scene_prev[W * H];
+static uint8_t scene_cur[W * H];
+static uint8_t tmp_out[W * H];
 
-// Smooth texture, about 60 levels of contrast, no flat areas
+// Smooth texture with about 60 levels of contrast, no flat areas
 static int texture(int x, int y) {
   return 128 + (60 * fx_sin(x * 12 + y * 5)) / 256 +
          (40 * fx_sin(x * 3 - y * 9 + 300)) / 256;
@@ -49,43 +52,37 @@ static void make_pair(int dx, int dy) {
   }
 }
 
-static void reset_state(void) {
-  of_w = of_h = 0;
-  of_cw = of_ch = 0;
-  nl_memset(of_ok, 0, sizeof(of_ok));
-}
-
-// Runs estimator on a prev/cur pair with fresh grid state
-static void run_flow(const uint8_t *prev, const uint8_t *cur) {
-  of_w = W;
-  of_h = H;
-  of_cw = (W + OF_CELL - 1) / OF_CELL;
-  of_ch = (H + OF_CELL - 1) / OF_CELL;
-  of_estimate(prev, cur, W, H);
-}
+static void reset_state(void) { of_w = of_h = 0; }
 
 static int near(int got, int want, int tol) {
   return got >= want - tol && got <= want + tol;
 }
+
+static int cells_w(void) { return (W + OF_CELL - 1) / OF_CELL; }
+static int cells_h(void) { return (H + OF_CELL - 1) / OF_CELL; }
 
 // Two properties, on interior cells only (borders see clamped pixels):
 //  - accuracy: every trusted cell is within half a pixel of true motion
 //  - coverage: texture is strong enough that most cells are trusted
 static void check_shift(int dx, int dy, const char *name) {
   make_pair(dx, dy);
-  run_flow(scene_prev, scene_cur);
+  of_flow(scene_prev, scene_cur, W, H);
 
-  int cw = of_cw, ch = of_ch, trusted = 0, total = 0, wrong = 0;
+  int cw = cells_w();
+  int ch = cells_h();
+  int trusted = 0;
+  int total = 0;
+  int wrong = 0;
   for (int cy = 1; cy < ch - 1; cy++) {
     for (int cx = 1; cx < cw - 1; cx++) {
       int i = cy * cw + cx;
       total++;
-      if (!of_ok[i]) {
+      if (!of_lok[0][i]) {
         continue;
       }
       trusted++;
-      if (!near(of_fu[i], dx * OF_SUBPX, OF_SUBPX / 2) ||
-          !near(of_fv[i], dy * OF_SUBPX, OF_SUBPX / 2)) {
+      if (!near(of_lu[0][i], dx * OF_SUBPX, OF_SUBPX / 2) ||
+          !near(of_lv[0][i], dy * OF_SUBPX, OF_SUBPX / 2)) {
         wrong++;
       }
     }
@@ -98,18 +95,22 @@ static void check_shift(int dx, int dy, const char *name) {
 }
 
 int main(void) {
-  // Known motions, both signs and both axes
-  check_shift(2, 1, "right-down");
-  check_shift(-2, 0, "left");
-  check_shift(0, -2, "up");
-  check_shift(1, 1, "diagonal");
+  // Known motions: small, both signs, both axes, then past single-scale range
+  check_shift(2, 1, "right-down 2px");
+  check_shift(-2, 0, "left 2px");
+  check_shift(0, -2, "up 2px");
+  check_shift(1, 1, "diagonal 1px");
+  check_shift(6, 2, "right 6px");
+  check_shift(-5, 0, "left 5px");
+  check_shift(0, -4, "up 4px");
+  check_shift(3, 3, "diagonal 3px");
 
   // Control: nothing moves, so flow is zero everywhere it is trusted
   make_pair(0, 0);
-  run_flow(scene_prev, scene_cur);
+  of_flow(scene_prev, scene_cur, W, H);
   int still_bad = 0;
-  for (int i = 0; i < of_cw * of_ch; i++) {
-    if (of_ok[i] && (fx_abs(of_fu[i]) > 1 || fx_abs(of_fv[i]) > 1)) {
+  for (int i = 0; i < cells_w() * cells_h(); i++) {
+    if (of_lok[0][i] && (fx_abs(of_lu[0][i]) > 1 || fx_abs(of_lv[0][i]) > 1)) {
       still_bad++;
     }
   }
@@ -119,26 +120,26 @@ int main(void) {
   for (int i = 0; i < W * H; i++) {
     scene_prev[i] = scene_cur[i] = 90;
   }
-  run_flow(scene_prev, scene_cur);
+  of_flow(scene_prev, scene_cur, W, H);
   int trusted = 0;
-  for (int i = 0; i < of_cw * of_ch; i++) {
-    trusted += of_ok[i];
+  for (int i = 0; i < cells_w() * cells_h(); i++) {
+    trusted += of_lok[0][i];
   }
   CHECK(trusted == 0, "flat wall: %d cells trusted, want 0", trusted);
 
-  // Control: a single straight edge has aperture problem, only normal
-  // component is known; eigenvalue test must reject it
+  // Control: a single straight edge has aperture problem; eigenvalue test must
+  // reject it
   for (int y = 0; y < H; y++) {
     for (int x = 0; x < W; x++) {
       scene_prev[y * W + x] = (uint8_t)(x < 40 ? 40 : 200);
       scene_cur[y * W + x] = (uint8_t)(x < 42 ? 40 : 200);
     }
   }
-  run_flow(scene_prev, scene_cur);
+  of_flow(scene_prev, scene_cur, W, H);
   int edge_trusted = 0;
-  for (int cy = 1; cy < of_ch - 1; cy++) {
-    for (int cx = 1; cx < of_cw - 1; cx++) {
-      edge_trusted += of_ok[cy * of_cw + cx];
+  for (int cy = 1; cy < cells_h() - 1; cy++) {
+    for (int cx = 1; cx < cells_w() - 1; cx++) {
+      edge_trusted += of_lok[0][cy * cells_w() + cx];
     }
   }
   CHECK(edge_trusted == 0, "pure edge: %d interior cells trusted, want 0",
@@ -159,14 +160,11 @@ int main(void) {
   }
   CHECK(same, "parameter 0 passes the frame through");
 
-  // Plugin level: moving scene is drawn, still scene is only dimmed by a
-  // uniform amount with no strokes (every pixel of a still frame is either
-  // dimmed value or dimmed value with same offset)
+  // Plugin level: a still scene draws no strokes; a moving one does
   int param = 128;
   reset_state();
   make_pair(0, 0);
-  nl_memcpy(scene_prev, scene_cur, W * H);
-  optflow_process(scene_prev, W, H, &param); // first frame: init
+  optflow_process(scene_prev, W, H, &param); // First frame: init
   nl_memcpy(tmp_out, scene_cur, W * H);
   optflow_process(tmp_out, W, H, &param);
   int strokes_still = 0;
