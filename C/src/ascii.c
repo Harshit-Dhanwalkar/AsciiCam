@@ -12,6 +12,7 @@
 
 // Emits assembly kernel of nl_sumspan_u8 into this unit (x86-64 Linux)
 #define NL_SUMSPAN_IMPL
+#include "nl_sgr.h"
 #include "nl_sumspan.h"
 
 #include "ascii.h"
@@ -709,27 +710,33 @@ static int emit_row_end(char *out, size_t out_size, int out_idx, int do_color,
 static int emit_glyph(char *out, size_t out_size, int out_idx,
                       const char *glyph, int do_color, color_mode_t cmode,
                       int r, int g, int b) {
+  size_t glen = nl_strlen(glyph);
+  size_t room = out_size - (size_t)out_idx;
+  size_t need = glen + (do_color ? NL_SGR_MAX : 0);
+
+  if (need < room) {
+    // Fast path: escape is built in place, no bounds dance
+    char *p = out + out_idx;
+    if (do_color) {
+      p += (cmode == COLOR_256) ? nl_sgr_fg256(p, rgb_to_ansi256(r, g, b))
+                                : nl_sgr_fg_rgb(p, r, g, b);
+    }
+    nl_memcpy(p, glyph, glen);
+
+    return (int)((p + glen) - out);
+  }
+
+  // Tail of buffer: build in scratch so exact fit is still honoured
+  char tmp[NL_SGR_MAX + 8];
+  size_t n = 0;
   if (do_color) {
-    int written;
-    if (cmode == COLOR_256) {
-      int idx = rgb_to_ansi256(r, g, b);
-      written = snprintf(out + out_idx, out_size - (size_t)out_idx,
-                         "\033[38;5;%dm%s", idx, glyph);
-    } else {
-      written = snprintf(out + out_idx, out_size - (size_t)out_idx,
-                         "\033[38;2;%d;%d;%dm%s", r, g, b, glyph);
-    }
-
-    if (written > 0 && (size_t)(out_idx + written) < out_size) {
-      out_idx += written;
-    }
-  } else {
-    size_t glen = nl_strlen(glyph);
-    if ((size_t)(out_idx + (int)glen) < out_size) {
-      nl_memcpy(out + out_idx, glyph, glen);
-
-      out_idx += (int)glen;
-    }
+    n = (cmode == COLOR_256) ? nl_sgr_fg256(tmp, rgb_to_ansi256(r, g, b))
+                             : nl_sgr_fg_rgb(tmp, r, g, b);
+  }
+  if (n + glen < room) {
+    nl_memcpy(out + out_idx, tmp, n);
+    nl_memcpy(out + out_idx + n, glyph, glen);
+    out_idx += (int)(n + glen);
   }
 
   return out_idx;
@@ -1150,23 +1157,18 @@ int grayscale_to_ascii(const uint8_t *gray, const uint8_t *rgb, int src_w,
           const uint8_t *tp = subpixel_rgb + top_idx * 3;
           const uint8_t *bp = subpixel_rgb + bot_idx * 3;
 
-          int written;
-          if (color_mode == COLOR_256) {
-            int fg = rgb_to_ansi256(tp[0], tp[1], tp[2]);
-            int bg = rgb_to_ansi256(bp[0], bp[1], bp[2]);
+          char tmp[NL_SGR_MAX + 4];
+          size_t n =
+              (color_mode == COLOR_256)
+                  ? nl_sgr_fgbg256(tmp, rgb_to_ansi256(tp[0], tp[1], tp[2]),
+                                   rgb_to_ansi256(bp[0], bp[1], bp[2]))
+                  : nl_sgr_fgbg_rgb(tmp, tp, bp);
+          size_t glen = nl_strlen(HALF_BLOCK_UTF8);
 
-            written = nl_snprintf(out + out_idx, out_size - (size_t)out_idx,
-                                  "\033[38;5;%dm\033[48;5;%dm%s", fg, bg,
-                                  HALF_BLOCK_UTF8);
-          } else {
-            written =
-                nl_snprintf(out + out_idx, out_size - (size_t)out_idx,
-                            "\033[38;2;%d;%d;%dm\033[48;2;%d;%d;%dm%s", tp[0],
-                            tp[1], tp[2], bp[0], bp[1], bp[2], HALF_BLOCK_UTF8);
-          }
-
-          if (written > 0 && (size_t)(out_idx + written) < out_size) {
-            out_idx += written;
+          if (n + glen < out_size - (size_t)out_idx) {
+            nl_memcpy(out + out_idx, tmp, n);
+            nl_memcpy(out + out_idx + n, HALF_BLOCK_UTF8, glen);
+            out_idx += (int)(n + glen);
           }
         } else {
           uint8_t top_l = subpixel_g[top_idx];
