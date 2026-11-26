@@ -1,20 +1,14 @@
-asciicam (0.3.1-1) unstable; urgency=medium
+asciicam (0.3.2-1) unstable; urgency=medium
 
-  * Add ten effect plugins: solarize, sharpen, halftone, posterize,
-    pixelate, emboss, equalize, bloom, swirl and nightvision. The
-    README lists 29 effects and what each one's parameter does.
-  * Every plugin is also linked into the Linux binary and can be loaded
-    from memory as "ramfs:<name>".
-  * --sandbox runs each plugin in a locked-down child process (Linux).
-    A plugin that makes a forbidden system call is switched off with a
-    message, and the program keeps running.
-  * Native Windows build with MinGW-w64, without make (nb.exe), with
-    console raw mode, VT output and terminal resize.
-  * Faster: YUYV to RGB conversion uses SSE4.1, and the picture
-    downscale uses SSE2 kernels.
-  * Fix integer overflow in the effect filters.
-  * The build program ./nb builds from source on Linux, macOS and
-    Windows. Its e2e test runs the camera-free checks on macOS.
-  * The test suite is now plain C. The Python test scripts are gone.
+  * Add --prof, which prints per-stage frame timing (average, p50,
+    p99, max and share of frame time) when the program exits.
+  * Add --bench <n>, which renders n frames without the frame limiter
+    and prints the same table. Pair it with --demo to measure without
+    a camera.
+  * Add the optflow plugin: Lucas-Kanade motion arrows, with a
+    coarse-to-fine pyramid for motion up to about 8 px per frame.
+  * Write colour escapes without printf (nl_sgr).
+  * Fix the nolibc umbrella header so library headers are included in
+    one place.
 
- -- Harshit Dhanwalkar <harshitpd1729@gmail.com>  Wed, 25 Nov 2026 13:30:00 +0530
+ -- Harshit Dhanwalkar <harshitpd1729@gmail.com>  Thu, 26 Nov 2026 19:04:00 +0530

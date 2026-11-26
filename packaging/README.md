@@ -15,7 +15,7 @@ The binary is static x86-64 Linux with no libc, so one build runs on any distrib
 ## Users
 
     curl -fsSL https://raw.githubusercontent.com/Harshit-Dhanwalkar/AsciiCam/main/scripts/install.sh | sh
-    sudo apt install ./asciicam_0.3.1-1_amd64.deb
+    sudo apt install ./asciicam_0.3.2-1_amd64.deb
     nix run github:Harshit-Dhanwalkar/AsciiCam            # needs allowUnfree, see licence note
     brew install Harshit-Dhanwalkar/asciicam/asciicam     # tap repo: homebrew-asciicam
     yay -S asciicam                                       # after the AUR package is submitted

@@ -3,11 +3,11 @@
 # Users then run:  brew install Harshit-Dhanwalkar/asciicam/asciicam
 #
 # Update url and sha256 for each tag:
-#   curl -L https://github.com/Harshit-Dhanwalkar/AsciiCam/archive/refs/tags/v0.3.1.tar.gz | shasum -a 256
+#   curl -L https://github.com/Harshit-Dhanwalkar/AsciiCam/archive/refs/tags/v0.3.2.tar.gz | shasum -a 256
 class Asciicam < Formula
   desc "Webcam to ASCII art in the terminal, no libc and no dependencies"
   homepage "https://github.com/Harshit-Dhanwalkar/AsciiCam"
-  url "https://github.com/Harshit-Dhanwalkar/AsciiCam/archive/refs/tags/v0.3.1.tar.gz"
+  url "https://github.com/Harshit-Dhanwalkar/AsciiCam/archive/refs/tags/v0.3.2.tar.gz"
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
   license "PolyForm-Noncommercial-1.0.0"
   head "https://github.com/Harshit-Dhanwalkar/AsciiCam.git", branch: "main"
