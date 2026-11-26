@@ -2,9 +2,9 @@
  * src/nn.c - Neutral Network
  */
 
-#include "nn.h"
+#include "nolibc.h"
 
-#include "nl_math.h"
+#include "nn.h"
 
 #if defined(__x86_64__) || defined(__i386__)
 #include <cpuid.h>

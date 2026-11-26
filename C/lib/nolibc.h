@@ -24,7 +24,9 @@
 #include "nl_prof.h"
 #include "nl_ramfs.h"
 #include "nl_signal.h"
+#if defined(__LINUX_NOLIBC__) && defined(__x86_64__)
 #include "nl_seccomp.h"
+#endif
 #include "nl_sgr.h"
 #include "nl_signal.h"
 #include "nl_slice.h"

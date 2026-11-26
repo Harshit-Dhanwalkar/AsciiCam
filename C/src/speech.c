@@ -18,7 +18,6 @@
 #endif
 #endif
 
-#include "nl_math.h"
 #include "speech.h"
 
 #define SP_O_NONBLOCK 04000

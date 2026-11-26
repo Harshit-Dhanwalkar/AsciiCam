@@ -6,8 +6,6 @@
 
 #include "mic.h"
 
-#include "nl_string.h"
-
 #define MIC_EPIPE 32 // ALSA reports overrun/underrun as EPIPE
 
 static void mic_fail(char *err, size_t errn, const char *what,
