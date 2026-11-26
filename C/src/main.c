@@ -1062,7 +1062,7 @@ static const char *const prof_names[PS_COUNT] = {
     "capture", "plugins", "convert", "render", "output", "sleep"};
 
 static uint64_t prof_now_ns(void) {
-  struct timespec t;
+  struct timespec t = {0, 0};
   if (clock_gettime(CLOCK_MONOTONIC, &t) != 0) {
     return 0;
   }
