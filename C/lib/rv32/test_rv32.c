@@ -334,7 +334,7 @@ static void test_faults(void) {
   EQ(RUN((uint32_t[]){EBREAK}), RV32_EBREAK);
   // Step budget
   {
-    uint32_t spin[] = {JAL(0, 0)};
+    const uint32_t spin[] = {JAL(0, 0)};
     load(spin, 1);
     EQ(rv32_run(&cpu, 1000), RV32_OK);
     EQ(cpu.instret, 1000);

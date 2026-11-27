@@ -68,9 +68,8 @@ dkms.conf
 nb
 C/nb
 
-# RV32
-C/lib/rv32/test_rv32
-C/lib/rv32/rv32.o
+# RV32 build dir
+C/lib/rv32/build/
 
 # Release/Packaging
 dist/
