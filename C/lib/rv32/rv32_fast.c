@@ -1,7 +1,7 @@
 /* rv32_fast.c - Decode-cache + threaded-dispatch engine. See rv32_fast.h. */
 #include "rv32_fast.h"
 
-#if defined(__GNUC__) && !defined(RV32_NO_COMPUTED_GOTO)
+#if defined(__GNUC__) && !defined(RV32_NO_COMPUTED_GOTO) && !defined(__cppcheck__)
 #define RV32_CGOTO 1
 #pragma GCC diagnostic ignored                                                 \
     "-Wpedantic" // Labels-as-values is a GNU extension
