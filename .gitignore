@@ -68,6 +68,10 @@ dkms.conf
 nb
 C/nb
 
+# RV32
+C/lib/rv32/test_rv32
+C/lib/rv32/rv32.o
+
 # Release/Packaging
 dist/
 apt/
